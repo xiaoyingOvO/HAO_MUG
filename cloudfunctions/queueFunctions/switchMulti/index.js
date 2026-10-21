@@ -50,7 +50,8 @@ exports.main = async (event, context) => {
   // 写队列日志：切换单双刷
   var db_log = "queue_log_" + machine_id
   var now = new Date();
-  var timeStr = pad2(now.getHours()) + ":" + pad2(now.getMinutes()) + ":" + pad2(now.getSeconds());
+  var bjNow = new Date(now.getTime() + 8 * 3600 * 1000);
+  var timeStr = pad2(bjNow.getHours()) + ":" + pad2(bjNow.getMinutes()) + ":" + pad2(bjNow.getSeconds());
   var content = "[" + timeStr + "] " + nickname + (is_multi ? "切换为拼机" : "切换为单刷")
   await db.collection(db_log).add({
     data: {
