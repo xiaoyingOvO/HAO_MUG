@@ -10,13 +10,13 @@ var checkConsumePointCount = 0
 var remainPoint = 114514    // 用户余额
 
 // 入店设备选择弹层：一级分组对应的配图
-//   maimai / chunithm / mahjong 来自云端 machine 集合的 group_id
+//   maimai / chunithm / board 来自云端 machine 集合的 group_id
 // ⚠️ 这三张图已压缩到 360px 宽（小程序主包上限 2MB，原图 613KB 会把包撑爆）。
 //    弹层里只显示 128rpx 的缩略图，360px 足够；换高清图时记得重新压缩。
 const GROUP_ICONS = {
   maimai: '/images/machines/maimai.jpg',
   chunithm: '/images/machines/chunithm.jpg',
-  mahjong: '/images/machines/mahjong.jpg',
+  board: '/images/machines/board.jpg',
 };
 
 /**
@@ -29,7 +29,8 @@ function buildDeviceGroups(machines) {
   const byGroup = new Map();
   Array.from(machines || []).forEach((m) => {
     const rawGid = m.group_id || m._id;
-    const gid = rawGid === 'board' ? 'mahjong' : rawGid;
+    // 历史数据里可能残留 'mahjong'，统一归一到 'board'
+    const gid = rawGid === 'mahjong' ? 'board' : rawGid;
     if (!byGroup.has(gid)) {
       const g = {
         groupId: gid,
@@ -47,7 +48,7 @@ function buildDeviceGroups(machines) {
       machineId: m._id,
       label: m.label || m.machine_name,
       deviceName: m.machine_name,
-      area: m.area === 'mahjong' ? 'mahjong' : 'arcade',
+      area: m.area === 'board' ? 'board' : 'arcade',
       maxPlayer: m.max_player,
       tag: m.tag || '',
       is_disabled: !!m.is_disabled,
@@ -57,7 +58,7 @@ function buildDeviceGroups(machines) {
     const only = g.children[0];
     g.desc = g.children.length > 1
       ? `${g.children.length} 台独立排队`
-      : (only.area === 'mahjong'
+      : (only.area === 'board'
         ? `独立排队`
         : (only.maxPlayer >= 2 ? '可拼机 / 单刷 · 独立排队' : '独立排队'));
     g.actionText = '入队';
@@ -175,7 +176,7 @@ Page({
       businessStatus: false,   // 正在营业
       relaxNum: 0,             // 休息区在店人数
       enterState: 0, // 用户是否已入店 0：未入店  1：休息中  2：候机中  3：游玩中
-      // 入店区域：'arcade' 音游区（12 点/小时）/ 'mahjong' 桌游区（6 点/小时）
+      // 入店区域：'arcade' 音游区（12 点/小时）/ 'board' 桌游区（6 点/小时）
       area: 'arcade',
       areaName: '音游区',
       arcadeNum: 0, // 音游区在店人数
@@ -235,7 +236,7 @@ Page({
       var relaxNum = data.relax_num ?? 0
       var enterState = data.enter_state ?? 0
       // 入店区域：老数据没有 area 字段时按音游区处理
-      var area = data.area === 'mahjong' ? 'mahjong' : 'arcade'
+      var area = data.area === 'board' ? 'board' : 'arcade'
       var time = new Date(data.enter_time).getTime()
       this.setData({
         ['woStatus.businessStatus']: businessStatus,
@@ -244,7 +245,7 @@ Page({
         ['woStatus.arcadeNum']: data.arcade_num ?? 0,
         ['woStatus.boardNum']: data.board_num ?? 0,
         ['woStatus.area']: area,
-        ['woStatus.areaName']: area === 'mahjong' ? '桌游区' : '音游区',
+        ['woStatus.areaName']: area === 'board' ? '桌游区' : '音游区',
         ['woStatus.enterTime.time']: time,
         ['woStatus.enterTime.show']: calcEnterTime(time) // 在店时长（正计时，每秒由 setEnterTimer 刷新）
       })
@@ -517,8 +518,8 @@ Page({
 
   // 实际执行入店（音游设备紧接着直接进队列）
   async doEnterArcade(device) {
-    const area = device.area === 'mahjong' ? 'mahjong' : 'arcade';
-    const areaName = area === 'mahjong' ? '桌游区' : '音游区';
+    const area = device.area === 'board' ? 'board' : 'arcade';
+    const areaName = area === 'board' ? '桌游区' : '音游区';
     this.setData({ isEntering: true });
     try {
       const res = await cloudFcn.enterArcade(area);

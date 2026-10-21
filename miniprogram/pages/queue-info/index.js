@@ -166,8 +166,8 @@ Page({
   async ensureMachineForArea(area) {
     const list = this.data.machines || []
     if (!list.length) return
-    const want = area === 'mahjong' ? 'mahjong' : 'arcade'
-    const areaOf = (m) => (m && m.area === 'mahjong' ? 'mahjong' : 'arcade')
+    const want = area === 'board' ? 'board' : 'arcade'
+    const areaOf = (m) => (m && m.area === 'board' ? 'board' : 'arcade')
     const cur = this.data.selectedMachine
     if (cur && cur.machineId && areaOf(cur) === want) return   // 用户已选了同区机台
     const idx = list.findIndex((m) => areaOf(m) === want && !m.is_disabled)
@@ -191,8 +191,8 @@ Page({
             machineId: m._id,
             machineName: m.is_disabled ? m.machine_name + '（不可用喵）' : m.machine_name,
             maxPlayer: m.max_player,
-            // 机台所属区域：日麻 = 'mahjong'（桌游区），其余 'arcade'。用于跨区排卡校验
-            area: m.area === 'mahjong' ? 'mahjong' : 'arcade',
+            // 机台所属区域：日麻 = 'board'（桌游区），其余 'arcade'。用于跨区排卡校验
+            area: m.area === 'board' ? 'board' : 'arcade',
             is_disabled: !!m.is_disabled,
           }
         }
@@ -201,7 +201,7 @@ Page({
         machines
       })
       // 机台列表到位后，按当前入店区域自动选中一个（桌游区自动切到日麻）
-      const area = this.data.enterInfo && this.data.enterInfo.area === 'mahjong' ? 'mahjong' : 'arcade'
+      const area = this.data.enterInfo && this.data.enterInfo.area === 'board' ? 'board' : 'arcade'
       return this.ensureMachineForArea(area)
     })
   },
@@ -226,11 +226,11 @@ Page({
   // 用户点击入队按钮
   async handleEnqueueBtn() {
     // 跨区排卡拉黑
-    const myArea = this.data.enterInfo && this.data.enterInfo.area === 'mahjong' ? 'mahjong' : 'arcade'
-    const mArea = this.data.selectedMachine && this.data.selectedMachine.area === 'mahjong' ? 'mahjong' : 'arcade'
+    const myArea = this.data.enterInfo && this.data.enterInfo.area === 'board' ? 'board' : 'arcade'
+    const mArea = this.data.selectedMachine && this.data.selectedMachine.area === 'board' ? 'board' : 'arcade'
     if (myArea !== mArea) {
       return wx.showToast({
-        title: myArea === 'mahjong'
+        title: myArea === 'board'
           ? '桌游区只能排「日麻」，请先离店后重新选择音游设备入店'
           : '「日麻」属于桌游区，请先离店后重新选择「桌游/日麻」入店',
         icon: 'none',
@@ -658,10 +658,10 @@ Page({
       // 跨区排卡拉黑：机台所属区域必须和入店区域一致
       //   桌游区（board）的人只能排日麻，音游区的人只能排音游机台
       else if (
-        (enterInfo.area === 'mahjong' ? 'mahjong' : 'arcade') !==
-        (this.data.selectedMachine && this.data.selectedMachine.area === 'mahjong' ? 'mahjong' : 'arcade')
+        (enterInfo.area === 'board' ? 'board' : 'arcade') !==
+        (this.data.selectedMachine && this.data.selectedMachine.area === 'board' ? 'board' : 'arcade')
       ) {
-        const inBoard = enterInfo.area === 'mahjong'
+        const inBoard = enterInfo.area === 'board'
         return this.setData({
           checkQueueError: true,
           queueErrorText: inBoard
@@ -735,8 +735,8 @@ Page({
         enterState: enterInfo.enter_state,
         enterTime: enterInfo.enter_time,
         machineId: enterInfo.machine_id,
-        // 入店区域：'arcade' 音游区 / 'mahjong' 桌游区（老数据没有该字段时按音游区）
-        area: enterInfo.area === 'mahjong' ? 'mahjong' : 'arcade'
+        // 入店区域：'arcade' 音游区 / 'board' 桌游区（老数据没有该字段时按音游区）
+        area: enterInfo.area === 'board' ? 'board' : 'arcade'
       }
       this.setData({
         enterInfo

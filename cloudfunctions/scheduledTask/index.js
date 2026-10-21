@@ -13,7 +13,7 @@ const page_size = 50
 
 // 区域
 const AREA_ARCADE = 'arcade'   // 音游区：23 点强制离店（老版行为）
-const AREA_MAHJONG = 'mahjong'     // 桌游区：23 点**不**强制离店，继续计费（一把时间可能过长）
+const AREA_BOARD = 'board'     // 桌游区：23 点**不**强制离店，继续计费（一把时间可能过长）
 
 exports.main = async (event, context) => {
   console.log('---schedule_task---')
@@ -63,8 +63,8 @@ exports.main = async (event, context) => {
       var cardFlag = false
 
       // 入店区域：老数据没有 area 字段时按音游区处理
-      var area = user_datas[i].area === AREA_MAHJONG ? AREA_MAHJONG : AREA_ARCADE
-      var isBoard = area === AREA_MAHJONG
+      var area = user_datas[i].area === AREA_BOARD ? AREA_BOARD : AREA_ARCADE
+      var isBoard = area === AREA_BOARD
       // 23 点强制离店：只对音游区生效。
       //   桌游区一把时间可能过长，23 点后不离店、继续计费，等用户自己离店时结算。
       //   （管理员手动强制离店 leave_arcade_force 仍然对所有区域生效）
