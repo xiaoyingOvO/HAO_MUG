@@ -38,7 +38,8 @@ export const MOCK_ROLE = 'user';
 const DB_KEY = 'haomug_mock_db_v1';
 // 假数据版本号：改动初始数据时把它 +1，旧的本地缓存会自动失效重建
 // （避免"代码改了但页面还是老数据"的困惑）
-const DB_VERSION = 21;
+const DB_VERSION = 22;
+// 22：夜场票发卡对齐云端 chargeReserve 的时段算法（预约日 23:00 ~ 次日 10:00）
 // 21：桌游/日麻区标识由 'mahjong' 改回 'board'（机台 M05/M06 的 area + group_id 同步）
 // 13：机台拆成 舞萌·官机 / MML / ADX + 中二节奏，入店改为选设备直接排队
 // 14：初始余额改为 0 点（方便测「扣成负数也只提醒、不踢出排队」）
@@ -125,6 +126,25 @@ function nowTs() {
 // 虚拟「当前时间」对象
 function nowDate() {
   return new Date(nowTs());
+}
+
+// 夜场卡有效期：预约日期当天 23:00 ~ 次日 10:00，返回时间戳（与 mock 里其他卡一致）。
+// 算法对齐云端 buyReserve/index.js 的 chargeReserve（CST 午夜做基准 + UTC 换算），
+// 改动前先跑 _test_night 和云端算法对照。
+function nightCardPeriod(reserveDay, duration) {
+  const [year, month, day] = reserveDay.split('-').map(Number);
+  // 基准：预约日期次日的 CST 午夜（与云端一致，云端也是先 +1 天再 setUTCHours）
+  const base = new Date(Date.UTC(year, month - 1, day) - 8 * 3600 * 1000 + DAY);
+  const cstHourToUTC = (hourCST) => (Number(hourCST) - 8 + 24) % 24;
+  const start_time = new Date(base.getTime());
+  start_time.setUTCHours(cstHourToUTC(duration.start_hour), 0, 0, 0);
+  const end_time = new Date(base.getTime());
+  // 夜场是跨天卡（结束小时 < 开始小时），结束时间落在次日
+  if (Number(duration.end_hour) < Number(duration.start_hour)) {
+    end_time.setUTCDate(end_time.getUTCDate() + 1);
+  }
+  end_time.setUTCHours(cstHourToUTC(duration.end_hour), 0, 0, 0);
+  return { start_time: start_time.getTime(), end_time: end_time.getTime() };
 }
 
 /* ============================================================
@@ -504,6 +524,7 @@ export function resetMockData() {
   // 否则「设成 23:30 → 重置数据 → 又变回真实时间」会很困惑。
   s.timeOffset = (prev && prev.timeOffset) || 0;
   save(s);
+  notifyAllQueueWatchers();   // 队列被重置成初始数据，推一次变更让页面跟上
   console.log(
     '[Mock] 假数据已重置（虚拟时间保持：',
     s.timeOffset ? new Date(REAL_NOW() + s.timeOffset).toLocaleString() : '真实时间',
@@ -539,7 +560,7 @@ function buildQueue(s, machineId) {
     timestamp: q.timestamp,
     play_status: !!q.play_status,
     is_multi: !!q.is_multi,
-    play_position: q.play_position,   // ← 加这行
+    play_position: q.play_position,
     next_id: i === list.length - 1 ? '-1' : list[i + 1].openid,
     user_info: infoOf(s, q.openid),
   }));
@@ -1036,6 +1057,8 @@ const baseFunctions = {
   buyReserve(p, s) {
     const day = p && p.reserve_date;
     if (!day) return { success: false, errMsg: '未传入预约时间信息' };
+    const nightCard = s.cards.find((c) => c.card_name === '夜场');
+    if (!nightCard) return { success: false, errMsg: '未搜到夜场卡信息' };
     let rec = s.reserve.find((r) => r.day === day);
     if (!rec) {
       rec = { _id: nextId(s, 'rsv'), day, openids: [] };
@@ -1045,6 +1068,11 @@ const baseFunctions = {
     if (rec.openids.length >= s.meta.reserve_max) return { success: false, errMsg: '该时段已预约满员' };
     rec.openids.push(ME_OPENID);
     s.me.exp += 100;
+    // 预约成功即把夜场卡发到 user.cards，对齐云端 buyReserve/index.js:547-551：
+    //   cards: db_cmd.push({ card_id: night_card_id, start_time, end_time })
+    // 夜场卡不在优惠卡列表展示，只能通过预约拿到。
+    const period = nightCardPeriod(day, nightCard.duration);
+    s.me.cards.push({ card_id: nightCard._id, start_time: period.start_time, end_time: period.end_time });
     return { success: true };
   },
 
@@ -1422,12 +1450,14 @@ const queueFunctions = {
     const h = nowDate().getHours();
     const night = h >= 23 || h <= 9;
     const now = nowTs();
+    // 夜里只要手里有「当前生效」的优惠卡就算有夜场资格（夜场卡就是预约成功后发的那张）。
+    // 与云端 queueFunctions/ifNight 一致：只看有效期，不看卡的类型。
+    // ⚠️ 原来这里写的是 d.type !== 'hour'，而卡类型在数据里是数字 0/1，
+    //    判据永远成立 → 所有卡都被当成无效 → 夜场永远显示「夜场请预约」。
     const hasCard = (s.me.cards || []).some((c) => {
-      const card = s.cards.find((x) => x._id === c.card_id);
-      if (!card) return false;
-      const d = card.duration || {};
-      if (d.type !== 'hour') return false;
-      return now >= new Date(c.start_time).getTime() && now <= new Date(c.end_time).getTime();
+      const start = new Date(c.start_time).getTime();
+      const end = new Date(c.end_time).getTime();
+      return now >= start && now <= end;
     });
     return { success: true, data: { ifNight: night, hasCard } };
   },
@@ -1500,6 +1530,12 @@ function dispatch(name, data) {
   const s = load();
   const type = data && data.type;
   const params = (data && data.params) || {};
+  // 记下调用前的各机台队列，调用结束后按机台比对：
+  // 只有真的变了才推给监听者，免得没动队列的调用（如 getQueueInfo）也触发刷新
+  const queuesBefore = {};
+  Object.keys(s.queues).forEach((machineId) => {
+    queuesBefore[machineId] = JSON.stringify(s.queues[machineId]);
+  });
   let result;
 
   if (name === 'baseFunctions') {
@@ -1545,6 +1581,12 @@ function dispatch(name, data) {
   }
 
   save(s);
+  // 队列被改动的机台推一次变更，模拟真机数据库的实时推送
+  Object.keys(s.queues).forEach((machineId) => {
+    if (JSON.stringify(s.queues[machineId]) !== queuesBefore[machineId]) {
+      notifyQueueWatchers('queue_' + machineId);
+    }
+  });
   return result;
 }
 
@@ -1572,6 +1614,32 @@ function applyPendingRecharge() {
 /* ============================================================
  *  云能力桩
  * ============================================================ */
+
+/* ---------- 云开发数据库实时监听（watch）桩 ----------
+   真机上 watch 走客户端数据库权限、由数据库主动推变更；离线模拟层没有数据库，
+   这里用一张「集合名 → 回调表」还原同样的语义，让离线也能看到实时刷新：
+     · 建立监听后先推一次 type='init' 的首帧（真机也是这个行为）
+     · 队列数据真的被改写时推一次 type='update'（见 dispatch / resetMockData）
+     · 返回 close()，页面离开时调用
+   ⚠️ 集合名按真机规则拼成 queue_<机台ID>，对应假数据里的 s.queues[机台ID]。 */
+const queueWatchers = new Map();   // collectionName -> Set<handlers>
+
+function notifyQueueWatchers(collectionName) {
+  const handlers = queueWatchers.get(collectionName);
+  if (!handlers) return;
+  handlers.forEach((h) => {
+    try {
+      h.onChange({ type: 'update', docChanges: [] });
+    } catch (e) {
+      console.warn('[Mock] 队列监听回调出错', e);
+    }
+  });
+}
+
+function notifyAllQueueWatchers() {
+  Array.from(queueWatchers.keys()).forEach(notifyQueueWatchers);
+}
+
 function makeDatabaseStub() {
   const empty = () => Promise.resolve({ data: [] });
   const chain = {
@@ -1588,7 +1656,25 @@ function makeDatabaseStub() {
     aggregate: () => ({ match: () => chain, group: () => chain, count: () => chain, end: () => Promise.resolve({ list: [] }) }),
   };
   return {
-    collection: () => chain,
+    collection: (name) => ({
+      ...chain,
+      watch(handlers) {
+        if (!queueWatchers.has(name)) queueWatchers.set(name, new Set());
+        queueWatchers.get(name).add(handlers);
+        // 真机的首帧是异步推下来的，这里也用异步对齐，
+        // 免得页面在 onShow 里同步重入（onChange 会立刻拉一次队列）
+        setTimeout(() => {
+          const set = queueWatchers.get(name);
+          if (set && set.has(handlers)) handlers.onChange({ type: 'init', docChanges: [] });
+        }, 0);
+        return {
+          close() {
+            const set = queueWatchers.get(name);
+            if (set) set.delete(handlers);
+          },
+        };
+      },
+    }),
     command: {
       eq: (v) => v,
       neq: (v) => v,

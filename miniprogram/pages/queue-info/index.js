@@ -216,6 +216,7 @@ Page({
 
   // 获取某个机台排队信息
   async getMachineQueueInfo(machineId) {
+    this.syncQueueRealtime(machineId)   // 机台变了就换实时监听的集合
     return cloudFcn.getQueueInfo(machineId).then(res => {
       if (!res.result.success) return Promise.reject(res)
       var {playlist, myIndex} = handleQueueInfo(res.result.data)
@@ -866,8 +867,11 @@ Page({
     // this.checkLoginState();
     this._dragSeq = 0      // 拖拽会话号，见 dragStart / resetDragState
     this._lastMoveTs = 0   // dragMove 的节流时间戳
-    this._queuePollTimer = null   // 排队信息自动刷新的定时器
+    this._queuePollTimer = null   // 排队信息轮询的定时器（实时监听不可用时用）
     this._pollInFlight = false    // 上一轮自动刷新是否还没返回
+    this._queueWatcher = null     // 云开发数据库实时监听句柄
+    this._queueWatchMachineId = null      // 当前监听的是哪个机台
+    this._queueWatchFailedMachineId = null // 哪台机台确认建立不起监听（退回轮询）
   },
 
   /**
@@ -886,25 +890,107 @@ Page({
    */
   onShow() {
     this.checkQueueInfo()
-    // 进页面就开始自动刷新（离开页面时在 onHide / onUnload 里停掉）
-    this.startQueuePolling()
+    // 进页面就打开刷新通道（离开页面时在 onHide / onUnload 里关掉）
+    this.ensureQueueRefresh()
   },
 
   /**
    * 生命周期函数--监听页面隐藏
    */
   onHide() {
-    this.stopQueuePolling()
+    this.stopQueueRefresh()
     // 拖到一半切后台 / 息屏时 touchend 可能不触发，克隆卡和「被隐藏的原卡」会留在页面上，
     // 看起来就像卡片变成了两张。这里补一次收尾。
     if (this.data.showDragClone) this.resetDragState()
+  },
+
+  /* ===== 排队信息实时刷新 =====
+     主通道：用云开发数据库实时监听 queue_<机台> 集合 —— 队列一变（入队/退队/
+             上机/位置调整）立刻拉一次全量。
+             拉全量是因为昵称和头像不在队列集合里，得由云函数拼。
+     备用：监听不可用（离线模拟层 / 没配集合读权限 / 连接断了）时退回 5 秒轮询。
+     ⚠️ 实时监听需要在云开发控制台给 queue_* 集合配「所有用户可读」的权限，
+        否则前端读不到这个集合，会自动落到轮询。 */
+  ensureQueueRefresh() {
+    const machineId = this.data.selectedMachine && this.data.selectedMachine.machineId
+    if (machineId) {
+      this.startQueueRealtime(machineId)
+      return
+    }
+    // 还没选出机台：先用轮询兜着，等 getMachineQueueInfo 拿到机台再切到实时监听
+    this.startQueuePolling()
+  },
+
+  // 机台换了就换监听目标（在每次拿到队列前调用）
+  syncQueueRealtime(machineId) {
+    if (this._queueWatchMachineId === machineId) return
+    // 这台机台已经确认建立不起监听（没配权限等），就留在轮询上，
+    // 不要在每一轮轮询里反复重试、刷日志
+    if (this._queueWatchFailedMachineId === machineId) return
+    this.startQueueRealtime(machineId)
+  },
+
+  startQueueRealtime(machineId) {
+    this.stopQueueRefresh()
+    this._queueWatchMachineId = machineId
+    this._queueWatchFailedMachineId = null   // 每次进页面都重新试一次实时监听
+    // 先起轮询兜底：建立监听是异步的，万一失败或很慢，队列也不会卡着不刷新；
+    // 监听真正生效后再把轮询停掉
+    this.startQueuePolling()
+
+    const cloudDb = wx.cloud && wx.cloud.database ? wx.cloud.database() : null
+    if (!cloudDb || !cloudDb.collection) return   // 离线模拟层没有数据库，就用轮询
+
+    // watch() 失败时 onError 可能在它返回之前就同步回调（比如集合没配读权限）。
+    // 用这个标志判断监听到底建起来没有 —— 否则会把上面刚起的兜底轮询又停掉
+    let watchEstablished = true
+    try {
+      const watcher = cloudDb.collection('queue_' + machineId).watch({
+        // 首帧（init）也会回调，正好当作进页面后的第一次刷新
+        onChange: (snapshot) => {
+          console.log('队列变动触发刷新：', snapshot && snapshot.type,
+            snapshot && snapshot.docChanges ? snapshot.docChanges.length : 0)
+          this.pollQueueInfo()
+        },
+        onError: (err) => {
+          // 监听建立不起来或中途断了（没配集合读权限、网络异常、连接被回收）
+          // → 退回轮询，保证队列还能刷新
+          watchEstablished = false
+          console.warn('队列实时监听不可用，改用 5 秒轮询：', err)
+          this._queueWatcher = null
+          this._queueWatchMachineId = null
+          this._queueWatchFailedMachineId = machineId
+          this.startQueuePolling()
+        }
+      })
+      if (!watchEstablished) return   // 同步报错：监听没建起来，轮询继续兜着
+      this._queueWatcher = watcher
+      this.stopQueuePolling()   // 监听已生效，不用再轮询
+    } catch (e) {
+      console.warn('队列实时监听建立失败，改用 5 秒轮询：', e)
+      this._queueWatchMachineId = null
+      this._queueWatchFailedMachineId = machineId
+    }
+  },
+
+  stopQueueRefresh() {
+    if (this._queueWatcher) {
+      try {
+        this._queueWatcher.close()
+      } catch (e) {
+        console.error('关闭队列监听失败', e)
+      }
+      this._queueWatcher = null
+    }
+    this._queueWatchMachineId = null
+    this.stopQueuePolling()
   },
 
   /* ===== 排队信息自动刷新 =====
      checkQueueInfo 会先把页面打成 loading 态，只适合进页面时用一次；
      这里改用只读的 getMachineQueueInfo 静默轮询。 */
   startQueuePolling() {
-    this.stopQueuePolling()   // 先清一次，避免重复进页面留下两个定时器
+    if (this._queuePollTimer) return   // 已经在轮询了，不要重复起定时器
     this._queuePollTimer = setInterval(() => {
       this.pollQueueInfo()
     }, QUEUE_POLL_INTERVAL_MS)
@@ -944,7 +1030,7 @@ Page({
    * 生命周期函数--监听页面卸载
    */
   onUnload() {
-    this.stopQueuePolling()
+    this.stopQueueRefresh()
     if (this.data.showDragClone) this.resetDragState()
   },
 
