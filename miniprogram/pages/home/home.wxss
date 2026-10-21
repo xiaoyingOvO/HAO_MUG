@@ -160,24 +160,9 @@ page {
   flex-direction: column;
   align-items: center;
   justify-content: space-between;
-  animation: sidebar-ani 5s linear infinite;
 }
 .logo-sidebar > text {
   transform: rotate(90deg);
-}
-@keyframes sidebar-ani {
-  from {
-    transform: translateY(0);
-  }
-  25% {
-    transform: translateY(-50%);
-  }
-  75% {
-    transform: translateY(50%);
-  }
-  to {
-    transform: translateY(0);
-  }
 }
 
 /* 店内状态 */
@@ -300,10 +285,23 @@ page {
 .button-enter { background: linear-gradient(135deg, #4CAF50, #81C784); color: white; box-shadow: 0 6rpx 15rpx rgba(40, 167, 69, 0.35); }
 .button-leave { background: linear-gradient(135deg, #FF9800, #FFB74D); color: white; box-shadow: 0 6rpx 15rpx rgba(253, 126, 20, 0.35); }
 .button-opendoor { background: linear-gradient(135deg, #2196F3, #64B5F6); color: white; box-shadow: 0 6rpx 15rpx rgba(0, 123, 255, 0.35); }
+.button-reserve { background: linear-gradient(135deg, #9C27B0, #CE93D8); color: white; box-shadow: 0 6rpx 15rpx rgba(156, 39, 176, 0.35); }
 .button-disable {
   background-color: #e0e0e0;
   color: #999;
   box-shadow: none;
+}
+
+/* 已入店时，开门按钮单独放下方一行 */
+.wo-opendoor-container {
+  display: flex;
+  width: 100%;
+  margin-top: 20rpx;
+  justify-content: center;
+}
+.wo-opendoor-container .wo-join-button {
+  flex: none;
+  width: 280rpx;
 }
 
 

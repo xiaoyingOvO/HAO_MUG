@@ -321,7 +321,6 @@ export default {
   checkAndChargeBalance,
   getConsumePoint,
   ifNight,
-  modifyBusinessStatus,
   getMachineInfo,
   getQueueInfo,
   switchMulti,

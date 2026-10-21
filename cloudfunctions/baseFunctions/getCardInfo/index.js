@@ -9,12 +9,14 @@ const db_cmd = db.command;
 const db_card = 'card';
 const db_user = 'user';
 
+const { toBJMinutes, nowBJMinutes } = require('../timeUtil');
+
 // 购买优惠卡云函数入口
 exports.main = async (event, context) => {
   // 获取openid
   const wxContext = cloud.getWXContext();
   const openid = wxContext != null && 'OPENID' in wxContext ? 
-    wxContext.OPENID : event.params.openid;
+    wxContext.OPENID : event?.params?.openid;
   console.log('openid: ' + openid);
 
   if (!openid) {
@@ -27,8 +29,11 @@ exports.main = async (event, context) => {
 
   try {
       console.log('第一步： 查询所有卡');
-  // 查所有卡信息
+  // 查所有卡信息（过滤已删除的卡，如 is_deleted: true 的「日间畅玩套餐」）
   let card_record = await db.collection(db_card)
+    .where({
+      is_deleted: db_cmd.neq(true)
+    })
     .orderBy('trial', 'desc')
     .orderBy('cost', 'desc')
     .get();
@@ -66,35 +71,6 @@ exports.main = async (event, context) => {
         });
     }
     console.log('用户拥有的卡:', userOwnedCardsMap);
-  // let user_card_ids = [];
-  // let userCardArray = null;
-  // if (user_record?.data?.length > 0) {
-  //     const userData = user_record.data[0];
-  //     console.log('用户数据：', JSON.stringify(userData));
-  //     if (userData & 'cards' in userData) {
-  //         if (Array.isArray(userData.cards)) {
-  //             userCardArray = userData.cards;
-  //             console.log('用户卡：', JSON.stringify(userCardArray));
-  //             user_card_ids = userCardArray
-  //               .filter(card => {
-  //                   const isValid = card && typeof card.card_id === 'string' && card.card_id.length > 0;
-  //                   console.log(`过滤用户卡： ${JSON.stringify(card)}, isValid:${isValid}`);
-  //                   return isValid;
-  //               })
-  //               .map(card => {
-  //                   console.log(`Mapping user card_id: ${card.card_id}`);
-  //                   return card.card_id;
-  //               });
-  //         } else {
-  //             console.warn(`用户 ${openid} 拥有'cards'字段, 但不是一个数组:`, userData.cards);
-  //         }
-  //     } else {
-  //         console.log(`用户 ${openid} 存在, 但未包含 'cards' 字段`);
-  //     }
-  // } else {
-  //     console.log(`用户 ${openid} 不存在`);
-  // }
-  // console.log('第三步得到的用户卡 ID ：', JSON.stringify(user_card_ids));
 
   const now = new Date();
   // 添加 own 状态
@@ -103,19 +79,22 @@ exports.main = async (event, context) => {
     let own = false;
     let ownedCardInfo = null; // 存储用户拥有的卡信息
     let isExpired = true; // 默认为已过期或未拥有
-    let isTimeExpired = false;  // 默认为未超过当日有效期
+    let notStarted = false; // 尚未到当日购买/使用时段
+    let timeEnded = false;  // 已过当日购买/使用时段
 
     let now = new Date();
-    if (card?.duration.type == 0) {
-        let tmp_time = new Date(now);
-        tmp_time.setHours(card?.duration.end_time.getHours());
-        tmp_time.setMinutes(card?.duration.end_time.getMinutes());
-        tmp_time.setSeconds(card?.duration.end_time.getSeconds());
-        tmp_time.setMilliseconds(card?.duration.end_time.getMilliseconds());
-        console.log('当前时间：', now, 'card 时间：', tmp_time);
-        if (now >= tmp_time) {
-            isTimeExpired = true;
-        };
+    if (card?.duration?.type == 0) {
+        // 统一用公共工具解析「北京时间分钟」，兼容字符串/Date/$date 三种存法
+        const startMin = toBJMinutes(card?.duration?.start_time);
+        const endMin = toBJMinutes(card?.duration?.end_time);
+        const nowMin = nowBJMinutes(now);
+
+        if (startMin !== null && nowMin < startMin) {
+            notStarted = true;
+        }
+        if (endMin !== null && nowMin >= endMin) {
+            timeEnded = true;
+        }
     }
 
     if (card?._id && userOwnedCardsMap.has(card._id)) { // 检查用户是否拥有这张卡
@@ -130,39 +109,10 @@ exports.main = async (event, context) => {
         ...card,
         own: own,
         isExpired: own ? isExpired : null,
-        isTimeExpired: isTimeExpired,
-        // userCardEndTime: own ? ownedCardInfo.end_time : null
+        notStarted: notStarted,
+        timeEnded: timeEnded,
     };
 });
-  // const allCardsData = card_record.data || [];
-  // const cards_with_own_status = allCardsData.map((card, index) => {
-  //     console.log(`正在处理中的卡片：${index}: ${JSON.stringify(card)}`);
-  //     let currentCardId = null;
-  //     let own = false;
-  //     if (card && typeof card._id === 'string' && card._id.length > 0) {
-  //         currentCardId = card._id;
-  //         console.log(`检查卡片 ID：${currentCardId}`);
-  //         if (Array.isArray(user_card_ids)) {
-  //             try {
-  //                 own = user_card_ids.includes(currentCardId);
-  //                 console.log(`检查 ID ${currentCardId} 的结果 (用户是否拥有): ${own}`);
-  //             } catch (includesError) {
-  //                 console.error(`在 user_card_ids 数组上执行 includes 方法时出错 (检查 ID: ${currentCardId}):`, includesError);
-  //                 own = false;  // 出错等于不拥有
-  //             }
-  //         } else {
-  //             console.warn('警告：尝试检查卡片归属时，user_card_ids 不是一个有效的数组。');
-  //             own = false;
-  //         }
-  //     } else {
-  //         console.warn(`警告：索引 ${index} 处的卡片数据无效或缺少有效的 _id: ${JSON.stringify(card)}`);
-  //         own = false;
-  //     }
-  //     return {
-  //         ...card,
-  //         own: own
-  //     };
-  // });
   console.log('第四步：拥有的卡：', cards_with_own_status.length);
 
   console.log('第五步：返回结果');
@@ -170,10 +120,6 @@ exports.main = async (event, context) => {
       success: true,
       data: cards_with_own_status
   };
-//   return {
-//     success: true,
-//     data: card_record.data
-//   };
 
   } catch (error) {
       console.error(`处理 getCardInfo 云函数时发生严重错误 (用户 OpenID: ${openid}):`, error);

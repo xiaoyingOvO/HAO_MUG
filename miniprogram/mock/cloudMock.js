@@ -55,6 +55,10 @@ const DB_VERSION = 22;
 // 20：机台新增 is_disabled 字段（不可用）；不可用机台仍显示在弹层，但不可选、tag 显示「机台不可用」
 const ME_OPENID = 'mock-openid-me';
 
+// 夜场可入店的两类卡（与云端 queueFunctions/ifNight 的常量对齐）
+const NIGHT_CARD_ID = 'e33be08d678e255a0189586d3b0d8a79';          // 夜场畅玩卡（与云端 card 集合真实 _id 一致）
+const BOARD_NIGHT_CARD_ID = 'df40db4d6ad4af26010239057dae6a3c';    // 桌游麻将票·夜场（与云端一致）
+
 const AVATAR_ME = '/images/avatar.png';
 const AVATAR_OTHER = '/images/default-avatar.png';
 
@@ -95,6 +99,29 @@ function dayStr(offset = 0) {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
 }
 
+// 生成从「今天」起 28 天（4 行日历）的预约数据，对应云端 getReserveInfo 返回的 reserve_data。
+// 造几组不同人数的演示数据，方便测试四档着色：
+//   i=1 明天 1 人(<3 绿)、i=2 后天 4 人(3~5 橙)、i=3 大后天 6 人(5~8 红)、i=4 第四天 9 人(>8 深红)
+function monthReserve() {
+  const now = new Date(nowTs());
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const date = now.getDate();
+  const list = [];
+  // 每个档位预置一批 mock openid，方便构造不同人数
+  const ids = [];
+  for (let k = 1; k <= 9; k++) ids.push(`mock-openid-${String(k).padStart(2, '0')}`);
+  const demoCount = [0, 1, 4, 6, 9]; // 下标对应 i=0..4 的预约人数
+  for (let i = 0; i < 28; i++) {
+    const d = new Date(year, month, date + i);
+    const dateStr = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+    const cnt = demoCount[i] || 0;
+    const openids = cnt > 0 ? ids.slice(0, cnt) : [];
+    list.push({ _id: `rsv-${d.getDate()}`, day: dateStr, openids });
+  }
+  return list;
+}
+
 /* ============================================================
  *  虚拟时间（仅测试用）
  * ============================================================
@@ -129,11 +156,12 @@ function nowDate() {
 }
 
 // 夜场卡有效期：预约日期当天 23:00 ~ 次日 10:00，返回时间戳（与 mock 里其他卡一致）。
-// 算法对齐云端 buyReserve/index.js 的 chargeReserve（CST 午夜做基准 + UTC 换算），
-// 改动前先跑 _test_night 和云端算法对照。
+// 算法对齐云端 buyReserve/index.js 的 chargeReserve（预约日 CST 午夜做基准 + UTC 换算）。
+// 注意：base 先 +DAY（推到次日 CST 午夜），再 setUTCHours(cstHourToUTC(23)=15)，
+//      这样 15:00 UTC 才落在「预约日」当天（否则会落在前一天的 15:00 UTC）。
 function nightCardPeriod(reserveDay, duration) {
   const [year, month, day] = reserveDay.split('-').map(Number);
-  // 基准：预约日期次日的 CST 午夜（与云端一致，云端也是先 +1 天再 setUTCHours）
+  // 基准：预约日期次日的 CST 午夜（UTC 表示），配合 setUTCHours 得到「预约日 23:00 北京」
   const base = new Date(Date.UTC(year, month - 1, day) - 8 * 3600 * 1000 + DAY);
   const cstHourToUTC = (hourCST) => (Number(hourCST) - 8 + 24) % 24;
   const start_time = new Date(base.getTime());
@@ -337,46 +365,68 @@ function seed() {
   // ⚠️ 「全天/日间畅玩套餐」按「畅玩」语义应为免单时段卡，故 discount 填 0。
   //    这个值来自我的推断（原版截图只给了卡名/价格/描述，看不到 discount），
   //    如果你云端 card 集合里实际不是 0，改这里 + 告诉我，免单入店逻辑才会正确生效。
+  // ⚠️ 以下与云开发数据库 card 集合的真实数据保持一致（_id、卡名、价格、discount、时段）。
+  //    「日间畅玩套餐」在云端已标记 is_deleted: true，这里不再列出。
   const cards = [
     {
-      _id: 'card_premium',
+      _id: 'e33be08d678e255a0189586d3b0d8a79',
+      card_name: '夜场畅玩卡',
+      trial: 0,
+      discount: 1,
+      duration: { type: 0, start_hour: 23, end_hour: 10, days: 1, start_time: null, end_time: null },
+      remain: -100,
+      cost: 68,
+      desc: '68元/(23:00-次日10:00)，购买后可畅玩夜场。',
+    },
+    {
+      _id: '9fc3269d672f10c0007c25e92548b234',
       card_name: '高级会员卡（试营，暂时别买）',
-      trial: 2,
-      discount: 0.5, // 与截图描述「计时扣费5折」一致 → 折扣卡，不免单
+      trial: true,
+      discount: 0.5,
       duration: { type: 1, start_hour: 0, end_hour: 24, days: 30, start_time: null, end_time: null },
-      remain: 0, // 截图：剩余：已售罄
+      remain: 0,
       cost: 240,
       desc: '高级会员卡（试营）：240元/月；计时扣费5折；限3张',
     },
     {
-      _id: 'card_allday',
+      _id: 'cc3a4179678380c9049b4d3c331a34c6',
       card_name: '全天畅玩套餐',
-      trial: 1,
-      discount: 0, // 免单时段卡：10:00-23:00 内不扣点数
+      trial: false,
+      discount: 0,
       duration: { type: 0, start_hour: 10, end_hour: 23, days: 1, start_time: null, end_time: null },
-      remain: -100, // 截图：库存充足
+      remain: -100,
       cost: 69,
       desc: '全天畅玩套餐：69元/(10:00-23:00)',
     },
     {
-      _id: 'card_daytime',
-      card_name: '日间畅玩套餐',
-      trial: 0,
-      discount: 0, // 免单时段卡：10:00-17:00 内不扣点数
-      duration: { type: 0, start_hour: 10, end_hour: 17, days: 1, start_time: null, end_time: null },
-      remain: -100, // 截图：库存充足
-      cost: 45,
-      desc: '日间畅玩套餐：45元/(10:00-17:00)',
+      _id: 'ab52283f6783807201221ba02db6611e',
+      card_name: '早八畅玩套餐',
+      trial: false,
+      discount: 0,
+      duration: { type: 0, start_hour: 8, end_hour: 10, days: 1, start_time: null, end_time: null },
+      remain: -100,
+      cost: 12,
+      desc: '早八畅玩套餐：12元/(08:00-10:00)',
     },
     {
-      _id: 'card_night',
-      card_name: '夜场',
+      _id: 'df40db4d6ad4af17010238800070046a',
+      card_name: '桌游麻将票·日场',
       trial: 0,
-      discount: 1, // 夜场在 getConsumePoint 里本就不计费，无需再免单
+      discount: 0,
+      duration: { type: 0, start_hour: 10, end_hour: 23, days: 1, start_time: null, end_time: null },
+      remain: -100,
+      cost: 30,
+      desc: '桌游麻将票（日场）：30元/(10:00-23:00)，仅限桌游/麻将',
+    },
+    {
+      _id: 'df40db4d6ad4af26010239057dae6a3c',
+      card_name: '桌游麻将票·夜场',
+      trial: 0,
+      discount: 0,
       duration: { type: 0, start_hour: 23, end_hour: 10, days: 1, start_time: null, end_time: null },
       remain: -100,
-      cost: 68, // 与预约说明「预约成功将立即自动扣除 68 点」一致
-      desc: '夜场预约用卡（不在优惠卡列表中展示）',
+      cost: 30,
+      desc: '桌游麻将票（夜场）：30元/(23:00-次日10:00)，仅限桌游/麻将',
     },
   ];
 
@@ -429,17 +479,9 @@ function seed() {
     doorLog,
     reports,
     // 夜场预约表 —— 对应云端 reserve 集合。
-    // 页面（pages/reserve/index.js）会请求 days: 5 天；10:00 之后自动「shift() 掉昨天」，
-    // 所以这里给 5 条：[昨天, 今天, 明天, 后天, 大后天]，界面上正好剩 4 个日期按钮
-    // （与原版截图「周一 10/12 ~ 周四 10/15」一致）。
-    // 原版截图里当前选中日「已预约人数：0 / 剩余名额：15」，所以全部日期都留空，不编造预约用户。
-    reserve: [
-      { _id: 'rsv-1', day: dayStr(-1), openids: [] },
-      { _id: 'rsv-2', day: dayStr(0), openids: [] },
-      { _id: 'rsv-3', day: dayStr(1), openids: [] },
-      { _id: 'rsv-4', day: dayStr(2), openids: [] },
-      { _id: 'rsv-5', day: dayStr(3), openids: [] },
-    ],
+    // 页面（pages/reserve/index.js）以「当前自然月」日历展示，这里生成整月（1 号~月末）数据；
+    // 明天、后天各造了一条「别人」的预约用于测试日历红/橙/绿三色状态。
+    reserve: monthReserve(),
     userUnauthorized: [
       { _id: 'ua-1', openid: 'mock-openid-07', phone: '13900000007', qq_id: '30007', nickname: '待授权用户A', avatar: AVATAR_OTHER },
       { _id: 'ua-2', openid: 'mock-openid-08', phone: '13900000008', qq_id: '30008', nickname: '待授权用户B', avatar: AVATAR_OTHER },
@@ -484,7 +526,7 @@ function seed() {
       reserve_limit: true, // true = 有名额上限（false 时页面显示「剩余名额：无限制」）
       reserve_max: 15,
       reserve_cost: 68,
-      night_card_id: 'card_night',
+      night_card_id: 'e33be08d678e255a0189586d3b0d8a79',
     },
     pendingRecharge: null,
     seq: 100,
@@ -1450,14 +1492,14 @@ const queueFunctions = {
     const h = nowDate().getHours();
     const night = h >= 23 || h <= 9;
     const now = nowTs();
-    // 夜里只要手里有「当前生效」的优惠卡就算有夜场资格（夜场卡就是预约成功后发的那张）。
-    // 与云端 queueFunctions/ifNight 一致：只看有效期，不看卡的类型。
-    // ⚠️ 原来这里写的是 d.type !== 'hour'，而卡类型在数据里是数字 0/1，
-    //    判据永远成立 → 所有卡都被当成无效 → 夜场永远显示「夜场请预约」。
+    // 只认「夜场票」和「夜场桌游麻将票」两张卡（按 card_id 判断），
+    // 且当前时间在有效期内。与云端 queueFunctions/ifNight 一致。
+    // 其他卡（日间/全天畅玩、日场桌游麻将票等）不构成夜场入店资格。
     const hasCard = (s.me.cards || []).some((c) => {
       const start = new Date(c.start_time).getTime();
       const end = new Date(c.end_time).getTime();
-      return now >= start && now <= end;
+      const isNightCard = c.card_id === NIGHT_CARD_ID || (BOARD_NIGHT_CARD_ID && c.card_id === BOARD_NIGHT_CARD_ID);
+      return isNightCard && now >= start && now <= end;
     });
     return { success: true, data: { ifNight: night, hasCard } };
   },
@@ -1551,8 +1593,6 @@ function dispatch(name, data) {
     const fn = queueFunctions[type];
     result = fn ? fn(params, s) : { success: true, data: null };
     if (!fn) console.warn('[Mock] queueFunctions 未实现的 type：', type);
-  } else if (name === 'quickstartFunctions') {
-    result = type === 'getOpenId' ? { success: true, data: { openid: ME_OPENID } } : { success: true, data: [] };
   } else if (name === 'cloudbase_module') {
     // 云开发工作流（此处用于生成支付参数）：伪造一笔支付单，并记录待充值的点数
     const payload = (data && data.data) || {};

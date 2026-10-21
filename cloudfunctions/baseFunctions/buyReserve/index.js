@@ -15,7 +15,16 @@ const db_reserve_lock = 'reserve_lock';
 const db_card = 'card';
 const db_meta = 'meta';
 
+const { toBJHour, toBJMinutes } = require('../timeUtil');
+
+// 夜场票（预约夜场成功后发放，时段 23:00 ~ 次日 10:00，含桌游麻将）
 const night_card_id = 'e33be08d678e255a0189586d3b0d8a79';
+
+// 桌游麻将票（独立购买，只能玩桌游/麻将，30 点/30 元）—— 与夜场票彻底分离，勿与 night_card_id 混用。
+// 分两张卡：日场 10:00~23:00、夜场 23:00~次日 10:00，前端合并展示、切场次需重新购买对应那张。
+// 建好卡后把真实 _id 填到下面两个常量（当前为占位值，未填前预约/购买不会发到这两张卡）。
+const board_card_day_id = 'df40db4d6ad4af17010238800070046a';      // 桌游麻将票·日场（10:00-23:00）
+const board_card_night_id = 'df40db4d6ad4af26010239057dae6a3c';    // 桌游麻将票·夜场（23:00-次日10:00）
 
 const max_retry_time = 5;
 const retry_wait_seconds = 0.5;
@@ -410,12 +419,8 @@ async function sleep(seconds) {
 
 
 async function chargeReserve(params) {
-  const origin_reserve_date = params.reserve_date;
+  const origin_reserve_date = params.reserve_date;   // 预约日 00:00 北京时间（UTC 表示）
   let remain_need = params.reserve_cost;
-
-  // 生成起始时间
-  const dayTimestamp = origin_reserve_date.getTime() + 24 * 60 * 60 * 1000;
-  const reserve_date = new Date(dayTimestamp);
 
   const night_card_record = await db.collection(db_card)
     .where({
@@ -428,65 +433,32 @@ async function chargeReserve(params) {
       },
       fail: console.error
     });
-  console.log();
-  if (night_card_record.length == 0) {
+  if (!night_card_record.data || night_card_record.data.length == 0) {
     return {
       success: false,
       errMsg: '未搜到夜场卡信息'
     }
   }
-  let start_time = new Date(reserve_date.getTime()); // 复制时间戳
-  // 从夜场卡配置获取开始的小时 (假设 duration.start_time 是 Date 对象)
-  start_time.setUTCHours(night_card_record.data[0].duration.start_time.getUTCHours());
-  start_time.setUTCMinutes(night_card_record.data[0].duration.start_time.getUTCMinutes());
-  start_time.setUTCSeconds(night_card_record.data[0].duration.start_time.getUTCSeconds());
-  start_time.setUTCMilliseconds(0); // 清零毫秒
 
-  // 结束时间通常是下一天的某个时间
-  let end_time = new Date(start_time.getTime()); // 基于计算好的开始时间
-  // 需要根据夜场卡的结束时间规则来计算，这里假设是第二天凌晨
-  // 确保在 UTC 时间上加一天
-  end_time.setUTCDate(end_time.getUTCDate() + 1);
-  // 设置结束的小时、分钟、秒 (从夜场卡配置获取)
-  end_time.setUTCHours(night_card_record.data[0].duration.end_time.getUTCHours());
-  end_time.setUTCMinutes(night_card_record.data[0].duration.end_time.getUTCMinutes());
-  end_time.setUTCSeconds(night_card_record.data[0].duration.end_time.getUTCSeconds());
-  end_time.setUTCMilliseconds(0); // 清零毫秒
+  // 夜场卡有效期：预约日 start_time 起，到 end_time 止。
+  // duration.start_time/end_time 历史上可能是字符串 "HH:MM"、Date 或 { $date }，
+  // 统一用公共工具解析成「北京时间时分」，避免对字符串调用 getHours()/getUTCHours() 抛错。
+  const duration = night_card_record.data[0].duration || {};
+  const startMin = toBJMinutes(duration.start_time);
+  const endMin = toBJMinutes(duration.end_time);
 
-  // 修正：如果夜场卡结束时间是跨天的，上面的逻辑可能需要调整
-  // 例如，如果开始是 22:00，结束是 02:00
-  // start_time: CST reserve_date 的 22:00
-  // end_time: CST reserve_date + 1 天的 02:00
+  // 解析失败时退回 23:00 / 次日 10:00 的默认夜场时段，避免 NaN 写库
+  const startBJMin = startMin === null ? 23 * 60 : startMin;   // 默认 23:00
+  const endBJMin = endMin === null ? 10 * 60 : endMin;         // 默认 10:00
 
-  // 重新计算 start_time 和 end_time 以确保是 CST 的时间点
-  const card_start_hour_cst = night_card_record.data[0].duration.start_time.getHours(); // 假设配置里存的是 Date 对象代表的时间
-  const card_end_hour_cst = night_card_record.data[0].duration.end_time.getHours();
+  // start_time = 预约日 00:00（北京）+ startBJMin 分钟
+  const start_time = new Date(origin_reserve_date.getTime() + startBJMin * 60 * 1000);
+  // end_time：结束分钟小于开始分钟说明跨天（如 23:00 ~ 次日 10:00），顺延一天
+  const endOffsetMin = endBJMin < startBJMin ? endBJMin + 24 * 60 : endBJMin;
+  const end_time = new Date(origin_reserve_date.getTime() + endOffsetMin * 60 * 1000);
 
-  // start_time: 设置为 reserve_date (CST 午夜) 加上卡开始的小时 (CST)
-  start_time = new Date(reserve_date.getTime()); // CST 午夜
-  // 直接设置小时（会按本地时区，我们需要的是CST效果，但reserve_date已是CST午夜的UTC表示）
-  // 最好还是基于 UTC 来操作
-  const startHourUTC = (card_start_hour_cst - 8 + 24) % 24; // 转为 UTC 小时
-  start_time.setUTCHours(startHourUTC, 0, 0, 0);
-
-  // end_time:
-  end_time = new Date(reserve_date.getTime()); // CST 午夜
-  const endHourUTC = (card_end_hour_cst - 8 + 24) % 24; // 转为 UTC 小时
-  // 如果结束时间小时数小于开始时间小时数（跨天）
-  if (card_end_hour_cst < card_start_hour_cst) {
-      end_time.setUTCDate(end_time.getUTCDate() + 1); // 日期加一天 (UTC)
-  }
-  end_time.setUTCHours(endHourUTC, 0, 0, 0);
-  // let start_time = new Date(reserve_date);
-  // start_time.setHours(night_card_record.data[0].duration.start_time.getHours());
-  // start_time.setMinutes(0);
-  // start_time.setSeconds(0);
-  // let end_time = new Date(reserve_date);
-  // end_time.setDate(reserve_date.getDate() + 1);
-  // end_time.setHours(night_card_record.data[0].duration.end_time.getHours());
-  // end_time.setMinutes(0);
-  // end_time.setSeconds(0);
-  // console.log('start_time:', start_time, 'end_time:', end_time);
+  console.log('夜场卡时段(北京分钟):', startBJMin, '->', endBJMin,
+    '| start_time:', start_time, 'end_time:', end_time);
 
   // 用户信息查询
   let openid = params.openid;

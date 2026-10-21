@@ -123,6 +123,12 @@ Page({
     overdraftShortage: 0,    // 透支了多少点
   },
 
+  /* ============================================================
+   * 【一】机台切换与数据获取
+   *   switchMachine / doSwitchMachine / ensureMachineForArea —— 机台选择
+   *   getMachineInfo / getMachineQueueInfo —— 拉取机台列表与队列
+   * ============================================================ */
+
   // 切换机台（点击左侧列表里的某一项）
   async switchMachine(e) {
     return this.doSwitchMachine(Number(e.currentTarget.dataset.machineIndex))
@@ -189,11 +195,11 @@ Page({
   },
   // 获取机台列表
   async getMachineInfo() {
-    return cloudFcn.getMachineInfo().then(res => {
-      if (!res.result.success) return Promise.reject(res)
-
+    // 优先读全局预取缓存：app 启动时已预取，命中则秒出机台框架，不用等网络
+    const cached = app.globalData && app.globalData.pageCache && app.globalData.pageCache.machines
+    const applyAndReturn = (rawData) => {
       var machines = Array.from(
-        res.result.data,
+        rawData,
         m => {
           return {
             machineId: m._id,
@@ -205,12 +211,23 @@ Page({
           }
         }
       )
-      this.setData({
-        machines
-      })
+      this.setData({ machines })
       // 机台列表到位后，按当前入店区域自动选中一个（桌游区自动切到日麻）
       const area = this.data.enterInfo && this.data.enterInfo.area === 'board' ? 'board' : 'arcade'
       return this.ensureMachineForArea(area)
+    }
+
+    if (cached) {
+      return applyAndReturn(cached)
+    }
+
+    return cloudFcn.getMachineInfo().then(res => {
+      if (!res.result.success) return Promise.reject(res)
+      // 顺便写回全局缓存，供下次使用
+      if (app.globalData && app.globalData.pageCache) {
+        app.globalData.pageCache.machines = res.result.data
+      }
+      return applyAndReturn(res.result.data)
     })
   },
 
@@ -239,6 +256,13 @@ Page({
       return playlist
     })
   },
+
+  /* ============================================================
+   * 【二】入队 / 退队 / 上下机
+   *   handleEnqueueBtn / switchToMachine / enqueue —— 入队、切换机台
+   *   handleDequeueBtn / dequeue —— 退队
+   *   deplain / handleDeplainBtn —— 下机
+   * ============================================================ */
 
   // 用户点击入队按钮
   async handleEnqueueBtn() {
@@ -403,6 +427,12 @@ Page({
   handleDeplainBtn() {
     this.deplain({ detail: { both: false } });
   },
+
+  /* ============================================================
+   * 【三】拖拽排序（等候区调整顺序 / 拖到游玩位直接上机）
+   *   dragStart / dragMove / dragEnd / resetDragState —— 拖拽手势
+   *   embarkToSeat / requeueInWaiting —— 上机与重排
+   * ============================================================ */
 
   // 开始拖动（长按后触发）
   async dragStart(e) {
@@ -608,6 +638,12 @@ Page({
       })
   },
 
+  /* ============================================================
+   * 【四】举报 / 踢出 / 跳转日志
+   *   report / kickOut —— 目前无 UI 入口，保留备用
+   *   toLog —— 跳转日志页
+   * ============================================================ */
+
   // 举报
   // ⚠️ 当前 card 组件已改成「长按拖拽」的纯净卡片，不再渲染「举报」按钮，
   //    所以这里暂时没有 UI 入口，保留备用。要恢复：在 card.wxml 加按钮并 triggerEvent('report')。
@@ -670,6 +706,12 @@ Page({
       url: `/pages/play-log/log?selectedMachine=${JSON.stringify(this.data.selectedMachine)}`,
     })
   },
+
+  /* ============================================================
+   * 【五】入店校验与用户状态
+   *   checkQueueInfo —— 进页面时校验入店/跨区/余额
+   *   refreshEnterInfo —— 拉取用户入店状态
+   * ============================================================ */
 
   // 进入页面时检查用户当前入队情况
   async checkQueueInfo() {
@@ -867,6 +909,11 @@ Page({
       });
   },
 
+  /* ============================================================
+   * 【六】页面生命周期
+   *   onLoad / onReady / onShow / onHide / onUnload / onShareAppMessage
+   * ============================================================ */
+
   /**
    * 生命周期函数--监听页面加载
    */
@@ -918,6 +965,14 @@ Page({
      备用：监听不可用（离线模拟层 / 没配集合读权限 / 连接断了）时退回 5 秒轮询。
      ⚠️ 实时监听需要在云开发控制台给 queue_* 集合配「所有用户可读」的权限，
         否则前端读不到这个集合，会自动落到轮询。 */
+
+  /* ============================================================
+   * 【七】排队信息实时刷新（数据库监听 + 轮询兜底）
+   *   ensureQueueRefresh / syncQueueRealtime / startQueueRealtime —— 建立监听
+   *   stopQueueRefresh —— 关闭监听
+   *   startQueuePolling / stopQueuePolling / pollQueueInfo —— 轮询兜底
+   * ============================================================ */
+
   ensureQueueRefresh() {
     const machineId = this.data.selectedMachine && this.data.selectedMachine.machineId
     if (machineId) {

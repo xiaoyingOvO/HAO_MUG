@@ -427,7 +427,6 @@ Page({
    * 跳转到出勤记录页面
    */
   toAttendance: function () {
-    // wx.navigateTo({ url: '/pages/user-center/other-page/attendanceRecord' });
      wx.showToast({ title: '功能待开发', icon: 'none'}); // 暂时显示未开发
   },
 
@@ -461,7 +460,6 @@ Page({
    * 跳转到意见反馈页面
    */
   toFeedback: function () {
-    // wx.navigateTo({ url: '/pages/user-center/other-page/feedback' });
     wx.showToast({ title: '功能待开发', icon: 'none'}); // 暂时显示未开发
   },
 
