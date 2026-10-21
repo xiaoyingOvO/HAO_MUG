@@ -1,10 +1,9 @@
 {
   "usingComponents": {
-    "custom-navi": "/components/custom-navi/custom-navi",
     "card": "/components/card/card"
   },
-  "navigationStyle": "custom",
   "disableScroll": true,
   "enablePullDownRefresh": false,
-  "backgroundTextStyle": "dark"
+  "backgroundTextStyle": "dark",
+  "navigationBarTitleText": "排卡板"
 }

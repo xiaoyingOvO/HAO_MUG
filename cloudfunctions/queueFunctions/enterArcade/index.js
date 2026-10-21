@@ -68,8 +68,8 @@ exports.main = async (event, context) => {
   let credit = user_remain_record.data[0].credit
   let remain_total = user_remain_record.data[0].real_point + user_remain_record.data[0].extra_point
   let exp = user_remain_record.data[0].exp
-  // 用户此刻是否持有「当前时段免单」的优惠卡（见文件末尾 hasFreeTimeCard 的说明）
-  let freeCard = await hasFreeTimeCard(user_remain_record.data[0].cards, new Date())
+  // 用户此刻是否持有「当前时段免单」的优惠卡（区域敏感，见 hasFreeTimeCard 说明）
+  let freeCard = await hasFreeTimeCard(user_remain_record.data[0].cards, new Date(), area)
   console.log('是否持有当前时段免单卡:', freeCard)
   // 余额不足
   // 修复：原逻辑只看了余额和等级，没考虑优惠卡。持有「当前时段免单」的卡时入店不产生扣费，
@@ -134,7 +134,7 @@ exports.main = async (event, context) => {
 }
 
 /**
- * 判断用户此刻是否持有「当前时段免单」的优惠卡。
+ * 判断用户此刻是否持有「当前时段免单」的优惠卡（区域敏感）。
  *
  * 与 getConsumePoint 的免单逻辑严格对齐（读同一份数据、用同一套时段口径）：
  *   · discount == 0 的卡 = 「免费时段卡」：getConsumePoint 会把卡覆盖时段内的游玩时长
@@ -142,14 +142,15 @@ exports.main = async (event, context) => {
  *     discount != 0 的卡 = 折扣卡（如 5 折高级会员卡），仍然会扣费，不计入免单。
  *   · 持有有效期：user.cards[i].start_time ~ end_time（与 getConsumePoint 一致）
  *   · 免单时段：card.duration.start_time / end_time 的北京时间小时
- *     （duration 历史上可能是字符串 "HH:MM"、Date 或 { $date }，用 timeUtil 统一解析；
- *      跨天时段如夜场 23:00-次日 10:00 单独处理）
+ *   · 区域限制：card.area === 'board' 仅限桌游区，'arcade' 仅限音游区，
+ *              缺省/null/undefined 则两区通用
  *
  * @param {Array} userCards   用户的 cards 字段，形如 [{card_id, start_time, end_time}]
  * @param {Date}  currentTime 当前时间
+ * @param {string} userArea   用户当前区域：'arcade' 或 'board'
  * @returns {Promise<boolean>} true = 此刻游玩不产生扣费
  */
-async function hasFreeTimeCard(userCards, currentTime) {
+async function hasFreeTimeCard(userCards, currentTime, userArea) {
   const cards = userCards ?? []
   if (!Array.isArray(cards) || cards.length == 0) return false
 
@@ -175,6 +176,14 @@ async function hasFreeTimeCard(userCards, currentTime) {
     const card = card_info.data[0]
     // 折扣卡仍会扣费，不算免单
     if (Number(card.discount) != 0) continue
+
+    // 区域限制：card.area 存在且不等于用户当前区域 → 该卡不适用
+    const cardArea = card.area
+    if (cardArea && cardArea !== userArea) {
+      console.log(`卡 ${card._id} 仅限 ${cardArea} 区，用户当前 ${userArea}，跳过`)
+      continue
+    }
+
     const duration = card.duration
     if (!duration) continue
 

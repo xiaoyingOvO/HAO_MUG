@@ -70,42 +70,50 @@ async function getConsumePointMain(event, context) {
   const area = user_record.data[0].area === AREA_BOARD ? AREA_BOARD : AREA_ARCADE
   const rate = area === AREA_BOARD ? RATE_BOARD : RATE_ARCADE
   console.log('计费区域:', area, '费率:', rate, '点/分')
+  // 处理所有优惠卡信息（批量查询，避免 N+1）
+  // 1. 先筛选出时间范围有效的卡，收集 card_id
+  const activeCardRefs = []
+  cards.forEach(c => {
+    if (enter_time <= c.end_time && current_time >= c.start_time) {
+      activeCardRefs.push(c)
+    }
+  })
+  // 2. 批量查询卡详情
+  const cardDetails = {}
+  if (activeCardRefs.length > 0) {
+    const cardIds = activeCardRefs.map(c => c.card_id).filter(Boolean)
+    const chunks = []
+    for (let i = 0; i < cardIds.length; i += 100) chunks.push(cardIds.slice(i, i + 100))
+    for (const chunk of chunks) {
+      const cr = await db.collection(db_card).where({ _id: db.command.in(chunk) }).get()
+      cr.data.forEach(cd => { cardDetails[cd._id] = cd })
+    }
+  }
+  // 3. 处理每张卡的折扣和免单时段
   let zhekou = 1
-  // 处理所有优惠卡信息    
-  var discountCards = []
-  for(var i = 0 ; i < cards.length ; i++){
-    var endtime = cards[i].end_time
-    var starttime = cards[i].start_time
-    // 入店至今包含优惠卡有效期
-    if (enter_time <= endtime && current_time >= starttime) {
-      var card_id = cards[i].card_id
-      // 查询优惠卡具体信息（防呆：卡集合里查不到该卡时跳过，避免 data[0] undefined 抛错导致整个函数失败）
-      let card_info = await db.collection(db_card).where({
-        _id: card_id
-      }).get({
-        success: function (res) {
-          console.log('success!!!')
-          return res
-        },
-        fail: console.error
-      })
-      if (!card_info.data || card_info.data.length === 0) {
-        console.warn('优惠卡不存在，跳过:', card_id)
+  const discountCards = []
+  for (const c of activeCardRefs) {
+    const cardInfo = cardDetails[c.card_id]
+    if (!cardInfo) {
+      console.warn('优惠卡不存在，跳过:', c.card_id)
+      continue
+    }
+    if (cardInfo.discount != 0) {
+      zhekou *= cardInfo.discount
+    } else {
+      // 区域限制：card.area 存在且不等于用户当前区域 → 该卡不享受免单
+      const cardArea = cardInfo.area
+      if (cardArea && cardArea !== area) {
+        console.log(`卡 ${cardInfo._id} 仅限 ${cardArea} 区，用户当前 ${area}，不计免单`)
         continue
       }
-      // 分会员卡和免费时段卡
-      if (card_info.data[0].discount != 0){
-        zhekou *= card_info.data[0].discount
-      }else{
-        // 免单时段：统一用公共工具解析成「北京时间小时数」（兼容字符串/Date/$date/数字）
-        const dur = card_info.data[0].duration || {}
-        const sh = toBJHour(dur.start_time !== undefined ? dur.start_time : dur.start_hour)
-        const eh = toBJHour(dur.end_time !== undefined ? dur.end_time : dur.end_hour)
-        if (!Number.isNaN(sh) && sh !== null && !Number.isNaN(eh) && eh !== null) {
-          discountCards.push({ start: sh, end: eh })
-        } else {
-          console.warn('免单卡时段格式无法识别，跳过:', card_id, JSON.stringify(dur))
-        }
+      const dur = cardInfo.duration || {}
+      const sh = toBJHour(dur.start_time !== undefined ? dur.start_time : dur.start_hour)
+      const eh = toBJHour(dur.end_time !== undefined ? dur.end_time : dur.end_hour)
+      if (!Number.isNaN(sh) && sh !== null && !Number.isNaN(eh) && eh !== null) {
+        discountCards.push({ start: sh, end: eh })
+      } else {
+        console.warn('免单卡时段格式无法识别，跳过:', c.card_id, JSON.stringify(dur))
       }
     }
   }

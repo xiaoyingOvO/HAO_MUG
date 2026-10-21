@@ -38,7 +38,7 @@ export const MOCK_ROLE = 'user';
 const DB_KEY = 'haomug_mock_db_v1';
 // 假数据版本号：改动初始数据时把它 +1，旧的本地缓存会自动失效重建
 // （避免"代码改了但页面还是老数据"的困惑）
-const DB_VERSION = 22;
+const DB_VERSION = 24;
 // 22：夜场票发卡对齐云端 chargeReserve 的时段算法（预约日 23:00 ~ 次日 10:00）
 // 21：桌游/日麻区标识由 'mahjong' 改回 'board'（机台 M05/M06 的 area + group_id 同步）
 // 13：机台拆成 舞萌·官机 / MML / ADX + 中二节奏，入店改为选设备直接排队
@@ -211,6 +211,7 @@ function seed() {
     qq_id: '3296290695', // 原版截图：QQ 号 3296290695
     exp: 1586, // 原版截图：Exp 1586 → Level 1（下一级 2000）
     role: MOCK_ROLE,
+    display_title: null,
     // 信用分 → 等级（见 pages/user-center/index.js:248 calculateCreditLevel）：
     //   >=85 → S ； >=70 → A ； >=60 → B ； <60 → C
     credit: 92,
@@ -413,6 +414,7 @@ function seed() {
       card_name: '桌游麻将票·日场',
       trial: 0,
       discount: 0,
+      area: 'board',
       duration: { type: 0, start_hour: 10, end_hour: 23, days: 1, start_time: null, end_time: null },
       remain: -100,
       cost: 30,
@@ -423,6 +425,7 @@ function seed() {
       card_name: '桌游麻将票·夜场',
       trial: 0,
       discount: 0,
+      area: 'board',
       duration: { type: 0, start_hour: 23, end_hour: 10, days: 1, start_time: null, end_time: null },
       remain: -100,
       cost: 30,
@@ -464,9 +467,67 @@ function seed() {
     },
   ];
 
+  // 麻将对局战绩表 —— 对应云端 mahjong_game 集合。
+  // 一局一条：4 名玩家（openid/昵称/头像/点数/顺位），顺位按点数降序、同分同名次。
+  // 造 16 局演示数据：5 人轮换上阵，胜负模式固定循环（方便页面上四率/趋势图看出形状）。
+  const MJ_PLAYERS = [
+    { openid: ME_OPENID, nickname: 'oyyq' },
+    { openid: 'mock-openid-02', nickname: '阿豪' },
+    { openid: 'mock-openid-03', nickname: '小喵' },
+    { openid: 'mock-openid-04', nickname: '街机王' },
+    { openid: 'mock-openid-05', nickname: '夜场常客' },
+  ];
+  // 每局的点数模板（和为 0 的日麻 pt 风格），按下标循环
+  const MJ_SCORE_PATTERNS = [
+    [90, 30, -30, -90],
+    [60, 20, -10, -70],
+    [120, 40, -40, -120],
+    [45, 15, 5, -65],
+    [75, 25, -25, -75],
+  ];
+  const mahjongGames = (() => {
+    const list = [];
+    for (let gi = 0; gi < 16; gi++) {
+      // 4 人组合：从 5 人里跳过 (gi % 5) 那个人，保持轮换
+      const skip = gi % 5;
+      const four = MJ_PLAYERS.filter((_, i) => i !== skip);
+      const pat = MJ_SCORE_PATTERNS[gi % MJ_SCORE_PATTERNS.length];
+      // 胜者轮换：把 pat 按 gi 旋转，模拟不同人赢
+      const rotated = pat.map((_, i) => pat[(i + gi) % 4]);
+      const players = four.map((p, i) => ({
+        openid: p.openid,
+        nickname: p.nickname,
+        avatar: i === 0 ? AVATAR_OTHER : AVATAR_OTHER,
+        points: rotated[i],
+        rank: 0, // 下面统一算
+      }));
+      // 顺位：点数降序、同分同名次（与云端 mahjongStats 一致）
+      const order = players.slice().sort((a, b) => b.points - a.points);
+      order.forEach((p, idx) => {
+        p.rank = idx > 0 && p.points === order[idx - 1].points
+          ? order[idx - 1].rank
+          : idx + 1;
+      });
+      list.push({
+        _id: 'mj-game-' + (gi + 1),
+        game_date: new Date(now - (16 - gi) * DAY).toISOString().slice(0, 10),
+        players,
+        recorder_openid: 'mock-admin',
+        create_time: new Date(now - (16 - gi) * DAY),
+      });
+    }
+    return list;
+  })();
+
   return {
     version: DB_VERSION,
     me,
+    mahjongGames,
+    mahjongTitles: [
+      { _id: 'mt-1', openid: ME_OPENID, title: 'kokushi', count: 3, grant_by: 'mock-admin', create_time: new Date(now - 5 * DAY) },
+      { _id: 'mt-2', openid: ME_OPENID, title: 'daisangen', count: 1, grant_by: 'mock-admin', create_time: new Date(now - 2 * DAY) },
+      { _id: 'mt-3', openid: 'mock-openid-04', title: 'suankou', count: 1, grant_by: 'mock-admin', create_time: new Date(now - 3 * DAY) },
+    ],
     users: others,
     machines,
     queues,
@@ -615,8 +676,7 @@ function pushQueueLog(s, machineId, openid, text) {
 
 function logText(s, openid, action) {
   const name = infoOf(s, openid).nickname;
-  const t = nowDate();
-  return `用户${name}于${pad2(t.getHours())}:${pad2(t.getMinutes())}:${pad2(t.getSeconds())}${action}`;
+  return `${name}${action}`;
 }
 
 /**
@@ -680,10 +740,10 @@ function hourInRange(hour, startHour, endHour) {
  * 入店放行（hasFreeTimeCard）和计费抵扣（consumedPoints）都走这一个函数，
  * 保证两边口径一致 —— 不会出现「放行进店了但计费照扣」的矛盾。
  *
- * 注意：这里**不区分区域**，即「音游区的收费方式全部覆盖桌游区」——
- *       买了音游区的免单卡/折扣卡，去桌游区一样生效。
+ * 注意：这里**区分区域**——card.area 存在且与用户当前区域不一致时，该卡不生效。
+ *       缺省/null/undefined 则两区通用。
  */
-function cardEffects(s, u, now = nowDate()) {
+function cardEffects(s, u, now = nowDate(), userArea) {
   const holds = (u && u.cards) || [];
   const ts = now.getTime();
   let zhekou = 1;
@@ -701,6 +761,12 @@ function cardEffects(s, u, now = nowDate()) {
     const card = s.cards.find((c) => c._id === hold.card_id);
     if (!card) continue;
 
+    // 区域限制：card.area 存在且与用户当前区域不一致 → 该卡不生效
+    if (card.area && userArea && card.area !== userArea) {
+      console.log(`[mock] 卡 ${card._id} 仅限 ${card.area} 区，用户当前 ${userArea}，跳过`)
+      continue
+    }
+
     const discount = Number(card.discount);
     if (!Number.isNaN(discount) && discount !== 0) {
       zhekou *= discount;
@@ -715,7 +781,8 @@ function cardEffects(s, u, now = nowDate()) {
 
 function hasFreeTimeCard(s, openid, now = nowDate()) {
   const u = allUsers(s).find((x) => x.openid === openid) || s.me;
-  const { freeRanges } = cardEffects(s, u, now);
+  const userArea = normalizeArea(u.area);
+  const { freeRanges } = cardEffects(s, u, now, userArea);
   const curHour = now.getHours();
   return freeRanges.some((r) => hourInRange(curHour, r.start, r.end));
 }
@@ -850,8 +917,8 @@ function consumedPoints(s, u) {
   if (u.enter_state === 0) return { points: 0, experience: 0 };
   const enter = new Date(u.enter_time || nowTs());
   const now = nowDate();
-  const { zhekou, freeRanges } = cardEffects(s, u, now);
   const area = normalizeArea(u.area);
+  const { zhekou, freeRanges } = cardEffects(s, u, now, area);
   const rate = AREA_RATE[area];
   // 音游区走原版夜场逻辑；桌游区走跨天累计、不享受夜场免单
   const minutes = area === AREA_BOARD
@@ -906,6 +973,174 @@ const baseFunctions = {
     return { success: true, data: s.userUnauthorized.slice(skip, skip + size) };
   },
 
+  /* ---------- 麻将对局战绩（对齐云端 mahjongStats） ---------- */
+
+  // 录入一局：mock 不校验管理员身份（方便本地开发），云端会校验
+  mahjongAddGame(p, s) {
+    const { game_date, players } = p || {};
+    if (!game_date) return { success: false, errMsg: '缺少对局日期' };
+    if (!Array.isArray(players) || players.length !== 4) {
+      return { success: false, errMsg: '一局需要恰好 4 名玩家' };
+    }
+    const seen = new Set();
+    for (const pl of players) {
+      if (!pl.openid) return { success: false, errMsg: '有玩家未选择' };
+      if (seen.has(pl.openid)) return { success: false, errMsg: '同一玩家不能重复入局' };
+      seen.add(pl.openid);
+      if (!Number.isFinite(Number(pl.points))) return { success: false, errMsg: '点数必须为数字' };
+    }
+    const sorted = players.slice().sort((a, b) => Number(b.points) - Number(a.points));
+    const rankMap = {};
+    sorted.forEach((pl, idx) => {
+      rankMap[pl.openid] = idx > 0 && Number(pl.points) === Number(sorted[idx - 1].points)
+        ? rankMap[sorted[idx - 1].openid] : idx + 1;
+    });
+    const uinfo = (oid) => allUsers(s).find((u) => u.openid === oid) || {};
+    s.mahjongGames.push({
+      _id: 'mj-game-' + Date.now(),
+      game_date,
+      players: players.map((pl) => ({
+        openid: pl.openid,
+        nickname: uinfo(pl.openid).nickname || '未知用户',
+        avatar: uinfo(pl.openid).avatar || AVATAR_OTHER,
+        points: Number(pl.points),
+        rank: rankMap[pl.openid],
+      })),
+      recorder_openid: s.me.openid,
+      create_time: new Date(),
+    });
+    return { success: true, data: { game_id: 'ok' } };
+  },
+
+  mahjongGetMyStats(p, s) {
+    const games = s.mahjongGames
+      .slice()
+      .sort((a, b) => (a.game_date < b.game_date ? 1 : -1));
+    const mine = games.filter((g) => g.players.some((pl) => pl.openid === s.me.openid));
+    const rankCounts = { 1: 0, 2: 0, 3: 0, 4: 0 };
+    let pointsSum = 0, rankSum = 0, maxPoints = null;
+    mine.forEach((g) => {
+      const m = g.players.find((pl) => pl.openid === s.me.openid);
+      if (rankCounts[m.rank] !== undefined) rankCounts[m.rank] += 1;
+      pointsSum += m.points; rankSum += m.rank;
+      if (maxPoints === null || m.points > maxPoints) maxPoints = m.points;
+    });
+    const total = mine.length;
+    const rate = (n) => (total ? +(n * 100 / total).toFixed(2) : 0);
+    return {
+      success: true,
+      data: {
+        total,
+        rankCounts,
+        rankRates: { 1: rate(rankCounts[1]), 2: rate(rankCounts[2]), 3: rate(rankCounts[3]), 4: rate(rankCounts[4]) },
+        flyRate: rate(rankCounts[4]),
+        avgRank: total ? +(rankSum / total).toFixed(2) : null,
+        avgPoints: total ? +(pointsSum / total).toFixed(1) : null,
+        maxPoints: total ? maxPoints : null,
+        recent: mine.slice(0, 20).reverse().map((g) => {
+          const m = g.players.find((pl) => pl.openid === s.me.openid);
+          return { game_id: g._id, game_date: g.game_date, rank: m.rank, points: m.points };
+        }),
+        titles: (s.mahjongTitles || []).filter((t) => t.openid === s.me.openid).map((t) => ({ title: t.title, count: t.count || 1 })),
+        displayTitle: s.me.display_title || null,
+      },
+    };
+  },
+
+  mahjongGetRanking(p, s) {
+    const agg = {};
+    s.mahjongGames.forEach((g) => {
+      g.players.forEach((pl) => {
+        if (!agg[pl.openid]) agg[pl.openid] = { games: 0, rankSum: 0, pointsSum: 0, win: 0 };
+        agg[pl.openid].games += 1;
+        agg[pl.openid].rankSum += pl.rank;
+        agg[pl.openid].pointsSum += pl.points;
+        if (pl.rank === 1) agg[pl.openid].win += 1;
+      });
+    });
+    const titleMap = {};
+    (s.mahjongTitles || []).forEach((t) => {
+      (titleMap[t.openid] = titleMap[t.openid] || []).push({ title: t.title, count: t.count || 1 });
+    });
+    const list = Object.keys(agg).map((oid) => {
+      const a = agg[oid];
+      const u = allUsers(s).find((x) => x.openid === oid) || {};
+      return {
+        openid: oid,
+        nickname: u.nickname || '未知用户',
+        avatar: u.avatar || AVATAR_OTHER,
+        games: a.games,
+        win: a.win,
+        winRate: +(a.win * 100 / a.games).toFixed(2),
+        avgRank: +(a.rankSum / a.games).toFixed(2),
+        totalPoints: a.pointsSum,
+        titles: titleMap[oid] || [],
+        displayTitle: u.display_title || null,
+      };
+    }).sort((x, y) => x.avgRank - y.avgRank || y.games - x.games);
+    return { success: true, data: list };
+  },
+
+  mahjongGrantTitle(p, s) {
+    const { openid, title } = p || {};
+    if (!openid) return { success: false, errMsg: '未指定玩家' };
+    if (!title) return { success: false, errMsg: '未指定称号' };
+    s.mahjongTitles = s.mahjongTitles || [];
+    const exist = s.mahjongTitles.find((t) => t.openid === openid && t.title === title);
+    if (exist) {
+      exist.count = (exist.count || 1) + 1;
+    } else {
+      s.mahjongTitles.push({
+        _id: 'mt-' + Date.now(),
+        openid, title,
+        count: 1,
+        grant_by: s.me.openid,
+        create_time: new Date(),
+      });
+    }
+    return { success: true };
+  },
+
+  mahjongGetGames(p, s) {
+    const page_no = Number(p && p.page_no) || 0;
+    const page_size = Math.min(Math.max(Number(p && p.page_size) || 20, 1), 50);
+    const sorted = s.mahjongGames.slice().sort((a, b) => (a.game_date < b.game_date ? 1 : -1));
+    return { success: true, data: sorted.slice(page_no * page_size, (page_no + 1) * page_size) };
+  },
+
+  mahjongRevokeTitle(p, s) {
+    const { openid, title, count } = p || {};
+    if (!openid) return { success: false, errMsg: '未指定玩家' };
+    if (!title) return { success: false, errMsg: '未指定称号' };
+    const dec = Math.max(1, Number(count) || 1);
+    s.mahjongTitles = s.mahjongTitles || [];
+    const idx = s.mahjongTitles.findIndex((t) => t.openid === openid && t.title === title);
+    if (idx < 0) return { success: false, errMsg: '该玩家没有此称号' };
+    const cur = s.mahjongTitles[idx].count || 1;
+    if (cur <= dec) {
+      s.mahjongTitles.splice(idx, 1);
+    } else {
+      s.mahjongTitles[idx].count = cur - dec;
+    }
+    return { success: true };
+  },
+
+  mahjongGetPlayerTitles(p, s) {
+    const { openid } = p || {};
+    if (!openid) return { success: false, errMsg: '未指定玩家' };
+    const list = (s.mahjongTitles || []).filter((t) => t.openid === openid).map((t) => ({ title: t.title, count: t.count || 1 }));
+    return { success: true, data: list };
+  },
+
+  mahjongDeleteGame(p, s) {
+    const { game_id } = p || {};
+    if (!game_id) return { success: false, errMsg: '未指定对局' };
+    const idx = s.mahjongGames.findIndex((g) => g._id === game_id);
+    if (idx < 0) return { success: false, errMsg: '对局不存在' };
+    s.mahjongGames.splice(idx, 1);
+    return { success: true };
+  },
+
   addUsrInfo(p, s) {
     s.me.nickname = (p && p.nickname) || s.me.nickname;
     s.me.phone = (p && p.phone) || s.me.phone;
@@ -941,7 +1176,7 @@ const baseFunctions = {
   modifyUsrInfo(p, s) {
     const target = allUsers(s).find((u) => u.openid === (p && p.openid)) || s.me;
     const updated = {};
-    ['exp', 'role', 'credit', 'real_point', 'extra_point'].forEach((k) => {
+    ['exp', 'role', 'credit', 'real_point', 'extra_point', 'display_title'].forEach((k) => {
       if (!p || typeof p[k] === 'undefined') return;
       if (k === 'role') {
         target[k] = p[k];
@@ -1508,8 +1743,11 @@ const queueFunctions = {
     const id = p && p.machine_id;
     const list = s.queues[id] || [];
     const me = list.find((q) => q.openid === ME_OPENID);
-    if (me) me.is_multi = !!(p && p.is_multi);
-    return { success: true, data: { machine_id: id, openid: ME_OPENID, is_multi: !!(p && p.is_multi) } };
+    const toMulti = !!(p && p.is_multi);
+    if (me) me.is_multi = toMulti;
+    const action = toMulti ? '切换为拼机' : '切换为单刷'
+    pushQueueLog(s, id, ME_OPENID, logText(s, ME_OPENID, action));
+    return { success: true, data: { machine_id: id, openid: ME_OPENID, is_multi: toMulti } };
   },
 
   checkUpdate(p, s) {
@@ -1520,19 +1758,22 @@ const queueFunctions = {
 
   // 拖动排序：把 from_openid 移动到 to_openid 之前（"-1" = 队尾）。
   // ⚠️ 与云端的已知差异：云端 delay 在改链表前会抢这台机台的分布式锁（machine_lock），
-  //    抢不到就报错；离线模拟层没有锁，所以「并发抢锁失败」这类问题在离线测不出来 ——
-  //    2.2.9 修的「拖动排序每次都失败」就是这种只在真机云端才暴露的 bug。
+    //    抢不到就报错；离线模拟层没有锁，所以「并发抢锁失败」这类问题在离线测不出来 ——
+    //    2.2.9 修的「拖动排序每次都失败」就是这种只在真机云端才暴露的 bug。
   Delay(p, s) {
     const id = p && p.machine_id;
     const list = s.queues[id] || [];
-    const from = list.findIndex((q) => q.openid === (p && p.from_openid));
+    const fromIdx = list.findIndex((q) => q.openid === (p && p.from_openid));
     const toOpenid = p && p.to_openid;
-    if (from < 0) return { success: false, errMsg: '未找到要移动的用户' };
-    const moved = list[from];
+    if (fromIdx < 0) return { success: false, errMsg: '未找到要移动的用户' };
+    const moved = list[fromIdx];
+    const fromPos = fromIdx + 1; // 1-based position
+    let toPos;
     if (toOpenid === '-1') {
       // 目标为队尾：排到最后
-      list.splice(from, 1);
+      list.splice(fromIdx, 1);
       list.push(moved);
+      toPos = list.length;
     } else {
       // 目标为某位玩家：排到他前面。
       // 先确认目标还在队列中再摘除，否则「目标已不在」时用户会被摘掉却插不回去。
@@ -1540,11 +1781,13 @@ const queueFunctions = {
       if (!list.some((q) => q.openid === toOpenid && q !== moved)) {
         return { success: false, errMsg: '目标用户已不在队列中，请刷新重试' };
       }
-      list.splice(from, 1);
+      list.splice(fromIdx, 1);
       const at = list.findIndex((q) => q.openid === toOpenid);
       list.splice(at, 0, moved);
+      toPos = at + 1;
     }
-    pushQueueLog(s, id, moved.openid, logText(s, moved.openid, '位置被调整'));
+    const moverName = infoOf(s, moved.openid).nickname;
+    pushQueueLog(s, id, moved.openid, `${moverName}将${moverName}从第${fromPos}位移至第${toPos}位`);
     return { success: true, data: buildQueue(s, id) };
   },
 

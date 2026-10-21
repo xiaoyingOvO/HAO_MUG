@@ -1,4 +1,6 @@
 {
-  "navigationBarTitleText": "麻将",
+  "navigationBarTitleText": "麻将战绩",
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "dark",
   "usingComponents": {}
 }

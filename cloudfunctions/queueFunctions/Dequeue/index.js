@@ -177,26 +177,22 @@ exports.main = async (event, context) => {
     },
     fail: console.error
   })
-  // 添加用户信息
-for (var i = 0 ; i < queue_record.data.length ; i++){
-  let user_record = await db.collection(db_user)
-  .where({
-  openid: queue_record.data[i].openid
-  })
-  .field({
-  openid: true,
-  avatar: true,
-  nickname: true,
-  })
-  .get({
-  success: function (res) {
-  console.log('success!!!')
-  return res
-  },
-  fail: console.error
-  })
-  queue_record.data[i].user_info = user_record.data[0]
+  // 添加用户信息（批量查询，避免 N+1）
+  const qOpenids = queue_record.data.map(q => q.openid).filter(Boolean)
+  const qUserMap = {}
+  if (qOpenids.length > 0) {
+    const chunks = []
+    for (let ci = 0; ci < qOpenids.length; ci += 100) chunks.push(qOpenids.slice(ci, ci + 100))
+    for (const chunk of chunks) {
+      const ur = await db.collection(db_user).where({
+        openid: db.command.in(chunk)
+      }).field({ openid: true, avatar: true, nickname: true }).get()
+      ur.data.forEach(u => { qUserMap[u.openid] = u })
+    }
   }
+  queue_record.data.forEach(q => {
+    q.user_info = qUserMap[q.openid] || null
+  })
   // 单链表排序
   const nodeMap = new Map()
   let headNode = null
@@ -217,7 +213,9 @@ for (var i = 0 ; i < queue_record.data.length ; i++){
   // 写队列日志数据库
   var db_log = "queue_log_" + machine_id
   console.log(db_log)
-  var content = "用户" + user_info.data[0].nickname + "于" + new Date() + "退出队列"
+  var now = new Date();
+  var timeStr = pad2(now.getHours()) + ":" + pad2(now.getMinutes()) + ":" + pad2(now.getSeconds());
+  var content = "[" + timeStr + "] " + user_info.data[0].nickname + "离开了队列"
   await db.collection(db_log).add({
     data: {
       timestamp: new Date(),
@@ -344,4 +342,8 @@ async function releaseQueueLock(params) {
 
 async function sleep(seconds) {
   return new Promise(resolve => setTimeout(resolve, seconds * 1000));
+}
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
 }

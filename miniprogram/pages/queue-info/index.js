@@ -11,6 +11,10 @@ const MULTI_PLAY_MACHINE_IDS = ['M01'];
 //   排卡板是店里多人共看的场景，别人入队、退队、上机都该马上看到，
 //   所以页面停留期间按固定间隔轮询；5 秒足够用，也不会把云函数调用量堆得太高。
 const QUEUE_POLL_INTERVAL_MS = 5000;
+// 排队数据本地缓存时间（毫秒），轮询模式下减少重复云函数请求。
+//   比轮询间隔短，确保缓存失效时下一轮能拿到最新数据。
+const QUEUE_DATA_CACHE_MS = 2000;
+let _queueCache = null // { machineId, data, ts }
 // 将后端传来的排队信息处理成前端显示的格式
 const handleQueueInfo = function(queueInfo) {
   var myOpenid = wx.getStorageSync('userInfo')?.openid || app.globalData?.userInfo?.openid
@@ -154,7 +158,7 @@ Page({
     })
 
     // 获取切换到机台的排队情况
-    return this.getMachineQueueInfo(selectedMachine.machineId).then(playlist => {
+    return this.getMachineQueueInfo(selectedMachine.machineId, true).then(playlist => {
       let enterState = this.data.enterInfo.enterState
       let myIndex = this.data.myIndex
       if (myIndex != -1 || enterState == 1) this.setData({
@@ -232,29 +236,44 @@ Page({
   },
 
   // 获取某个机台排队信息
-  async getMachineQueueInfo(machineId) {
+  //   forceRefresh=true 跳过本地缓存（用户主动操作后需要立刻看到真实结果）
+  async getMachineQueueInfo(machineId, forceRefresh) {
     this.syncQueueRealtime(machineId)   // 机台变了就换实时监听的集合
+
+    // 命中缓存（2 秒内且同一机台）→ 直接用，不再打云函数
+    if (!forceRefresh && _queueCache &&
+        _queueCache.machineId === machineId &&
+        Date.now() - _queueCache.ts < QUEUE_DATA_CACHE_MS) {
+      return Promise.resolve(this.applyQueueData(_queueCache.data))
+    }
+
     return cloudFcn.getQueueInfo(machineId).then(res => {
       if (!res.result.success) return Promise.reject(res)
-      var {playlist, myIndex} = handleQueueInfo(res.result.data)
-      var maxPlayer = this.data.selectedMachine.maxPlayer || 1
-      var { playingList, waitingList } = buildPlayingList(playlist, maxPlayer)
-      // 队列和页面上当前的一模一样就不 setData。
-      // 自动刷新每 5 秒来一次，无脑重渲染会让卡片反复重建、看起来一闪一闪。
-      const unchanged =
-        this.data.myIndex === myIndex &&
-        queueSnapshot(this.data.waitingList) === queueSnapshot(waitingList) &&
-        queueSnapshot(this.data.playingList) === queueSnapshot(playingList)
-      if (!unchanged) {
-        this.setData({
-          playlist,
-          myIndex,
-          playingList,
-          waitingList,
-        })
-      }
-      return playlist
+      _queueCache = { machineId, data: res.result.data, ts: Date.now() }
+      return this.applyQueueData(res.result.data)
     })
+  },
+
+  // 把云函数返回的原始队列数据套用到页面（缓存命中/网络返回共用）
+  applyQueueData(rawData) {
+    var {playlist, myIndex} = handleQueueInfo(rawData)
+    var maxPlayer = this.data.selectedMachine.maxPlayer || 1
+    var { playingList, waitingList } = buildPlayingList(playlist, maxPlayer)
+    // 队列和页面上当前的一模一样就不 setData。
+    // 自动刷新每 5 秒来一次，无脑重渲染会让卡片反复重建、看起来一闪一闪。
+    const unchanged =
+      this.data.myIndex === myIndex &&
+      queueSnapshot(this.data.waitingList) === queueSnapshot(waitingList) &&
+      queueSnapshot(this.data.playingList) === queueSnapshot(playingList)
+    if (!unchanged) {
+      this.setData({
+        playlist,
+        myIndex,
+        playingList,
+        waitingList,
+      })
+    }
+    return playlist
   },
 
   /* ============================================================
@@ -322,7 +341,7 @@ Page({
         await cloudFcn.dequeue(this.data.enterInfo.machineId)
       }
       await cloudFcn.enqueue(machineId, this.data.isMulti)
-      await this.getMachineQueueInfo(machineId)
+      await this.getMachineQueueInfo(machineId, true)
       await this.refreshEnterInfo()
       wx.showToast({ title: '已切换机台', icon: 'none' })
     } catch (err) {
@@ -337,7 +356,7 @@ Page({
     var isMulti = this.data.isMulti
     return cloudFcn.enqueue(machineId, isMulti).then(res => {
       if (!res.result.success) return Promise.reject(res)
-      return this.getMachineQueueInfo(machineId)
+      return this.getMachineQueueInfo(machineId, true)
     }).then(res => {
       return this.refreshEnterInfo()
     })
@@ -401,7 +420,7 @@ Page({
       return cloudFcn.dequeue(machineId)
     }).then(res => {
       if (!res.result.success) return Promise.reject(res)
-      return this.getMachineQueueInfo(this.data.selectedMachine.machineId)
+      return this.getMachineQueueInfo(this.data.selectedMachine.machineId, true)
     }).then(res => {
       return this.refreshEnterInfo()
     })
@@ -417,7 +436,7 @@ Page({
 
     result.then(res => {
       if (!res.result.success) return Promise.reject(res)
-      return this.getMachineQueueInfo(machineId)
+      return this.getMachineQueueInfo(machineId, true)
     }).then(res => {
       return this.refreshEnterInfo()
     }).catch(console.error)
@@ -574,7 +593,7 @@ Page({
     cloudFcn.embark(machineId, isMulti, position).then(res => {
       if (!res.result.success) return Promise.reject(res)
       wx.showToast({ title: '上机成功', icon: 'none' })
-      return this.getMachineQueueInfo(machineId)
+      return this.getMachineQueueInfo(machineId, true)
     }).then(() => {
       return this.refreshEnterInfo()
     }).catch(err => {
@@ -622,7 +641,7 @@ Page({
           .then(res => {
             if (!res.result.success) return Promise.reject(res)
             wx.showToast({ title: '已调整顺序', icon: 'none' })
-            return this.getMachineQueueInfo(machineId)
+            return this.getMachineQueueInfo(machineId, true)
           })
           .catch(err => {
             // 把云函数给的原因显示出来。
@@ -633,7 +652,7 @@ Page({
             // 失败时也要按后端的真实顺序校准一次：
             // 这次拖动没成功，本地这份列表不一定和后端链表一致，
             // 不校准的话界面和后端就会分叉，之后照着界面拖也拖不对。
-            return this.getMachineQueueInfo(machineId)
+            return this.getMachineQueueInfo(machineId, true)
           })
       })
   },
@@ -720,12 +739,18 @@ Page({
       queueErrorText: 'loading',
       enqueueButtonText: '加载中...',
     })
+    // 预热机台列表（与入店状态并行），后面 ensureMachineForArea / 切机台能直接命中缓存，
+    // 省掉一次串行等待。getMachineInfo 内部已带缓存与写回，这里失败也不影响主流程。
+    const machineInfoPromise = this.getMachineInfo().catch((e) => {
+      console.warn('预热机台列表失败', e)
+    })
     this.refreshEnterInfo().then(async enterInfo => {
+      // 等机台列表预热完成（通常它和 getEnterInfo 同时返回，几乎不增加等待）
+      await machineInfoPromise
       // 先把机台切到「本区域」的（桌游区 → 日麻），再做下面的校验，
       // 否则桌游区用户会因为 selectedMachine 还是音游机台而被误判为跨区排卡
       await this.ensureMachineForArea(enterInfo.area)
       var enterState = enterInfo.enterState
-      var point = enterInfo.realPoint + enterInfo.extraPoint
       var machineId = enterInfo.machineId
 
       // 报错信息
@@ -752,32 +777,9 @@ Page({
         })
       }
 
-      // 余额判断：拿「当前应扣点数」和余额比较，而不是只看余额是否为 0。
-      //   持有免单优惠卡时应扣点数为 0，所以余额为 0 也能正常排卡
-      //   （对齐云函数 Enqueue / Embark 的 `remain_need > remain_total` 判定）。
-      var needPoint = 0
-      try {
-        const cp = await cloudFcn.getConsumePoint()
-        if (cp.result && cp.result.success) needPoint = cp.result.data.points || 0
-      } catch (e) {
-        console.warn('获取已消费点数失败，按 0 处理', e)
-      }
-
-      // 费用扣成负数：只提醒，不把人从队列里踢出去。
-      //   已经在队列里（enterState 2 / 3）→ 保持「退队」按钮可用，只显示红字提醒；
-      //   还没排队（enterState 1）        → 阻止新入队（入队本身仍有余额门槛）。
-      const overdraft = needPoint > point
-      this.setData({
-        overdraft,
-        overdraftShortage: overdraft ? Number((needPoint - point).toFixed(2)) : 0
-      })
-      if (overdraft && enterState == 1) {   // 尚未排队才阻止入队
-        return this.setData({
-          checkQueueError: true,
-          queueErrorText: '余额不足，请充值',
-          enqueueButtonText: '余额不足'
-        })
-      }
+      // 余额透支判断：从关键路径里拆出来异步做，不阻塞排卡板主体内容先显示。
+      //   拿到入店状态后立刻放行渲染机台+队列，透支红字随后算好再补上。
+      this.updateOverdraft(enterInfo)
 
       if (enterState == 1) {  // 用户休息中
         return this.getMachineInfo().then(res => {
@@ -800,6 +802,32 @@ Page({
       }
       else return Promise.reject(res)
     }).catch(console.error)
+  },
+
+  // 异步计算透支状态（余额 vs 当前应扣点数），不阻塞主流程
+  async updateOverdraft(enterInfo) {
+    const point = enterInfo.realPoint + enterInfo.extraPoint
+    let needPoint = 0
+    try {
+      const cp = await cloudFcn.getConsumePoint()
+      if (cp.result && cp.result.success) needPoint = cp.result.data.points || 0
+    } catch (e) {
+      console.warn('获取已消费点数失败，按 0 处理', e)
+    }
+    // 费用扣成负数：只提醒，不把人从队列里踢出去。
+    const overdraft = needPoint > point
+    this.setData({
+      overdraft,
+      overdraftShortage: overdraft ? Number((needPoint - point).toFixed(2)) : 0
+    })
+    // 余额不足且尚未排队（enterState 1）时阻止新入队
+    if (overdraft && enterInfo.enterState == 1) {
+      this.setData({
+        checkQueueError: true,
+        queueErrorText: '余额不足，请充值',
+        enqueueButtonText: '余额不足'
+      })
+    }
   },
 
   // 刷新用户排队状态
@@ -932,9 +960,6 @@ Page({
    * 生命周期函数--监听页面初次渲染完成
    */
   onReady() {
-    //获取自定义组件中的'计算自定义导航栏高度'方法
-    var calNavigationBarHeight = this.selectComponent('#custom-navi').calNavigationBarHeight
-    this.calNavigationBarHeight = calNavigationBarHeight
     // 获取所有机器信息
     this.getMachineInfo().catch(console.error)
   },
