@@ -7,6 +7,10 @@ const app = getApp()
 //   所以游玩区那句「点击座位可切换 拼机 / 单刷」的提示也只给官机显示。
 //   以后若新增可拼机的机台，把它的 machineId 加进来即可。
 const MULTI_PLAY_MACHINE_IDS = ['M01'];
+// 排队信息自动刷新间隔（毫秒）。
+//   排卡板是店里多人共看的场景，别人入队、退队、上机都该马上看到，
+//   所以页面停留期间按固定间隔轮询；5 秒足够用，也不会把云函数调用量堆得太高。
+const QUEUE_POLL_INTERVAL_MS = 5000;
 // 将后端传来的排队信息处理成前端显示的格式
 const handleQueueInfo = function(queueInfo) {
   var myOpenid = wx.getStorageSync('userInfo')?.openid || app.globalData?.userInfo?.openid
@@ -55,6 +59,9 @@ function buildPlayingList(playlist, maxPlayer) {
   }
   return { playingList, waitingList }
 }
+
+// 把列表压成字符串用于比对：顺序、人物、头像、昵称、拼机状态任何一项变了都算「变了」
+const queueSnapshot = (list) => JSON.stringify(list || [])
 
 // 随手写的一重试函数
 // promise参数必须为一个返回值为Promise的函数
@@ -214,12 +221,20 @@ Page({
       var {playlist, myIndex} = handleQueueInfo(res.result.data)
       var maxPlayer = this.data.selectedMachine.maxPlayer || 1
       var { playingList, waitingList } = buildPlayingList(playlist, maxPlayer)
-      this.setData({
-        playlist,
-        myIndex,
-        playingList,
-        waitingList,
-      })
+      // 队列和页面上当前的一模一样就不 setData。
+      // 自动刷新每 5 秒来一次，无脑重渲染会让卡片反复重建、看起来一闪一闪。
+      const unchanged =
+        this.data.myIndex === myIndex &&
+        queueSnapshot(this.data.waitingList) === queueSnapshot(waitingList) &&
+        queueSnapshot(this.data.playingList) === queueSnapshot(playingList)
+      if (!unchanged) {
+        this.setData({
+          playlist,
+          myIndex,
+          playingList,
+          waitingList,
+        })
+      }
       return playlist
     })
   },
@@ -851,6 +866,8 @@ Page({
     // this.checkLoginState();
     this._dragSeq = 0      // 拖拽会话号，见 dragStart / resetDragState
     this._lastMoveTs = 0   // dragMove 的节流时间戳
+    this._queuePollTimer = null   // 排队信息自动刷新的定时器
+    this._pollInFlight = false    // 上一轮自动刷新是否还没返回
   },
 
   /**
@@ -869,36 +886,66 @@ Page({
    */
   onShow() {
     this.checkQueueInfo()
+    // 进页面就开始自动刷新（离开页面时在 onHide / onUnload 里停掉）
+    this.startQueuePolling()
   },
 
   /**
    * 生命周期函数--监听页面隐藏
    */
   onHide() {
+    this.stopQueuePolling()
     // 拖到一半切后台 / 息屏时 touchend 可能不触发，克隆卡和「被隐藏的原卡」会留在页面上，
     // 看起来就像卡片变成了两张。这里补一次收尾。
     if (this.data.showDragClone) this.resetDragState()
+  },
+
+  /* ===== 排队信息自动刷新 =====
+     checkQueueInfo 会先把页面打成 loading 态，只适合进页面时用一次；
+     这里改用只读的 getMachineQueueInfo 静默轮询。 */
+  startQueuePolling() {
+    this.stopQueuePolling()   // 先清一次，避免重复进页面留下两个定时器
+    this._queuePollTimer = setInterval(() => {
+      this.pollQueueInfo()
+    }, QUEUE_POLL_INTERVAL_MS)
+  },
+
+  stopQueuePolling() {
+    if (this._queuePollTimer) {
+      clearInterval(this._queuePollTimer)
+      this._queuePollTimer = null
+    }
+  },
+
+  async pollQueueInfo() {
+    // 正在拖卡时不刷新：列表被重建会把拖到一半的卡弹回原位
+    if (this.data.showDragClone) return
+    // 上一轮还没回来就跳过这一轮，网络慢时不让请求堆积
+    if (this._pollInFlight) return
+    // 未登录不轮询（handleQueueInfo 取不到 openid 会弹提示，轮询起来就是刷屏）
+    const myOpenid = wx.getStorageSync('userInfo')?.openid || app.globalData?.userInfo?.openid
+    if (!myOpenid) return
+    const machine = this.data.selectedMachine
+    if (!machine || !machine.machineId) return
+
+    this._pollInFlight = true
+    try {
+      await this.getMachineQueueInfo(machine.machineId)
+    } catch (e) {
+      // 自动刷新失败不弹提示：网络抖一下不该打断用户，下一轮会自己重试
+      // （用户主动操作触发的刷新仍然走原来的报错逻辑）
+      console.error('排队信息自动刷新失败', e)
+    } finally {
+      this._pollInFlight = false
+    }
   },
 
   /**
    * 生命周期函数--监听页面卸载
    */
   onUnload() {
+    this.stopQueuePolling()
     if (this.data.showDragClone) this.resetDragState()
-  },
-
-  /**
-   * 页面相关事件处理函数--监听用户下拉动作
-   */
-  onPullDownRefresh() {
-
-  },
-
-  /**
-   * 页面上拉触底事件的处理函数
-   */
-  onReachBottom() {
-
   },
 
   /**
