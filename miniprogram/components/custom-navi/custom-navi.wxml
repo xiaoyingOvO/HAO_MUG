@@ -1,0 +1,11 @@
+<!--components/custom-navi/custom-navi.wxml-->
+<view style="height: {{navigationBarHeight}};" class="navigation-bar">
+  <view style="height: {{statusBarHeight}};" class="status-bar"></view>
+  <view class="navigation-container">
+    <view class="slot"><slot></slot></view>
+    <view class="natigation-title">{{title}}</view>
+    <view style="width: 10px;height: {{menuButtonHeight}};" class="menu-button"></view>
+  </view>
+</view>
+<!-- 占位 -->
+<view style="height: {{navigationBarHeight}};" ></view>

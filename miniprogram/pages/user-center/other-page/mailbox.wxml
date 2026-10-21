@@ -1,0 +1,95 @@
+<!-- pages/mailbox/index.wxml -->
+<view class="container mailbox-page">
+  <!-- 筛选栏 -->
+  <view class="filter-bar card">
+    <view class="filter-options">
+      <!-- 类型筛选器 -->
+      <view class="filter-picker-wrapper">
+        <view class="filter-picker" bindtap="toggleFilterOptions" data-field="type">
+          <text>{{typeOptions[filterTypeIndex].label}}</text>
+          <image class="arrow-icon {{showTypeOptions ? 'expanded' : ''}}" src="/images/icons/arrow-down.png"></image>
+        </view>
+        <!-- 类型下拉菜单 -->
+        <view class="filter-dropdown {{showTypeOptions ? 'show' : ''}}">
+          <view class="dropdown-item {{index === filterTypeIndex ? 'active' : ''}}" wx:for="{{typeOptions}}" wx:key="value" bindtap="onFilterChange" data-field="type" data-index="{{index}}">{{item.label}}</view>
+        </view>
+      </view>
+
+      <!-- 状态筛选器 -->
+      <view class="filter-picker-wrapper">
+        <view class="filter-picker" bindtap="toggleFilterOptions" data-field="status">
+          <text>{{statusOptions[filterStatusIndex].label}}</text>
+          <image class="arrow-icon {{showStatusOptions ? 'expanded' : ''}}" src="/images/icons/arrow-down.png"></image>
+        </view>
+        <!-- 状态下拉菜单 -->
+        <view class="filter-dropdown {{showStatusOptions ? 'show' : ''}}">
+          <view class="dropdown-item {{index === filterStatusIndex ? 'active' : ''}}" wx:for="{{statusOptions}}" wx:key="value" bindtap="onFilterChange" data-field="status" data-index="{{index}}">{{item.label}}</view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 清除筛选按钮 -->
+    <view class="clear-filter-btn" bindtap="clearFilters" wx:if="{{isFiltered}}">清除筛选</view>
+  </view>
+  <!-- 点击外部关闭的透明遮罩 -->
+  <view class="dropdown-close-mask" wx:if="{{showTypeOptions || showStatusOptions}}" bindtap="closeAllDropdowns"></view>
+
+  <!-- 邮件列表 -->
+  <scroll-view scroll-y class="message-list-scroll" bindscrolltolower="onReachBottom" refresher-enabled="{{true}}" bindrefresherrefresh="onPullDownRefresh" refresher-triggered="{{isRefreshing}}">
+    <!-- 加载占位 -->
+    <view class="loading-container" wx:if="{{isLoading}}">
+      <text>正在收取信件...</text>
+    </view>
+
+    <!-- 列表 -->
+    <block wx:if="{{!isLoading && filteredMessageList.length > 0}}">
+      <view class="message-item {{item.isRead ? 'read' : 'unread'}} {{item.type === 'announcement' ? 'announcement' : ''}}" wx:for="{{filteredMessageList}}" wx:key="_id" bindtap="showMessageDetail" data-index="{{index}}">
+        <view class="status-icon">
+          <view class="unread-dot" wx:if="{{!item.isRead}}"></view>
+          <image class="type-icon" src="{{item.type === 'announcement' ? '/images/icons/notice.png' : '/images/icons/letter.png'}}" mode="aspectFit"></image>
+        </view>
+        <view class="header-info">
+          <text class="message-title">{{item.title || (item.type === 'announcement' ? '系统公告' : '系统消息')}}</text>
+          <text class="message-time">{{item.formattedTime}}</text>
+        </view>
+        <view class="view-detail-arrow">›</view>
+      </view>
+    </block>
+
+    <!-- 空状态 -->
+    <view class="empty-container" wx:if="{{!isLoading && filteredMessageList.length === 0}}">
+      <image class="empty-icon" src="/images/icons/empty-mailbox.png" mode="aspectFit"></image>
+      <text class="empty-text">没有符合条件的邮件</text>
+    </view>
+
+    <!-- 加载更多提示 -->
+    <!-- <view class="list-footer-status" wx:if="{{!isLoading && messageList.length > 0}}">
+      <text wx:if="{{isLoadingMore}}">正在加载更多...</text>
+      <text wx:elif="{{!hasMore}}">没有更多消息了</text>
+    </view> -->
+  </scroll-view>
+
+  <!-- 邮件详情视图 -->
+  <view class="detail-view-wrapper {{showDetailView ? 'show' : ''}}">
+    <view class="detail-view-mask" bindtap="hideMessageDetail"></view> <!-- 点击蒙层关闭 -->
+    <view class="detail-view-content card">
+      <view class="detail-header">
+        <view class="back-btn" bindtap="hideMessageDetail">
+          <image src="/images/icons/arrow-left.png" mode="aspectFit"></image>
+          返回列表
+        </view>
+      </view>
+      <scroll-view scroll-y class="detail-scroll-content" wx:if="{{selectedMessage}}">
+        <view class="message-title-detail">{{selectedMessage.title || (selectedMessage.type === 'announcement' ? '系统公告' : '系统消息')}}</view>
+        <view class="message-meta">
+          <text>发件人: {{selectedMessage.sender === 'admin' || selectedMessage.type === 'announcement' ? '系统' : '管理员'}}</text>
+          <text>时间: {{selectedMessage.formattedTimeDetail}}</text>
+        </view>
+        <view class="message-body">
+          <text decode="{{true}}">{{selectedMessage.content_formatted}}</text>
+        </view>
+      </scroll-view>
+    </view>
+  </view>
+
+</view>

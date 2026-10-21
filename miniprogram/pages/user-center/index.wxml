@@ -1,0 +1,130 @@
+<!-- pages/user-center/index.wxml -->
+<view class="container user-center-page"> <!-- 添加页面特定类名 -->
+
+  <!-- 头部用户信息卡片 -->
+  <view class="user-card card card--header animation-slide-down">
+    <view class="user-card__content {{ (currentLevel >= 4) ? 'glowing-effect glowing-effect--' + currentLevel : '' }}">
+      <!-- 头像 -->
+      <image class="user-card__avatar" src="{{userInfo.avatar || '/images/default-avatar.png'}}" mode="aspectFill" style="border-color: {{highlightColor}};" /> 
+      <!-- 用户信息区域 -->
+      <view class="user-card__info">
+        <!-- 昵称和等级 -->
+        <view class="user-card__name-section">
+          <text class="user-card__nickname">{{userInfo.nickname || '纱露朵'}}</text>
+          <text class="user-card_level user-card_level--{{currentLevel}}">Level {{currentLevel}}</text>            
+
+          <!-- <text class="user-card__level-badge">{{userInfo.level}}</text> -->
+        </view>
+        <!-- QQ号 -->
+        <text class="user-card__detail">QQ号：{{userInfo.qq_id || '未绑定'}}</text>
+        <!-- 经验条 -->
+        <view clss="user-user-card__exp-section">
+          <view class="exp-bar__container {{isMaxLevel ? 'is-max-level' : ''}}">
+            <view class="exp-bar__progress" style="--progress-width: {{expProgress}}%; --progress-bg-color: {{progressBarColor}}; --progress-glow-color:{{progressBarColor}}; --progress-gradient:{{progressGradient}};" ></view>
+          </view>
+          <view class="user-card__exp-info">
+            <text class="user-card__exp-text" style="color: {{highlightColor}}; font-weight: 600;">Exp: {{displayExp || 0}}</text>
+            <text class="user-card__exp-text exp-text--next" style="--next-level-glow-color: {{nextLevelColor}};">下一级：{{nextLevelExp === 'MAX' ? 'MAX' : nextLevelExp}}</text>
+          </view>
+        </view>
+        <!-- 当前状态 -->
+        <view class="user-card__status">
+          <text>当前状态：</text>
+          <text class="user-card__status-text user-card__status-text--{{stateClass}}">{{stateText}}</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 统计与操作卡片 -->
+  <view class="stats-card card animation-slide-up" style="animation-delay: 0.1s;">
+    <view class="stats-card__content">
+      <!-- 信用等级 -->
+      <view class="stats-card__item stats-card__item--credit">
+        <view class="stats-card__value-display">
+          <text class="stats-card__main-value stats-card__main-value--credit-{{creditLevel}}">{{creditLevel || '-'}}</text>
+          <!-- 信用信息图标 -->
+          <image class="stats-card__info-icon" src="/images/icons/info-icon.png" catch:tap="showCreditTip" />
+        </view>
+        <text class="stats-card__label">信用等级</text>
+      </view>
+      <!-- 账户余额 -->
+      <view class="stats-card__item stats-card__item--balance">
+        <view class="stats-card__value-display">
+          <text class="stats-card__main-value stats-card__main-value--balance">{{displayBalance}}</text>
+          <text class="stats-card__unit">点</text>
+        </view>
+        <text class="stats-card__label">账户余额</text>
+      </view>
+    </view>
+    <!-- 操作按钮组 -->
+    <view class="stats-card__actions vertical-layout">
+      <button class="action-button primary-button large-button" bindtap="toRecharge">
+        充值点数
+      </button>
+      <view class="secondary-actions">
+        <button class="action-button secondary-button transfer-button" bindtap="toTransferPoints">
+          <image class="action-button__icon" src="/images/icons/transfer.png"></image>
+          点数转移
+        </button>
+        <button class="action-button secondary-button card-button" bindtap="toCard">
+          <image class="action-button__icon" src="/images/icons/card1.png"></image>
+          优惠卡
+        </button>
+      </view>
+    </view>
+  </view>
+
+  <!-- 导航卡片 - 记录 -->
+  <view class="nav-card card animation-slide-up" style="animation-delay: 0.2s;">
+     <view class="nav-card__title">常用记录</view>
+     <view class="nav-card__actions">
+       <button class="nav-button" bindtap="toAttendance">
+         <image class="nav-button__icon" src="/images/icons/attendance.png" mode="aspectFit" /> 出勤记录
+       </button>
+       <button class="nav-button" bindtap="toReserve">
+         <image class="nav-button__icon" src="/images/icons/reserve.png" mode="aspectFit" /> 预约记录
+       </button>
+     </view>
+  </view>
+
+  <!-- 导航卡片 - 功能 -->
+  <view class="nav-card card animation-slide-up" style="animation-delay: 0.3s;">
+     <view class="nav-card__title">更多功能</view>
+     <!-- 使用 --wrap 让按钮自动换行 -->
+     <view class="nav-card__actions nav-card__actions--wrap">
+       <button class="nav-button nav-button--secondary" bindtap="toMailbox">
+         <image class="nav-button__icon" src="/images/icons/mailbox.png" mode="aspectFit" /> 
+         <view class="badge" wx:if="{{unreadCount > 0}}">{{unreadCount > 99 ? '99+' : unreadCount}}</view>
+         信箱
+       </button>
+       <button class="nav-button nav-button--secondary" bindtap="toMembership">
+         <image class="nav-button__icon" src="/images/icons/membership.png" mode="aspectFit" /> 会员/信用须知
+       </button>
+       <button class="nav-button nav-button--secondary" bindtap="toFeedback">
+         <image class="nav-button__icon" src="/images/icons/feedback.png" mode="aspectFit" /> 意见反馈
+       </button>
+     </view>
+  </view>
+
+  <!-- 管理页面入口 -->
+  <view class="admin-entry-container" wx:if="{{userInfo.role === 'admin' || userInfo.role === 'master'}}">
+    <view class="divider"></view>
+    <button class="admin-entry-btn" bindtap="navigateToAdmin">
+      <image class="btn-icon" src="/images/icons/admin-line.png"></image>
+      <text>进入管理后台</text>
+    </button>
+  </view>
+
+  <!-- 登录按钮 -->
+  <!-- <view class="login-card card animation-slide-up" wx:if="{{!userInfo || !userInfo.openid}}" style="animation-delay: 0.4s">
+    <view class="login-card__actions">
+      <button class="login-btn" bindtap="navigateToLogin">
+      登录/注册
+      </button>
+    </view>
+  </view> -->
+
+</view>
+
+<login-fab />

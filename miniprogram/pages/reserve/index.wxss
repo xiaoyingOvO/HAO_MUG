@@ -1,0 +1,345 @@
+/* 容器样式 */
+.container {
+    padding: 20rpx 0rpx 60rpx;
+    background: #f4f7f9;
+    min-height: 100vh;
+    box-sizing: border-box;
+  }
+
+  .card {
+    width: 95%;
+    margin: 30rpx auto;
+    background-color: #ffffff;
+    border-radius: 24rpx;
+    box-shadow: 0 8rpx 30rpx rgba(0, 0, 0, 0.07);
+    overflow: hidden;
+    animation: slide-up 0.5s ease-out forwards;
+  }
+  @keyframes slide-up {
+    from { opacity: 0; transform: translateY(20px) }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .card-content {
+    padding: 30rpx;
+  }
+
+  .card-title {
+    position: relative;
+    font-size: 32rpx;
+    font-weight: 600;
+    color: #2c3e50;
+    padding: 25rpx 30rpx 25rpx 45rpx;
+    border-bottom: 1rpx solid #f0f2f5;
+    display: flex;
+    align-items: center;
+  }
+  .card-title::before {
+    content: '';
+    position: absolute;
+    left: 20rpx;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 8rpx;
+    height: 30rpx;
+    background: linear-gradient(135deg, #66a6ff, #89f7fe);
+    border-radius: 4rpx;
+  }
+  
+
+  /* 日期选择区域 */
+  .date-scroll {
+    width: 100%;
+    margin-bottom: 10rpx;
+    overflow: visible;
+    /* background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-radius: 16rpx;
+    box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.08); */
+  }
+  
+  .date-buttons {
+    display: flex;
+    padding: 20rpx 20rpx 0;
+  }
+  
+  .date-btn {
+    flex-shrink: 0;
+    width: 150rpx;
+    padding: 20rpx 15rpx;
+    margin: 0 10rpx;
+    border-radius: 16rpx;
+    text-align: center;
+    background: #ffffff;
+    box-shadow: 0 6rpx 18rpx rgba(0, 0, 0, 0.06);
+    transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+    border: 2rpx solid transparent;
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .date-btn.active {
+    /* background: #4a90e2; */
+    color: white;
+    transform: translateY(-4rpx) scale(1.05);
+    box-shadow: 0 10rpx 25rpx rgba(74, 144, 226, 0.3);
+    border-color: #4a90e2;
+  }
+  .date-btn.active::before {
+    content:'';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 16rpx;
+    background: linear-gradient(135deg, #4facfe, #00f2fe);
+    z-index: -1;
+  }
+
+  .date-btn .weekday {
+    display: block;
+    font-size: 28rpx;
+    font-weight: 500;
+    color: inherit;
+  }
+
+  .date-btn .date {
+    display: block;
+    font-size: 24rpx;
+    margin-top: 6rpx;
+    color: inherit;
+    opacity: 0.8;
+  }
+  
+  
+  /* 用户信息 */
+  .reserve-card .card-title {
+    justify-content: space-between;
+  }
+  .reserve-card .card-title text {
+    flex-shrink: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin-right: 15rpx;
+  }
+  .credit-badge {
+    flex-shrink: 0;
+    font-size: 24rpx;
+    font-weight: 500;
+    padding: 6rpx 16rpx;
+    border-radius: 20rpx;
+    background-color: #e9ecef;
+    color: #6c757d;
+  }
+
+  /* 信用等级颜色类 */
+  .credit-S { color: #FFD700; background-color: rgba(255, 215, 0, 0.1); border: 1rpx solid #FFD700;} /* 金色 */
+  .credit-A { color: #52C41A; background-color: rgba(82, 196, 26, 0.1); border: 1rpx solid #52C41A;} /* 绿色 */
+  .credit-B { color: #1890FF; background-color: rgba(24, 144, 255, 0.1); border: 1rpx solid #1890FF;} /* 蓝色 */
+  .credit-C { color: #FF4949; background-color: rgba(255, 73, 73, 0.1); border: 1rpx solid #FF4949;} /* 红色 */
+  
+  
+  .info-row {
+    display: flex;
+    justify-content: space-around;
+    margin-bottom: 45rpx;
+    padding: 30rpx 15rpx;
+    background: linear-gradient(135deg, #f5f7fa 0%, #e8f1f9 100%);
+    border-radius: 16rpx;
+    box-shadow: inset 0 2rpx 8rpx rgba(0, 0, 0, 0.05);
+  }
+
+  .info-item + .info-item::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 2rpx;
+    height: 60%;
+    background-image: linear-gradient(180deg, rgba(195, 207, 226, 0), rgba(195, 207, 226, 1), rgba(195, 207, 226, 0));
+  }
+  .info-item {
+    position: relative;
+  }
+
+  .info-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    flex: 1;
+  }
+
+  .info-item .label {
+    font-size: 26rpx;
+    color: #868e96;
+    margin-bottom: 10rpx;
+  }
+
+  .info-item .value {
+    font-size: 38rpx;
+    font-weight: 600;
+    color: #34495e;
+  }
+  .info-item .value.primary {
+    color: #4a90e2;
+  }
+  
+  button[type="primary"] {
+    background: linear-gradient(135deg, #5baff0 0%, #3a8ce0 100%);
+    border-radius: 50rpx;
+    font-size: 32rpx;
+    height: 92rpx;
+    /* line-height: 92rpx; */
+    box-shadow: 0 8rpx 20rpx rgba(58, 140, 224, 0.25);
+    transition: all 0.3s ease;
+    border: none;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s ease,
+                box-shadow 0.2s ease,
+                transform 0.1s ease-out;
+  }
+  button[type="primary"]::after {
+    border: none;
+  }
+  button[type="primary"]:active {
+    background: linear-gradient(135deg, #3a8ce0 0%, #2e6cb1 100%);
+    box-shadow: 0 4rpx 10rpx rgba(58, 140, 224, 0.35);
+    transform: scale(0.98);
+  }
+  
+  button[type="primary"][disabled] {
+    background: linear-gradient(135deg, #d8dde2 0%, #c1c8ce 100%);
+    box-shadow: none;
+    color: #ffffff;
+    opacity: 0.7;
+  }
+  
+  /* 状态提示 */
+  .qualification-tip {
+    font-size: 24rpx;
+    text-align: center;
+    margin-top: 20rpx;
+    padding: 10rpx;
+    border-radius: 8rpx;
+  }
+
+  
+/* 说明区域 */
+.reserve-notice {
+    display: flex;
+    align-items: flex-start;
+    background-color: #fff7e6; 
+    border-radius: 12rpx;
+    padding: 20rpx 25rpx;
+    margin-top: 10rpx;
+    margin-bottom: 10rpx;
+    border: 1rpx solid #ffe5b3;
+    width: 87%;
+  }
+  
+  .notice-icon {
+    width: 36rpx;
+    height: 36rpx;
+    margin-right: 15rpx;
+    flex-shrink: 0;
+    /* margin-top: 4rpx; */
+  }
+  /* .notice-icon image {
+      width: 100%;
+      height: 100%;
+      display: block;
+  } */
+  
+  .notice-content {
+    font-size: 26rpx;
+    color: #8c6d3f; 
+    line-height: 1.6;
+    flex: 1;
+  }
+
+  .notice-line {
+      display: block;
+  }
+  
+  /* 强调样式 */
+  .notice-content .highlight {
+    font-weight: 600;
+    color: #d97706;
+  }
+  
+  .notice-content .highlight.strong {
+      color: #e54d42;
+      font-size: 28rpx;
+  }
+  
+  /* 加载提示 */
+  .loading-tip {
+    text-align: center;
+    padding: 40rpx 20rpx;
+    color: #868e96;
+    font-size: 28rpx;
+  }
+  
+  /* 表格容器 */
+  .table-container {
+    /* 可以设置最大高度和滚动条，如果列表可能很长 */
+    /* max-height: 400rpx; */
+    /* overflow-y: auto; */
+  }
+  
+  /* 表格行 */
+  .table-row {
+    display: flex;
+    align-items: center;
+    padding: 20rpx 10rpx;
+    border-bottom: 1rpx solid #e9ecef;
+  }
+  .table-row:last-child {
+    border-bottom: none;
+  }
+  /* 头像样式 */
+  /*
+  .avatar {
+    width: 60rpx;
+    height: 60rpx;
+    border-radius: 50%;
+    margin-right: 20rpx;
+    background-color: #eee;
+  }
+  */
+  
+  /* 昵称列 */
+  .col-1.nickname {
+    flex: 1;
+    font-size: 28rpx;
+    color: #495057;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  
+  /* 通用空状态提示 */
+  .empty-tip {
+    text-align: center;
+    padding: 40rpx 20rpx;
+    color: #868e96;
+    font-size: 28rpx;
+    margin-top: 20rpx; /* 与列表容器保持距离 */
+  }
+
+  .card-fade {
+    transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+  }
+  .card-fade.fade-out {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  .card-fade.fade-in {
+    opacity: 1;
+    transform: translateY(0);
+  }

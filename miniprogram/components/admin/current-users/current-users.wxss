@@ -1,0 +1,85 @@
+/* components/admin/current-users/curren-users.wxss */
+.card {
+  background-color: #fff;
+  border-radius: 16rpx;
+  box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.06);
+  margin-bottom: 25rpx;
+  overflow: hidden;
+}
+
+.list-info-bar {
+  font-size: 26rpx;
+  color: #666;
+  padding: 0 10rpx 25rpx;
+}
+
+.empty-tip {
+  text-align: center;
+  padding: 100rpx 0;
+  color: #999;
+}
+.empty-icon {
+  width: 120rpx;
+  height: 120rpx;
+  display: block;
+  margin: 0 auto 20rpx;
+  opacity: 0.7;
+}
+
+.user-item {
+  display: flex;
+  align-items: center;
+  padding: 30rpx;
+}
+
+.user-avatar {
+  width: 90rpx;
+  height: 90rpx;
+  border-radius: 50%;
+  margin-right: 25rpx;
+  background-color: #f0f0f0;
+}
+
+.user-info {
+  flex: 1;
+  min-width: 0;
+}
+.user-nickname {
+  font-size: 30rpx;
+  color: #333;
+  font-weight: 500;
+  margin-bottom: 8rpx;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.user-status {
+  font-size: 24rpx;
+  color: #666;
+}
+.status-text { font-weight: bold; }
+.status-text-1 { color: #1989fa; }  /* 休息中 */
+.status-text-2 { color: #ff976a; }  /* 候机中 */
+.status-text-3 { color: #07c160; }  /* 游玩中 */
+
+.action-btn.kick {
+  background-color: #ee0a24;
+  color: white;
+  border: none;
+  font-size: 26rpx;
+  padding: 10rpx 20rpx;
+  line-height: normal;
+  border-radius: 8rpx;
+  margin-left: 20rpx;
+}
+.action-btn.kick.disabled {
+  background-color: #f7d4d8;
+}
+.action-btn.kick::after { border: none; }
+
+.list-footer-status {
+  text-align: center;
+  color: #999;
+  font-size: 24rpx;
+  padding: 20rpx 0;
+}

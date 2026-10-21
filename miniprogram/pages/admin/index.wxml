@@ -1,0 +1,49 @@
+<!--pages/admin/index.wxml-->
+<view class="container admin-dashboard">
+  <!-- 管理员信息 -->
+  <view class="panel admin-info-panel">
+    <view class="admin-header">
+      <image class="admin-avatar" src="{{adminInfo.avatar || '/images/default-avatar.png'}}" mode="aspectFill"></image>
+      <view class="admin-info-text">
+        <view class="admin-nickname">{{adminInfo.nickname || '管理员'}}</view>
+        <view class="admin-role {{adminInfo.role ==='master' ? 'master' : ''}}">{{adminInfo.roleText}}</view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 营业状态 -->
+  <view 
+    class="panel status-card {{isStoreOpen ? 'open' : 'closed'}}" 
+    bindtap="toggleStoreStatus"
+  >
+    <view class="status-content">
+      <image class="status-icon" src="{{isStoreOpen ? '/images/icons/store-open.png' : '/images/icons/store-closed.png'}}" mode="aspectFit"></image>
+      <view class="status-text-wrapper">
+        <view class="status-main-text">{{isStoreOpen ? '店铺营业中' : '店铺已打烊'}}</view>
+        <view class="status-sub-text">点击切换状态</view>
+      </view>
+    </view>
+    <switch class="status-switch" checked="{{isStoreOpen}}" disabled color="#FFFFFF"></switch>
+  </view>
+
+  <!-- 管理功能网格 -->
+  <view class="panel function-grid-panel">
+    <view class="panel-title">管理功能</view>
+    <view class="grid-view" wx:if="{{availableModules.length > 0}}">
+      <view
+        class="grid-item"
+        wx:for="{{availableModules}}"
+        wx:key="key"
+        bindtap="navigateToModule"
+        data-module-key="{{item.key}}"
+        hover-class="grid-item-hover"
+      >
+        <view class="grid-item-icon-wrapper">
+          <image wx:if="{{item.icon}}" class="item-icon" src="{{item.icon}}" mode="aspectFit"></image>
+        </view>
+        <text class="item-text">{{item.name}}</text>
+      </view>
+    </view>
+    <view class="empty-tip" wx:else>无可用的管理模块</view>
+  </view>
+</view>

@@ -1,0 +1,30 @@
+<!--components/faq-modal/faq-modal.wxml-->
+<view class="modal-wrapper" wx:if="{{show}}">
+  <view class="modal-mask" bind:tap="onMaskTap"></view>
+
+    <view class="modal-container">
+      <view class="modal-title">{{title}}</view>
+    
+      <scroll-view scroll-y class="modal-content-scroll">
+        <view class="faq-list">
+          <view class="faq-item {{item.isOpened ? 'opened' : ''}}" wx:for="{{_faqList}}" wx:key="index">
+
+            <view class="faq-question" bindtap="toggleFaqItem" data-index="{{index}}">
+                <text>{{item.q}}</text>
+                <view class="arrow"></view>
+            </view>
+            <view class="faq-answer" wx:if="{{item.isOpened}}">
+              <!-- 渲染文本答案，需要处理换行 -->
+              <text wx:if="{{item.a}}" decode="{{true}}">{{item.a_formatted}}</text>
+              <!-- 渲染图片 -->
+              <image wx:if="{{item.p}}" src="{{item.p}}" class="faq-image" mode="widthFix" show-menu-by-longpress></image>
+            </view>
+          </view>
+        </view>
+      </scroll-view>
+
+    <view class="modal-footer">
+      <button class="confirm-button" bindtap="onConfirm">我已阅读并同意</button>
+    </view>
+  </view>
+</view>

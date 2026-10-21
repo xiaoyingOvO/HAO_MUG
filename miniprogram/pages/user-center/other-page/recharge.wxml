@@ -1,0 +1,53 @@
+<!--pages/user-center/other-page/recharge.wxml-->
+<view class="container recharge-page">
+  <!-- <view class="header-decoration"></view> -->
+
+  <view class="content-wrapper animation-fade-in">
+    <!-- 输入区域卡片 -->
+    <view class="input-card card">
+      <view class="card-title">充值点数</view>
+      <view class="amount-input-group">
+          <input
+            class="amount-input"
+            type="digit"
+            value="{{rechargeAmountInput}}"
+            bindinput="handleAmountInput"
+            placeholder="0.00"
+            placeholder-class="input-placeholder"
+          />
+          <text class="currency-unit">点</text> <!-- 添加单位 -->
+      </view>
+      <view class="hint-wrapper" animation="{{pointAnim}}">
+         <image class="gift-icon" src="/images/icons/gift.png" mode="aspectFit"/> <!-- 添加小图标 -->
+         <text class="hint-text">赠送 {{extraPointDisplay}} 点</text>
+      </view>
+    </view>
+
+    <!-- 充值按钮 -->
+    <button
+      class="recharge-btn primary-button animation-pulse"
+      bindtap="handleRecharge"
+      disabled="{{!rechargeAmount || rechargeAmount <= 0 || isRecharging}}"
+      loading="{{isRecharging}}"
+    >
+      {{isRecharging ? '' : (rechargeAmount && rechargeAmount > 0 ? '立即充值 ' : '请输入金额')}}
+    </button>
+
+     <!-- 提示信息 (可选) -->
+     <view class="footer-tip">
+         <text>温馨提示：1元 = 1点</text>
+     </view>
+  </view>
+
+  <!-- 背景粒子效果 -->
+  <canvas
+    type="2d"
+    id="particle-canvas"
+    class="particle-canvas"
+    style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: -2;"
+  ></canvas>
+
+  <!-- 背景渐变 -->
+  <view class="background-gradient"></view>
+
+</view>

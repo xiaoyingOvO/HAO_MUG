@@ -1,0 +1,13 @@
+{
+  "usingComponents": {
+    "current-users": "/components/admin/current-users/current-users",
+    "user-manage": "/components/admin/user-manage/user-manage",
+    "arcade-query": "/components/admin/arcade-query/arcade-query",
+    "recharge-query": "/components/admin/recharge-query/recharge-query",
+    "send-mail": "/components/admin/send-mail/send-mail",
+    "door-query": "/components/admin/door-query/door-query",
+    "report-processing": "/components/admin/report-processing/report-processing"
+  },
+  "enablePullDownRefresh": true,
+  "backgroundTextStyle": "dark"
+}

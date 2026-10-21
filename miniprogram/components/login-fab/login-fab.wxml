@@ -1,0 +1,20 @@
+<!-- components/login-fab/login-fab.wxml -->
+<!-- 只有在未登录状态下，这个组件才会被渲染出来 -->
+<block wx:if="{{showFab}}">
+  <movable-area class="movable-area">
+    <movable-view 
+      class="movable-view {{showFab ? 'fab-fade-in' : ''}}" 
+      direction="all" 
+      x="{{x}}" 
+      y="{{y}}" 
+      bindchange="onDrag"
+      bindtouchend="onDragEnd"
+      bindtap="navigateToLogin"
+      disabled="{{disabled}}"
+    >
+      <view class="fab-ball">
+        <text class="fab-text">登录</text>
+      </view>
+    </movable-view>
+  </movable-area>
+</block>

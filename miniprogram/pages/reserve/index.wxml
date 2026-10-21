@@ -1,0 +1,102 @@
+<view class="container">
+
+  <!-- 日期选择 -->
+  <scroll-view scroll-x class="date-scroll" scroll-into-view="{{scrollIntoViewId}}" scroll-with-animation>
+    <view class="date-buttons">
+      <block wx:for="{{dates}}" wx:key="index">
+        <view 
+          class="date-btn {{activeIndex === index ? 'active' : ''}}" 
+          bindtap="handleDateSelect" 
+          data-index="{{index}}"
+          id="date-btn-{{index}}"
+        >
+          <text class="weekday">{{item.weekday}}</text>
+          <text class="date">{{item.date}}</text>
+        </view>
+      </block>
+    </view>
+  </scroll-view>
+
+    <!-- 预约信息说明 -->
+    <view class="reserve-notice card" style="animation-delay: 0.1s;">
+    <!-- <view class="notice-icon">
+        <image src="/images/icon/info-circle.png" mode="aspectFit"></image>
+    </view> -->
+    <view class="notice-content">
+        <text class="notice-line">夜场预约时间为当日 <text class="highlight">23:00</text> 至次日 <text class="highlight">10:00</text>。</text>
+        <text class="notice-line">预约成功将立即自动扣除 <text class="highlight strong">{{reserve_cost}}</text> 点。</text>
+        <text class="notice-line"> <text class="highlight">10:00</text> 前仍可预约当日凌晨场。</text>
+        <text class="notice-line"><text class="highlight strong">⚠ </text>预约成功后<text class="highlight strong"> 不可取消 </text>预约！</text>
+    </view>
+  </view>
+
+  <!-- 预约详情 -->
+  <view class="reserve-card card card-fade {{isSwitchingDate ? 'fade-out' : 'fade-in'}}" style="animation-delay: 0.2s;">
+    <view class="card-title">
+      <text>{{selectedDate}}  预约情况</text>
+      <view class="credit-badge {{creditClass}}">信用： {{creditGrade}}</view>
+    </view>
+
+    <view class="card-content">
+      <view class="info-row">
+        <view class="info-item">
+          <text>已预约人数：{{currentReserve.openids.length}}</text>
+        </view>
+        <view class="info-item">
+          <block wx:if="{{reserve_limit}}">
+              <text>剩余名额：{{reserve_max - currentReserve.openids.length > 0 ? reserve_max - currentReserve.openids.length : 0}}</text>
+          </block>
+          <block wx:else>
+              <text>剩余名额：无限制</text>
+          </block>
+        </view>
+      </view>
+
+      <button 
+        type="primary" 
+        bindtap="handleReserve"
+        disabled="{{!canReserve || alreadyReserved }}"
+      >{{ alreadyReserved ? '已预约' : (canReserve ? '立即预约' : (reserveQualification ? (reserve_limit ? '已满员' : '预约失败') : '资格不足')) }}</button>
+      <view wx:if="{{!reserveQualification && !userAlreadyReserved}}" class="qualification-tip credit-A">信用分不足 ({{credit}})，无法预约</view>
+    </view>
+  </view>
+
+
+
+  <!-- 预约用户列表 -->
+  <view class="user-list card card-fade {{isSwitchingDate ? 'fade-out' : 'fade-in'}}" wx:if="{{currentReserve && currentReserve.openids && currentReserve.openids.length > 0}}" style="animation-delay: 0.3s;">
+    <view class="card-title">已预约用户</view>
+    <view class="card-content">
+      <!-- 加载状态 -->
+      <view wx:if="{{isLoadingUserInfo}}" class="loading-tip">
+        <text>正在加载用户信息...</text>
+      </view>
+
+      <!-- 用户列表 (非加载状态时显示) -->
+      <view wx:if="{{!isLoadingUserInfo}}">
+        <view class="table-container">
+          <!-- <view class="table-header">
+              <text class="col-1">昵称</text>
+          </view> -->
+          <!-- 列表行 -->
+          <block wx:for="{{reserveList}}" wx:key="openid">
+              <view class="table-row">
+                  <!-- 可以考虑加个头像 -->
+                  <!-- <image class="avatar" src="{{item.avatarUrl || '/images/default-avatar.png'}}"></image> -->
+                  <text class="col-1 nickname">{{item.nickname}}</text>
+              </view>
+          </block>
+          <!-- <view wx:if="{{reserveList.length === 0}}" class="empty-tip">
+            暂无用户预约
+          </view> -->
+        </view>
+      </view>
+    </view>
+    <!-- 如果当天无人预约，给个提示 -->
+    <view class="empty-tip" wx:if="{{reserveList.length === 0 && !isLoadingUserInfo}}">
+      今天还没有人预约哦~
+    </view>
+  </view>
+</view>
+
+<login-fab />

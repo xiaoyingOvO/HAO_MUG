@@ -1,0 +1,12 @@
+{
+  "usingComponents": {
+    "cloud-tip-modal": "/components/cloudTipModal/index",
+    "login-fab": "/components/login-fab/login-fab"
+  },
+  "navigationBarBackgroundColor": "#f5f5f5",
+  "navigationBarTitleText": "我",
+  "enablePullDownRefresh": true,
+  "backgroundColor": "#f5f5f5",
+  "backgroundTextStyle": "dark",
+  "onReachBottomDistance": 50
+}

@@ -1,0 +1,83 @@
+<!--pages/user-center/other-page/transferPoint.wxml-->
+<view class="container transfer-points-page">
+
+<view class="content-wrapper animation-fade-in">
+  <!-- 卡片容器 -->
+  <view class="card">
+    <!-- 当前用户可用点数显示 -->
+    <view class="balance-display">
+      <text class="label">可转移的点数余额</text>
+      <view class="value-wrapper">
+          <text class="value">{{displayRealPoint}}</text>
+          <text class="unit">点</text>
+      </view>
+    </view>
+
+    <!-- 转移表单 -->
+    <view class="transfer-form">
+      <!-- 目标用户搜索 -->
+      <view class="form-item">
+        <label class="item-label">转移给</label>
+        <view class="recipient-area">
+          <!-- 已选定用户 -->
+          <view class="recipient-display" wx:if="{{selectedUser}}">
+            <image class="avatar" src="{{selectedUser.avatar_url || '/images/default-avatar.png'}}" mode="aspectFill"></image>
+            <text class="nickname">{{selectedUser.nickname}}</text>
+            <view class="change-btn" bindtap="changeUser">更换</view>
+          </view>
+          <!-- 搜索框 -->
+          <view class="input-group search-group" wx:else>
+            <image class="search-icon" src="/images/icons/search.png"></image>
+            <input class="input-field" placeholder="输入用户昵称搜索" value="{{searchValue}}" bindinput="onSearchInput" />
+            <view wx:if="{{isSearching}}" class="wx-loading-dot"></view>
+          </view>
+
+          <!-- 搜索结果浮层 -->
+          <view class="popup-close-mask" wx:if="{{showSearchResults}}" bindtap="closeSearchResults"></view>
+          <view class="search-results-popup {{showSearchResults ? 'show' : ''}}">
+            <scroll-view scroll-y class="search-results-scroll">
+              <block wx:if="{{searchedUsers.length > 0}}">
+                <view class="result-item" wx:for="{{searchedUsers}}" wx:key="openid" bindtap="onSelectUser" data-user="{{item}}">
+                  <image class="item-avatar" src="{{item.avatar || '/images/default-avatar.png'}}" />
+                  <text class="item-nickname">{{item.nickname}}</text>
+                </view>
+              </block>
+              <view class="empty-tip" wx:if="{{searchAttempted && searchedUsers.length === 0 && !isSearching}}">
+                <text>未找到匹配的用户</text>
+              </view>
+            </scroll-view>
+          </view>
+        </view>
+      </view>
+
+      <!-- 转移金额输入 -->
+      <view class="form-item">
+        <label class="item-label">转移点数</label>
+        <view class="input-group amount-group">
+          <input class="input-field amount-input" type="digit" placeholder="0.00" value="{{transferAmount}}" bindinput="onAmountInput" />
+          <text class="unit">点</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 确认按钮 -->
+  <view class="footer-action">
+    <button 
+      class="primary-button animation-pulse {{transferSuccess ? 'success' : ''}}" 
+      bindtap="submitTransfer" 
+      disabled="{{!canSubmit || isSubmitting || transferSuccess}}">
+      <view wx:if="{{transferSuccess}}" class="btn-content">
+         <image class="success-icon" src="/images/icons/check.png"></image>
+         <text>转移成功</text>
+      </view>
+      <text wx:elif="{{isSubmitting}}">正在处理...</text>
+      <text wx:else>确认转移</text>
+    </button>
+  </view>
+</view>
+
+<!-- 背景效果 -->
+<canvas type="2d" id="particle-canvas" class="particle-canvas"></canvas>
+<view class="background-gradient"></view>
+</view> 

@@ -1,0 +1,94 @@
+/* components/admin/recharge-query/recharge-query.wxss */
+@import "../common/query-common.wxss";
+
+.list-body image {
+  width: 60rpx;
+  height: 60rpx;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-right: 15rpx;
+}
+
+.order-item {
+  display: flex;
+  align-items: flex-start;
+  padding: 20rpx;
+  border-bottom: 1rpx solid #f0f0f0;
+  gap: 15rpx;
+}
+
+.order-item:last-child {
+  border-bottom: none;
+}
+
+.order-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6rpx;
+}
+
+.order-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.nickname {
+  font-size: 28rpx;
+  color: #333;
+  font-weight: 500;
+}
+
+.amount {
+  font-size: 30rpx;
+  color: #ff6b35;
+  font-weight: 600;
+}
+
+.order-time {
+  font-size: 22rpx;
+  color: #666;
+}
+
+.expire-time {
+  font-size: 22rpx;
+  color: #ff9500;
+}
+
+.status {
+  padding: 6rpx 12rpx;
+  border-radius: 16rpx;
+  font-size: 22rpx;
+  font-weight: 500;
+  text-align: center;
+  align-self: flex-start;
+  margin-top: 5rpx;
+}
+
+.status.pending {
+  background-color: #fff7e6;
+  color: #fa8c16;
+}
+
+.status.success {
+  background-color: #e8f5e8;
+  color: #52c41a;
+}
+
+.status.failed {
+  background-color: #fff2f0;
+  color: #ff4d4f;
+}
+
+.status.unknown {
+  background-color: #f5f5f5;
+  color: #999;
+}
+
+.empty-message {
+  padding: 60rpx 20rpx;
+  text-align: center;
+  font-size: 28rpx;
+  color: #999;
+}

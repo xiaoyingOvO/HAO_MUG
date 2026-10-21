@@ -1,0 +1,184 @@
+/* pages/admin/index.wxss */
+.container.admin-dashboard {
+  padding: 30rpx; /* 统一的页面边距 */
+}
+
+.panel {
+  background-color: #fff;
+  border-radius: 24rpx;
+  margin-bottom: 30rpx;
+  box-shadow: 0 8rpx 30rpx rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+}
+.panel:last-child {
+  margin-bottom: 0;
+}
+
+/* 管理员信息 */
+.admin-info-panel {
+  width: 85%;
+  padding: 40rpx;
+  background: linear-gradient(135deg, #434343 0%, #282828 100%);
+  color: #fff;
+  box-shadow: 0 8rpx 30rpx rgba(0, 0, 0, 0.2);
+}
+.admin-header {
+  display: flex;
+  align-items: center;
+}
+.admin-avatar {
+  width: 120rpx;
+  height: 120rpx;
+  border-radius: 50%;
+  margin-right: 30rpx;
+  border: 4rpx solid rgba(227, 191, 127, 0.6);
+}
+.admin-nickname {
+  font-size: 40rpx;
+  font-weight: bold;
+  margin-bottom: 12rpx;
+}
+.admin-role {
+  font-size: 26rpx;
+  color: rgba(255, 255, 255, 0.8);
+  background-color: rgba(255, 255, 255, 0.1);
+  padding: 6rpx 15rpx;
+  border-radius: 20rpx;
+  display: inline-block;
+  transition: all 0.3s ease;
+}
+
+.admin-role.master {
+  color: #854d0e;
+  font-weight: 600;
+  background: linear-gradient(135deg, #fef08a, #facc15, #eab308);
+  border: 2rpx solid #ffd700;
+  animation: glowing-border 2.5s ease-in-out infinite;
+  text-shadow: 0 1rpx 1rpx rgba(255, 255, 255, 0.5);
+  position: relative;
+  overflow: hidden; 
+}
+.admin-role.master::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: -100%;
+    width: 75%;
+    height: 100%;
+    background: linear-gradient(
+      to right,
+      rgba(255, 255, 255, 0) 0%,
+      rgba(255, 255, 255, 0.5) 50%,
+      rgba(255, 255, 255, 0) 100%
+    );
+    transform: skewX(-25deg);
+}
+
+/* 营业状态 */
+.status-card {
+  width: 85%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 30rpx 40rpx;
+  color: #fff;
+  transition: transform 0.2 ease-out, box-shadow 0.2s ease-out;
+}
+.status-card:active {
+  transform: scale(0.98);
+  box-shadow: 0 5rpx 15rpx -5rpx rgba(0, 0, 0, 0.3);
+}
+.status-card.open {
+  background: linear-gradient(135deg, #34d399 0%, #6ee7b7 100%);
+  box-shadow: 0 10rpx 30rpx -10rpx #34d399;
+}
+.status-card.closed {
+  background: linear-gradient(135deg, #6b7280 0%, #9ca3af 100%);
+  box-shadow: 0 10rpx 30rpx -10rpx #6b7280;
+}
+.status-content {
+  display: flex;
+  align-items: center;
+}
+.status-icon {
+  width: 60rpx;
+  height: 60rpx;
+  margin-right: 30rpx;
+}
+.status-text-wrapper {
+  flex: 1;
+}
+.status-main-text {
+  font-size: 34rpx;
+  font-weight: 600;
+  margin-bottom: 6rpx;
+}
+.status-sub-text {
+  font-size: 24rpx;
+  opacity: 0.8;
+}
+.status-switch {
+  transform: scale(0.8);
+  pointer-events: none;
+}
+
+/* 管理功能 */
+.function-grid-panel {
+  padding: 30rpx;
+}
+.panel-title {
+  font-size: 34rpx;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 20rpx;
+  padding-left: 10rpx;
+}
+.grid-view {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr); 
+  gap: 20rpx;
+}
+.grid-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 30rpx 10rpx;
+  border-radius: 16rpx;
+  transition: transform 0.2s ease-out, background-color 0.2s ease-out;
+  border: 1rpx solid transparent;
+}
+.grid-item-hover, .grid-item:active {
+  transform: scale(0.95);
+  background-color: #e9eaf0;
+  border-color: #dcdfe6;
+}
+.grid-item-icon-wrapper {
+  width: 100rpx;
+  height: 100rpx;
+  border-radius: 50%;
+  background-color: #F2F5FF;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20rpx;
+  transition: background-color 0.2s ease-out;
+}
+.grid-item:active .grid-item-icon-wrapper {
+  background-color: #dde3f8;
+}
+.item-icon {
+  width: 50rpx;
+  height: 50rpx;
+  opacity: 0.8;
+}
+.item-text { 
+  font-size: 26rpx; 
+  color: #333; 
+}
+.empty-tip {
+  color: #999;
+  font-size: 28rpx;
+  text-align: center;
+  padding: 60rpx 0;
+}

@@ -1,0 +1,27 @@
+<!--pages/admin/manage/manage.wxml-->
+<view class="container manage-page">
+  <!-- 动态标题 -->
+  <view class="page-header" wx:if="{{moduleConfig.name}}">
+    <image wx:if="{{moduleConfig.icon}}" class="header-icon" src="{{moduleConfig.icon}}" mode="aspectFit"></image>
+    <text class="header-title">{{adminConfig[moduleKey].name}}</text>
+  </view>
+
+  <!-- 初始加载/空状态/错误提示 -->
+
+  <!-- 组件渲染 -->
+  <view class="module-container">
+    <current-users wx:if="{{currentModuleKey === 'current-users'}}" id="moduleComponent" bind:action="onModuleAction" />
+    <user-manage wx:if="{{currentModuleKey === 'user-manage'}}" id="moduleComponent" bind:action="onModuleAction" adminRole="{{adminRole}}" />
+    <arcade-query wx:if="{{currentModuleKey === 'arcade-query'}}" id="moduleComponent" bind:action="onModuleAction" bind:filter="onFilterChange" />
+    <recharge-query wx:if="{{currentModuleKey === 'recharge-query'}}" id="moduleComponent" bind:action="onModuleAction" bind:filter="onFilterChange" />
+    <door-query wx:if="{{currentModuleKey === 'door-query'}}" id="moduleComponent" bind:action="onModuleAction" bind:filter="onFilterChange" />
+    <send-mail wx:if="{{currentModuleKey === 'send-mail'}}" id="moduleComponent" bind:action="onModuleAction" />
+    <report-processing wx:if="{{currentModuleKey === 'report-processing'}}" id="moduleComponent" bind:action="onModuleAction" />
+  </view>
+
+  <!-- 分页加载 -->
+  <view class="list-footer-status" wx:if="{{listData.length > 0 && initialLoad}}">
+    <text wx:if="{{isLoading && !isRefreshing}}">正在加载更多...</text>
+    <text wx:elif="{{!hasMore}}">没有更多数据了</text> 
+  </view>
+</view>

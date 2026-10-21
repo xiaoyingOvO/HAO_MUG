@@ -1,0 +1,93 @@
+<!-- login.wxml -->
+<view class="container {{modalVisible ? 'page--fixed' : ''}}">
+  <!-- 背景动画 -->
+  <view class="background-gradient"></view>
+
+  <!-- LOGO/标题区域 -->
+  <view class="logo-title-section animation-fade-in">
+    <image wx:if="{{logoUrl}}" class="logo-image" src="{{logoUrl}}" mode="aspectFit"></image>
+    <text class="app-title">{{appName}}</text>
+    <text class="app-subtitle">{{appSubtitle}}</text>
+  </view>
+  
+  <!-- 登录卡片 -->
+  <view class="login-card" animation="{{cardAnimation}}">
+    <!-- 头像部分 -->
+    <view class="avatar-section">
+    <button
+        class="avatar-wrapper"
+        open-type="chooseAvatar"
+        bindchooseavatar="onChooseAvatar"
+    >
+        <image wx:if="{{avatarFileID}}" src="{{avatarFileID}}" class="avatar"  />
+        <view wx:else class="avatar-default">
+            <image src="/images/icon-camera.png" class="camera-icon"  />
+        </view>
+    </button>
+    </view>
+
+
+
+    
+    <!-- 表单区域 -->
+    <view class="form-section">
+
+          <!-- 昵称输入框 -->
+    <view class="input-group">
+    <input class="nickname-input" type="nickname" placeholder="请输入昵称"
+     placeholder-class="placeholder" value="{{nickname}}" bindinput="onNicknameinput" />
+    </view>
+    
+
+      <!-- 手机号输入 -->
+      <view class="input-group">
+        <!--image src="/images/icon-phone.png" class="input-icon" /-->
+        <button class="phone-button" open-type="getPhoneNumber" bindgetphonenumber="getPhoneNumber">
+          {{phone ? phone : '点击授权手机号'}}
+        </button>
+      </view>
+
+      <!-- QQ号输入 -->
+      <view class="input-group">
+        <!--image src="/images/icon-qq.png" class="input-icon" /-->
+        <input
+          class="input-box"
+          type="number"
+          placeholder="请输入QQ号码"
+          placeholder-class="placeholder"
+          bindinput="onQQInput"
+          value="{{qq}}"
+        />
+      </view>
+    </view>
+
+    <!-- 提交按钮 -->
+    <button 
+      class="submit-button" 
+      bindtap="submit"
+      hover-class="button-hover"
+      hover-start-time="150"
+      disabled="{{!formValid}}"
+      animation="{{buttonAnimation}}"
+    >
+      {{loading ? '注册中...' : '注册'}}
+      <view class="button-wave" animation="{{waveAnimation}}"></view>
+    </button>
+
+    <!-- 直接进入 -->
+    <button class="guest-enter-button" bindtap="enterAsGuest" hover-class="button-hover-secondary">随便看看</button>
+  </view>
+
+  <!-- 装饰元素 -->
+  <view class="decorate-circle circle-1"></view>
+  <view class="decorate-circle circle-2"></view>
+
+  <!-- FAQ 模态框 -->
+  <faq-modal
+    id="faqModal"
+    faqList="{{faqList}}"
+    bind:confirm="onFaqConfirm"
+    bind:cancel="onFaqCancel">
+  </faq-modal>
+</view>
+

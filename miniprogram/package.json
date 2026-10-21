@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "@babel/runtime": "^7.27.0",
+    "wx-server-sdk": "^3.0.1"
+  }
+}

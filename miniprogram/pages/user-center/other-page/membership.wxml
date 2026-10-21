@@ -1,0 +1,53 @@
+<!--pages/user-center/other-page/membership.wxml-->
+<view class="container membership-page">
+  <view class="section">
+    <view class="section-title">
+      <!-- <image class="title-icon" src="/images/icons/level_rules.png" mode="aspectFit"></image> -->
+      会员等级制度
+    </view>
+    <view class="section-content">
+      <text class="intro-text">
+        会员等级通过累计经验值提升，每消费1点数可获得1点经验。经验值不清零，持续累积。
+      </text>
+      <view class="level-rules-table">
+        <view class="table-header">
+          <view class="table-cell">等级</view>
+          <view class="table-cell">升级所需经验</view>
+          <view class="table-cell">等级特权</view>
+        </view>
+        <view class="table-row" wx:for="{{levelRules}}" wx:key="level">
+          <view class="table-cell level-badge level-badge-{{item.level}}">Lv.{{item.level}}</view>
+          <view class="table-cell">{{item.expNeeded === 'MAX' ? '已满级' : item.expNeeded}}</view>
+          <view class="table-cell perks">{{item.perks}}</view>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <view class="section">
+    <view class="section-title">
+      <!-- <image class="title-icon" src="/images/icons/credit_rules.png" mode="aspectFit"></image> -->
+      信用等级规则
+    </view>
+    <view class="section-content">
+      <text class="intro-text">
+        信用等级根据您的行为进行评估，保持良好信用可享受更优质服务。
+      </text>
+      <view class="credit-rules-table">
+        <view class="table-header">
+          <view class="table-cell">信用等级</view>
+          <view class="table-cell">分数范围</view>
+          <view class="table-cell">状态与影响</view>
+        </view>
+        <view class="table-row" wx:for="{{creditRules}}" wx:key="grade">
+          <view class="table-cell credit-badge credit-badge-{{item.grade}}">{{item.grade}}</view>
+          <view class="table-cell">{{item.scoreRange}}</view>
+          <view class="table-cell effects">{{item.effects}}</view>
+        </view>
+      </view>
+      <text class="important-note">
+        注意：信用评级及相关规则可能会根据运营情况调整，请以最新公告为准。
+      </text>
+    </view>
+  </view>
+</view>

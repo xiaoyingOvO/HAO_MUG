@@ -1,0 +1,377 @@
+/* pages/user-center/other-page/card.wxss */
+page {
+  background-color: #f0f8ff;
+}
+
+.container {
+  position: relative;
+  padding: 20rpx;
+  background-color: #f7f8fa;
+  min-height: 100vh;
+  box-sizing: border-box;
+  z-index: 1;
+}
+
+/* 用户点数 */
+.points-card.stylized-style {
+  width: 85%;
+  min-height: 100rpx;
+  background: linear-gradient(135deg, #e0f2f7 0%, #ffffff 100%);
+  box-shadow: 0 8rpx 24rpx rgba(39, 174, 96, 0.05);
+  padding: 40rpx;
+  margin: 0 auto 40rpx;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  border: 1rpx solid #fff;
+  border-radius: 30rpx;
+}
+
+
+.points-card.stylized-style .stylized-bg {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-image:
+    radial-gradient(circle at 100% 0%, rgba(45, 212, 191, 0.1) 0%, transparent 30%),
+    radial-gradient(circle at 0% 100%, rgba(96, 165, 250, 0.1) 0%, transparent 40%);
+  z-index: 0;
+}
+
+.points-card.stylized-style .points-label,
+.points-card.stylized-style .points-value-wrapper,
+.points-card.stylized-style .recharge-link {
+  position: relative;
+  z-index: 1;
+}
+
+.points-card.stylized-style .points-label {
+  font-size: 30rpx;
+  color: #526c8b;
+  letter-spacing: 2rpx;
+  text-transform: uppercase;
+}
+
+.points-card.stylized-style .points-value-wrapper {
+  margin-top: 10rpx;
+}
+
+.points-card.stylized-style .points-value {
+  font-size: 64rpx;
+  font-weight: 700;
+  color: #1e3a8a;
+  font-family: sans-serif;
+}
+
+.points-card.stylized-style .points-unit {
+  font-size: 32rpx;
+  color: #526c8b;
+  margin-left: 12rpx;
+}
+
+/* 加载中与空状态容器 */
+.loading-container,
+.empty-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding-top: 200rpx;
+  color: #8898aa;
+  font-size: 28rpx;
+}
+
+/* 卡片列表 */
+.card-list {
+  padding-bottom: 40rpx;
+}
+
+.card-item {
+  position: relative;
+  border-radius: 24rpx;
+  margin-bottom: 40rpx;
+  box-shadow: 0 10rpx 30rpx rgba(0, 0, 0, 0.08);
+  overflow: hidden;
+  transition: transform 0.2s ease-out;
+  border: 4rpx solid transparent;
+  color: var(--card-text-color);
+}
+
+.card-item:active {
+  transform: scale(0.99);
+}
+
+.card-item::before {
+  content: '';
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
+  background-size: 20px 20px;
+  opacity: 0.5;
+  animation: bg-pan 15s linear infinite;
+  z-index: 0;
+}
+
+@keyframes bg-pan {
+  0% {
+    transform: translate(0, 0);
+  }
+
+  25% {
+    transform: translate(10px, 10px);
+  }
+
+  50% {
+    transform: translate(0, 20px);
+  }
+
+  75% {
+    transform: translate(-10px, 10px);
+  }
+
+  100% {
+    transform: translate(0, 0);
+  }
+}
+
+/* --- 主题定义 --- */
+.theme-default {
+  background: linear-gradient(135deg, #434343 0%, #000000 100%);
+  --card-text-color: #fff;
+  --card-text-secondary-color: rgba(255, 255, 255, 0.9);
+  --card-element-bg: rgba(255, 255, 255, 0.2);
+  --card-remain-bg: rgba(0, 0, 0, 0.15);
+  --card-remain-color: rgba(255, 255, 255, 0.8);
+  --card-border-color: rgba(255, 255, 255, 0.2);
+}
+
+.theme-morning-sky {
+  background: linear-gradient(135deg, #a8c0ff 0%, #ffc3a0 100%);
+  --card-text-color: #5d4037;
+  --card-text-secondary-color: #5d4037;
+  --card-element-bg: rgba(93, 64, 55, 0.1);
+  --card-remain-bg: rgba(93, 64, 55, 0.1);
+  --card-remain-color: #5d4037;
+  --card-border-color: rgba(93, 64, 55, 0.2);
+}
+
+.theme-daylight-sun {
+  background: linear-gradient(135deg, #fceabb 0%, #f8b500 100%);
+  --card-text-color: #8c5a00;
+  --card-text-secondary-color: #8c5a00;
+  --card-element-bg: rgba(140, 90, 0, 0.1);
+  --card-remain-bg: rgba(140, 90, 0, 0.1);
+  --card-remain-color: #8c5a00;
+  --card-border-color: rgba(140, 90, 0, 0.2);
+}
+
+.theme-full-day-royal {
+  background: linear-gradient(135deg, #6a82fb 0%, #fc5c7d 100%);
+  --card-text-color: #fff;
+  --card-text-secondary-color: rgba(255, 255, 255, 0.9);
+  --card-element-bg: rgba(255, 255, 255, 0.2);
+  --card-remain-bg: rgba(0, 0, 0, 0.15);
+  --card-remain-color: rgba(255, 255, 255, 0.8);
+  --card-border-color: rgba(255, 255, 255, 0.2);
+}
+
+.theme-high-value-alt {
+  background: linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%);
+  --card-text-color: #fff;
+  --card-text-secondary-color: rgba(255, 255, 255, 0.9);
+  --card-element-bg: rgba(255, 255, 255, 0.2);
+  --card-remain-bg: rgba(0, 0, 0, 0.15);
+  --card-remain-color: rgba(255, 255, 255, 0.8);
+  --card-border-color: rgba(255, 255, 255, 0.2);
+}
+
+.theme-premium-gold {
+  background: radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%);
+  border-color: rgba(191, 219, 254, 0.4);
+  animation: glowing-particles 5s linear infinite;
+  --card-text-color: #fff;
+  --card-text-secondary-color: rgba(255, 255, 255, 0.9);
+  --card-element-bg: rgba(255, 255, 255, 0.2);
+  --card-remain-bg: rgba(0, 0, 0, 0.15);
+  --card-remain-color: rgba(255, 255, 255, 0.8);
+  --card-border-color: rgba(255, 255, 255, 0.2);
+}
+
+@keyframes glowing-particles {
+  0% {
+    box-shadow: 0 0 -10px #bfdbfe;
+  }
+
+  40% {
+    box-shadow: 0 0 20px #60a5fa, 0 0 30px #bfdbfe;
+  }
+
+  60% {
+    box-shadow: 0 0 20px #60a5fa, 0 0 30px #bfdbfe;
+  }
+
+  100% {
+    box-shadow: 0 0 -10px #bfdbfe, 0 0 10px #a78bfa, 0 0 20px #60a5fa;
+  }
+}
+
+/* 内容容器 */
+.card-content {
+  position: relative;
+  z-index: 1;
+  padding: 35rpx 40rpx;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.card-header,
+.card-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.card-header {
+  margin-bottom: 20rpx;
+  height: 80rpx;
+}
+
+.card-footer {
+  padding-top: 25rpx;
+  border-top: 1rpx solid;
+  border-top-color: var(--card-border-color);
+  height: 80rpx;
+}
+
+.card-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 38rpx;
+  font-weight: 600;
+  text-shadow: 0 2rpx 4rpx rgba(0, 0, 0, 0.2);
+  /* white-space: nowrap; */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--card-text-color);
+}
+
+.theme-morning-sky .card-name,
+.theme-daylight-sun .card-name {
+  text-shadow: none;
+}
+
+.card-cost {
+  font-size: 32rpx;
+  font-weight: bold;
+  padding: 6rpx 16rpx;
+  border-radius: 20rpx;
+  flex-shrink: 0;
+  color: var(--card-text-color);
+  background-color: var(--card-element-bg);
+}
+
+.card-desc {
+  font-size: 26rpx;
+  line-height: 1.6;
+  flex-grow: 1;
+  color: var(--card-text-secondary-color);
+}
+
+.card-remain {
+  line-height: 1rpx;
+  font-size: 24rpx;
+  padding: 2rpx 12rpx 6rpx 0;
+  border-radius: 20rpx;
+  background-color: transparent;
+  color: var(--card-remain-color);
+}
+
+.card-button {
+  height: 72rpx;
+  line-height: 72rpx;
+  border-radius: 36rpx;
+  padding: 0 40rpx;
+  font-size: 28rpx;
+  font-weight: 500;
+  border: none;
+  transition: all 0.2s ease-out;
+}
+
+.card-button::after {
+  border: none;
+}
+
+.card-button:active {
+  transform: scale(0.97);
+}
+
+.card-button[loading] {
+  background: #c8d6e5;
+}
+
+/* 购买按钮 */
+.card-button.buy {
+  background: linear-gradient(135deg, #5baff0 0%, #3a8ce0 100%);
+  box-shadow: 0 4rpx 10rpx rgba(0, 0, 0, 0.15);
+  color: white;
+}
+
+.card-button.buy[disabled]:not([loading]) {
+  background: #c8d6e5;
+  color: #666;
+  opacity: 0.7;
+  box-shadow: none;
+}
+
+/* 特殊购买按钮 */
+.theme-premium-gold .card-button.buy {
+  background: linear-gradient(135deg, #a78bfa, #60a5fa);
+  color: white;
+  box-shadow: 0 4rpx 15rpx rgba(139, 92, 246, 0.3);
+}
+
+/* 深色 */
+.theme-default .card-button.owned,
+.theme-full-day-royal .card-button.owned,
+.theme-high-value-alt .card-button.owned,
+.theme-premium-gold .card-button.owned {
+  background-color: transparent;
+  border: 2rpx solid var(--card-border-color);
+  color: var(--card-remain-color);
+}
+
+.theme-default .card-button.sold-out,
+.theme-default .card-button.time-expired,
+.theme-full-day-royal .card-button.sold-out,
+.theme-full-day-royal .card-button.time-expired,
+.theme-high-value-alt .card-button.sold-out,
+.theme-high-value-alt .card-button.time-expired,
+.theme-premium-gold .card-button.sold-out,
+.theme-premium-gold .card-button.time-expired {
+  background-color: rgba(0, 0, 0, 0.2);
+  color: rgba(255, 255, 255, 0.6);
+}
+
+/* 浅色 */
+.theme-morning-sky .card-button.owned,
+.theme-daylight-sun .card-button.owned {
+  background-color: transparent;
+  border: 2rpx solid var(--card-border-color);
+  color: var(--card-text-color);
+  opacity: 0.8;
+}
+
+.theme-morning-sky .card-button.sold-out,
+.theme-morning-sky .card-button.time-expired,
+.theme-daylight-sun .card-button.sold-out,
+.theme-daylight-sun .card-button.time-expired {
+  background-color: rgba(0, 0, 0, 0.05);
+  color: rgba(0, 0, 0, 0.4);
+}

@@ -1,0 +1,56 @@
+/**app.wxss**/
+@keyframes gradient-move {
+    0% { background-position: 0% 50%; }
+    50% { background-position: 100% 50%; }
+    100% { background-position: 0% 50%; }
+}
+
+page {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+    background: linear-gradient(125deg, #f0faff, #e6f7ff, #fdfdff, #fff0f5);
+    background-size: 400% 400%;
+    animation: gradient-move 20s ease-in-out infinite;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
+}
+
+.container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  box-sizing: border-box;
+} 
+
+button {
+  background: initial;
+}
+
+button:focus{
+  outline: 0;
+}
+
+button::after{
+  border: none;
+}
+
+.card {
+    transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 1),
+                box-shadow 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+    will-change: transform, box-shadow;
+}
+.card.tappable:hover {
+    transform: translateY(-8rpx);
+    box-shadow: 0 16rpx 35rpx rgba(0, 0, 0, 0.08);
+}
+.card-hover {
+    transform:translateY(-8rpx);
+    box-shadow: 0 16rpx 35rpx rgba(0, 0, 0, 0.08);
+}
+
+
+page, .page {
+    height: 100%;
+}

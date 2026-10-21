@@ -1,0 +1,102 @@
+<!--components/admin/report-processing/report-processing.wxml-->
+<view class="module-content">
+  <view class="list-info-bar">
+    <text>举报信息处理</text>
+    <text class="sub-text">共 {{reportList.length}} 条举报信息</text>
+  </view>
+
+  <view class="list-body">
+    <view wx:for="{{reportList}}" wx:key="_id" class="report-item">
+      <view class="report-main">
+        <view class="report-content">
+          <text class="content-text">{{item.content}}</text>
+          <text class="report-time">{{item.time}}</text>
+        </view>
+        
+        <view class="report-users">
+          <view class="user-item">
+            <text class="user-label">举报人：</text>
+            <text class="user-id">{{item.from_openid}}</text>
+          </view>
+          <view class="user-item">
+            <text class="user-label">被举报人：</text>
+            <text class="user-id">{{item.to_openid}}</text>
+          </view>
+        </view>
+      </view>
+      
+      <button size="mini" class="handle-btn" bind:tap="handleProcessBtn" data-id="{{item._id}}">处理</button>
+    </view>
+    
+    <view wx:if="{{reportList.length == 0}}" class="empty-state">
+      <text>暂无举报信息</text>
+    </view>
+  </view>
+</view>
+
+<page-container
+  show="{{showReportPage}}"
+  round
+  close-on-slide-down
+  bind:afterleave="onPageLeave">
+  <view class="process-container">
+    <view class="process-header">
+      <text class="process-title">发送反馈消息</text>
+      <text class="process-subtitle">向举报相关用户发送处理反馈</text>
+    </view>
+    
+    <view class="process-content">
+      <view class="recipient-section">
+        <text class="section-title">发送对象</text>
+        <view class="recipient-options">
+          <view class="recipient-item {{sendToReporter ? 'selected' : ''}}" bind:tap="toggleReporter">
+            <view class="checkbox {{sendToReporter ? 'checked' : ''}}"></view>
+            <view class="recipient-info">
+              <text class="recipient-label">举报人</text>
+              <text class="recipient-openid">{{currentReport.from_openid}}</text>
+            </view>
+          </view>
+          <view class="recipient-item {{sendToReported ? 'selected' : ''}}" bind:tap="toggleReported">
+            <view class="checkbox {{sendToReported ? 'checked' : ''}}"></view>
+            <view class="recipient-info">
+              <text class="recipient-label">被举报人</text>
+              <text class="recipient-openid">{{currentReport.to_openid}}</text>
+            </view>
+          </view>
+        </view>
+      </view>
+      
+      <view class="input-section">
+        <text class="section-title">消息标题</text>
+        <input 
+          class="title-input"
+          placeholder="请输入消息标题..."
+          value="{{messageTitle}}"
+          bind:input="onTitleInput"
+          maxlength="50"
+        />
+        <text class="char-count">{{messageTitle.length}}/50</text>
+      </view>
+      
+      <view class="input-section">
+        <text class="section-title">消息内容</text>
+        <editor
+          class="content-input"
+          id="editor"
+          placeholder="请输入反馈消息内容..."
+          bind:input="onContentInput"
+        />
+        <text class="char-count">{{messageContent.length}}/300</text>
+      </view>
+      
+      <view class="action-section">
+        <button class="action-btn cancel-btn" bind:tap="onPageLeave">
+          取消
+        </button>
+        <button class="action-btn send-btn" bind:tap="sendFeedback">
+          发送消息
+        </button>
+      </view>
+    </view>
+  </view>
+</page-container>

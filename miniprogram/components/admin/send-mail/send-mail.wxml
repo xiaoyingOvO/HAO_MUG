@@ -1,0 +1,118 @@
+<!--components/admin/send-mail/send-mail.wxml-->
+<view class="module-content send-mail-container">
+  <view class="panel main-panel card">
+    
+    <!-- 发送类型切换 -->
+    <view class="section">
+      <view class="section-title">发送选项</view>
+      <view class="form-item">
+        <label class="label">发送类型</label>
+        <radio-group class="send-type-group" bindchange="onSendTypeChange">
+          <label class="radio"><radio value="all" checked="{{sendType === 'all'}}" />全体公告</label>
+          <label class="radio"><radio value="single" checked="{{sendType === 'single'}}" />指定用户</label>
+        </radio-group>
+      </view>
+
+      <!-- 收件人 -->
+      <view class="form-item recipient-item">
+        <label class="label">收件人</label>
+        <view class="recipient-input-area">
+          <!-- 群发公告，显示禁用 -->
+          <view class="recipient-display disabled" wx:if="{{sendType === 'all'}}">
+            <text>所有用户</text>
+          </view>
+          <!-- 单独发送 -->
+          <block wx:else>
+            <view class="recipient-display selected" wx:if="{{selectedUser}}">
+              <image class="selected-avatar" src="{{selectedUser.avatar || '/images/default-avatar.png'}}" mode="aspectFill"></image>
+              <text class="selected-nickname">{{selectedUser.nickname}}</text>
+              <view class="clear-btn" bindtap="clearSelectedUser">
+                <image src="/images/icons/clear.png" mode="aspectFit"></image>
+              </view>
+            </view>
+
+            <!-- 未选定时显示搜索框 -->
+            <view class="search-wrapper" wx:else>
+              <input
+                class="search-input {{isSearchInputFocused ? 'focus' : ''}}"
+                placeholder="输入用户昵称模糊搜索"
+                value="{{searchValue}}"
+                bindinput="onSearchInput"
+                confirm-type="search"
+                bindconfirm="onSearchClick"
+                bindfocus="onInputFocus"
+                bindblur="onInputBlur"
+                data-field="isSearchInputFocused"
+              />
+              <view class="search-loading-indicator" wx:if="{{isSearching}}">
+                <text>搜索中...</text>
+              </view>
+            </view>
+          </block>
+
+          <!-- 遮罩 -->
+          <view class="popup-close-mask" wx:if="{{showSearchResults}}" bindtap="closeSearchResults"></view>
+
+          <!-- 搜索结果 -->
+          <view class="search-results-popup {{showSearchResults ? 'show' : ''}}" wx:if="{{sendType === 'single' && !selectedUser}}">
+            <scroll-view scroll-y class="search-results-scroll">
+              <block wx:if="{{searchedUsers.length > 0}}">
+                <view
+                  class="result-item {{item.hover ? 'hover' : ''}}"
+                  wx:for="{{searchedUsers}}"
+                  wx:key="openid"
+                  bindtap="onSelectUser"
+                  data-user="{{item}}"
+                  hover-class="hover"
+                >
+                  <image class="item-avatar" src="{{item.avatar || '/images/icons/default-avatar.png'}}" mode="aspectFill"></image>
+                  <text class="item-nickname">{{item.nickname}}</text>
+                </view>
+              </block>
+              <view class="empty-search-tip" wx:if="{{searchAttempted && searchedUsers.length === 0 && !isSearching}}">
+                <text>未找到匹配的用户</text>
+              </view>
+            </scroll-view>
+          </view>
+        </view>
+      </view>
+
+      
+    </view>
+
+    <!-- 送信内容 -->
+    <view class="section content-section">
+      <view class="section-title">内容编辑</view>
+      <view class="form-item">
+        <label class="label">标题 <text class="label-optional" wx:if="{{sendType === 'single'}}"></text></label>
+        <input class="value-input {{isTitleInputFocused ? 'focus' : ''}}" placeholder="{{sendType === 'all' ? '请输入公告标题' : '请输入消息标题'}}" value="{{messageTitle}}" bindinput="onMessageTitleInput" bindfocus="onInputFocus" bindblur="onInputBlur" data-field="isTitleInputFocused" />
+      </view>
+      <view class="form-item">
+        <label class="label">正文</label>
+        <view class="textarea-wrapper">
+          <textarea
+            id="messageTextarea"
+            class="message-textarea {{isContentTextareaFocused ? 'focus' : ''}}"
+            placeholder="输入要发送的消息或公告内容..."
+            maxlength="500"
+            value="{{messageContent}}"
+            bindinput="onMessageContentInput"
+            show-confirm-bar="{{false}}"
+            bindfocus="onInputFocus"
+            bindblur="onInputBlur"
+            data-field="isContentTextareaFocused"
+          />
+          <view class="char-counter">{{messageContent.length || 0}}/500</view>
+        </view>
+      </view>
+    </view>
+
+    <!-- 发送 -->
+    <view class="action-footer">
+      <button class="send-btn primary-button" bindtap="onSend" disabled="{{isSubmitting || !canSend}}">
+        {{isSubmitting ? '发送中...' : (sendType === 'all' ? '发布公告' : '发送消息')}}
+      </button>
+    </view>
+
+  </view>
+</view>

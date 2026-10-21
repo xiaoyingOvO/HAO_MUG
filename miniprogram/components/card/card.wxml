@@ -1,0 +1,12 @@
+<view class="playlist-item {{player.isMulti ? 'white-box' : 'dark-box'}}"
+  bind:touchstart="onTouchStart"
+  bind:touchmove="onTouchMove"
+  bind:touchend="onTouchEnd"
+  bind:touchcancel="onTouchCancel">
+  <view class="player-index">{{playerIndex + 1}}</view>
+  <view class="player-info">
+    <image src="{{player.avatar}}" mode="aspectFill"></image>
+    <view>{{player.nickname}}</view>
+    <view wx:if="{{playerIndex === myIndex}}" class="my-badge">我</view>
+  </view>
+</view>

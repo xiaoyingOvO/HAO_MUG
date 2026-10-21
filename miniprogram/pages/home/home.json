@@ -1,0 +1,6 @@
+{
+  "usingComponents": {
+    "login-fab": "/components/login-fab/login-fab"
+  },
+  "navigationBarTitleText": "萌动"
+}

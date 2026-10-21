@@ -1,0 +1,41 @@
+<!--components/admin/current-users/curren-users.wxml-->
+<view class="module-content">
+  <!-- 列表上方的信息栏 -->
+  <view class="list-info-bar">
+    <text>共  {{total}}  人在店</text>
+  </view>
+
+  <!-- 用户列表 -->
+  <view class="user-list">
+    <view class="empty-tip" wx:if="{{userList.length === 0 && initialLoaded}}">
+      <image class="empty-icon" src="/images/icon/empty-box.png" mode="aspectFit"></image>
+      <text>当前无用户在店</text>
+    </view>
+
+    <view class="user-item card" wx:for="{{userList}}" wx:key="openid">
+      <image class="user-avatar" src="{{item.avatar || '/images/default-avatar.png'}}" mode="aspectFit"></image>
+      <view class="user-info">
+        <text class="user-nickname">{{item.nickname || '未知用户'}}</text>
+        <text class="user-status">
+          状态：<text class="status-text status-text-{{item.enter_state}}">{{item.statusText}}</text> | 入店时间：{{item.formattedEnterTime}}
+        </text>
+      </view>
+      <button
+        class="action-btn kick {{item.isProcessing ? 'disabled' : ''}}"
+        size="mini"
+        data-openid="{{item.openid}}"
+        data-nickname="{{item.nickname}}"
+        bindtap="onActionClick"
+        disabled="{{item.isProcessing}}"
+        loading="{{item.isProcessing}}"
+      >
+        强制离店
+      </button>
+    </view>
+  </view>
+
+  <view class="list-footer-status">
+    <text wx:if="{{isLoadingMore}}">正在加载更多...</text>
+    <text wx:elif="{{!hasMoreData && userList.length > 0}}">没有更多用户了</text>
+  </view>
+</view>

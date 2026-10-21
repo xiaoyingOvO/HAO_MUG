@@ -1,0 +1,107 @@
+<!--pages/queue-info/index.wxml-->
+<view class="login-overlay" wx:if="{{showLoginOverlay}}">
+    <view class="overlay-content">
+      <text>登录入店才可以参与排卡噢~</text>
+      <button bindtap="redirectToLogin">前往登录</button>
+    </view>
+</view>
+
+<custom-navi id="custom-navi" title="排卡板"></custom-navi>
+
+<!-- 右侧内容模板（复用：拖拽时 / 平时） -->
+<template name="queueContent">
+  <!-- 游玩区 -->
+  <view class="playing-area">
+    <view
+      wx:for="{{playingList}}"
+      wx:key="index"
+      class="playing-seat {{item.type === 'empty' ? 'seat-empty' : item.type === 'locked' ? 'seat-locked' : 'seat-player'}}"
+      data-position="{{index}}"
+      bindtap="toggleSingle">
+      <block wx:if="{{item.type === 'player'}}">
+        <image class="seat-avatar" src="{{item.player.avatar}}" mode="aspectFill"></image>
+        <view class="seat-name">{{item.player.nickname}}</view>
+      </block>
+      <block wx:elif="{{item.type === 'locked'}}">
+        <view class="seat-locked-text">单刷</view>
+      </block>
+    </view>
+  </view>
+
+  <!-- 等候区 -->
+  <view class="waiting-list">
+    <card
+    wx:for="{{waitingList}}"
+      wx:key="openid"
+      wx:for-item="player"
+      class="card real-card"
+      style="{{showDragClone && dragIndex === index ? 'visibility: hidden;' : ''}}"
+      player="{{player}}"
+      player-index="{{index}}"
+      my-index="{{myIndex}}"
+      drag-mode="{{player.dragMode}}"
+      data-index="{{index}}"
+      bind:embark="embark"
+      bind:requeue="handleRequeueBtn"
+      bind:requeued="handleRequeuedBtn"
+      bind:dragstart="dragStart"
+      bind:dragmove="dragMove"
+      bind:dragend="dragEnd"
+      bind:kickout="kickOut"
+      bind:report="report" />
+    <card wx:if="{{showDragClone}}"
+      id="clone-player"
+      style="position: absolute; top: {{cloneRect.top}}px; width: {{cloneRect.width}}px; left: 0; z-index: 999; pointer-events: none;"
+      player="{{clonePlayer}}"
+      player-index="{{myIndex}}"
+      my-index="{{myIndex}}"
+      drag-mode="{{true}}"
+    />
+  </view>
+</template>
+
+<view class="container">
+  <!-- 欠费提醒 -->
+  <view wx:if="{{overdraft}}" class="queue-overdraft">
+    余额已透支{{overdraftShortage > 0 ? ' ' + overdraftShortage + ' 点' : ''}}，请及时充值。队列位置已保留，可随时退队。
+  </view>
+
+  <view wx:if="{{!checkQueueError}}" class="queue-layout">
+    <!-- 左：机台列表 -->
+    <scroll-view class="machine-list" scroll-y enhanced show-scrollbar="{{false}}">
+      <view
+        wx:for="{{machines}}"
+        wx:key="machineId"
+        class="machine-item {{selectedMachine.machineId === item.machineId ? 'machine-item-active' : ''}}"
+        bind:tap="switchMachine"
+        data-machine-index="{{index}}">
+        {{item.machineName}}
+      </view>
+    </scroll-view>
+
+    <!-- 右：游玩区 + 等候区 -->
+    <view class="queue-area-wrap">
+      <scroll-view class="queue-area" scroll-y enhanced show-scrollbar="{{false}}">
+        <template is="queueContent" data="{{playingList, waitingList, myIndex, showDragClone, clonePlayer, cloneRect, dragIndex}}" />
+      </scroll-view>
+      <!-- 拖动时透明遮罩，catch 掉 touchmove，阻止滚动 -->
+      <view
+        wx:if="{{showDragClone}}"
+        class="drag-mask"
+        catch:touchmove="noop"
+      />
+    </view>
+  </view>
+  <view wx:else class="queue-error">{{queueErrorText}}</view>
+</view>
+
+<!-- 底部：主按钮 + 日志 -->
+<view class="enqueue-button">
+  <view class="enqueue-main">
+    <button wx:if="{{checkQueueError}}" class="button-disabled" type="primary" disabled>{{enqueueButtonText}}</button>
+    <button wx:elif="{{myIndex >= 0 && playlist[myIndex].order == 0}}" class="button-deplain" bind:tap="handleDeplainBtn" type="primary">下机</button>
+    <button wx:elif="{{myIndex >= 0}}" class="button-dequeue" bind:tap="handleDequeueBtn" type="primary">退队</button>
+    <button wx:else class="button-enqueue" bind:tap="handleEnqueueBtn" type="primary">入队</button>
+  </view>
+  <button class="button-log" bind:tap="toLog" size="mini">日志</button>
+</view>

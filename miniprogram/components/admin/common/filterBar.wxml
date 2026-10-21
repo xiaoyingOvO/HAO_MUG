@@ -1,0 +1,33 @@
+<!--components/admin/common/filterBar.wxml-->
+<template name="filterBar">
+  <view class="list-info-bar">
+    <view class="list-info-filter">
+      <view>
+        <input value="{{nicknameInput}}" placeholder="可通过昵称搜索用户" placeholder-style="font-size: 30rpx" bind:input="onInput" bind:focus="onFocus"/>
+        <view wx:if="{{userList.length > 0}}" class="search-result">
+          <view wx:for="{{userList}}" wx:key="_id" class="search-result-item" bind:tap="selectUser" data-user="{{item}}">
+            {{item.nickname}}
+          </view>
+        </view>
+      </view>
+      <button size="mini" bind:tap="clearFilter">清空筛选</button>
+    </view>
+
+    <view class="time-picker-container">
+      <picker mode="date" value="{{filter.startTime}}" bindchange="changeStartTime">
+        <button size="mini">
+          {{filter.startTime || '任意时间'}}
+        </button>
+      </picker>
+      <text>至</text>
+      <picker mode="date" value="{{filter.endTime}}" bindchange="changeEndTime">
+        <button size="mini">
+          {{filter.endTime || '任意时间'}}
+        </button>
+      </picker>
+    </view>
+
+    <text wx:if="{{filter.openid}}">{{filterDescription}}</text>
+    <text wx:else>{{defaultDescription}}</text>
+  </view>
+</template>

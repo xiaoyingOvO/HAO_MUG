@@ -1,0 +1,6 @@
+{
+    "usingComponents": {
+        "faq-modal": "/components/faq-modal/faq-modal"
+    },
+    "navigationBarTitleText": "登录"
+  }

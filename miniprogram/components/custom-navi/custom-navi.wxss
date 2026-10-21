@@ -1,0 +1,25 @@
+/* components/custom-navi/custom-navi.wxss */
+.navigation-bar {
+  position: fixed;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background-color: #f6f6f6;
+  z-index: 999;
+}
+.navigation-container {
+  padding: 0 32rpx;
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: 1fr;
+  align-items: center;
+}
+.natigation-title {
+  flex: none;
+  text-align: center;
+  font-weight: bold;
+}
+.slot {
+  min-width: 0;
+}

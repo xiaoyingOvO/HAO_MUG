@@ -1,0 +1,96 @@
+<!--components/admin/user-manage/user-manage.wxml-->
+<view class="module-content user-manage-container">
+  <!-- 搜索栏 -->
+  <view class="search-panel card">
+    <view class="search-bar">
+      <input class="search-input" type="text" placeholder="输入昵称进行模糊查询" value="{{searchValue}}" bindinput="onSearchInput" />
+      <button class="search-btn {{isSearching ? 'disabled' : ''}}" bindtap="onSearchClick" disabled="{{isSearching || !searchValue}}" style="width: 210rpx; display: flex; box-sizing: border-box; left: 0rpx; top: 0rpx">
+        <text wx:if="{{!isSearching}}">搜索</text>
+        <text wx:else>搜索中...</text>
+      </button>
+    </view>
+  </view>
+
+  <view class="view-wrapper">
+    <!-- 搜索到多个结果，显示列表 -->
+    <view class="search-result-wrapper {{animationClass}}" wx:if="{{viewState === 'list'}}">
+      <view class="search-results-list card" wx:if="{{!selectedUser && searchedUsers.length > 0}}">
+        <view class="card-header">找到 {{searchedUsers.length}} 个相关用户，请选择：</view>
+        <view class="card-body list-body">
+          <view class="result-item" wx:for="{{searchedUsers}}" wx:key="openid" bindtap="onSelectUser" data-user="{{item}}" hover-class="item-hover">
+            <image class="item-avatar" src="{{item.avatar || '/images/default-avatar.png'}}" mode="aspectFill" />
+            <view class="item-info">
+              <text class="item-nickname">昵称：{{item.nickname}}</text>
+              <text class="item-openid">OpenID: {{item.openid}}</text>
+            </view>
+            <text class="arrow">›</text>
+          </view>
+        </view>
+      </view>
+
+      <view class="empty-tip" wx:if="{{searchAttempted && searchedUsers.length === 0 && !isSearching && !selectedUser}}">
+        未查询到相关用户
+      </view>
+    </view>
+
+
+    <view class="back-action-area" wx:if="{{selectedUser && searchedUsers.length > 0}}">
+      <button class="back-btn" bindtap="backToSearchList" wx:if="{{searchedUsers.length > 0}}">‹ 返回</button>
+    </view>
+    <!-- 选中用户，显示用户详情表单 -->
+    <view class="details-wrapper {{animationClass}}" wx:if="{{viewState === 'detail'}}">
+      <view class="details-panel card" wx:if="{{selectedUser}}">
+        <view class="card-header details-header">
+          <view class="editing-user-info">
+            <image class="user-avatar-small" src="{{selectedUser.avatar || '/images/default-avatar.png'}}" mode="aspectFill"></image>
+            <text class="editing-user-nickname">{{selectedUser.nickname}}</text>
+          </view>
+        </view>
+
+        <view class="card-body">
+          <view class="form-item">
+            <image class="form-icon" src="/images/icons/credit.png" mode="aspectFit"></image>
+            <text class="label">信用分</text>
+            <input class="value-input" type="number" data-field="credit" value="{{editableUser.credit}}" bindinput="onInputChange" />
+          </view>
+          <view class="form-item">
+            <image class="form-icon" src="/images/icons/exp.png" mode="aspectFit"></image>
+            <text class="label">经验值</text>
+            <input class="value-input" type="number" data-field="exp" value="{{editableUser.exp}}" bindinput="onInputChange" />
+          </view>
+          <view class="form-item">
+            <image class="form-icon" src="/images/icons/real-point.png" mode="aspectFit"></image>
+            <text class="label">真实点数</text>
+            <input class="value-input" type="digit" data-field="real_point" value="{{editableUser.real_point}}" bindinput="onInputChange" />
+          </view>
+          <view class="form-item">
+            <image class="form-icon" src="/images/icons/gift-point.png" mode="aspectFit"></image>
+            <text class="label">赠送点数</text>
+            <input class="value-input" type="digit" data-field="extra_point" value="{{editableUser.extra_point}}" bindinput="onInputChange" />
+          </view>
+          <view class="form-item" wx:if="{{isAdminMaster}}">
+            <image class="form-icon" src="/images/icons/role.png" mode="aspectFit"></image>
+            <text class="label">权限</text>
+            <view class="value-input-group">
+              <!-- 使用一个 group 包裹 radio -->
+              <!-- 如果被编辑的用户是 master，则显示不可修改的文本 -->
+              <text class="value-text disabled" wx:if="{{editableUser.role === 'master'}}">主管 (不可修改)</text>
+              <!-- 否则，显示 radio 按钮组 -->
+              <radio-group class="role-radio-group" bindchange="onRoleChange" wx:else>
+                <label class="radio" wx:for="{{roleOptions}}" wx:key="value">
+                  <radio value="{{item.value}}" checked="{{item.value === editableUser.role}}" />{{item.name}}
+                </label>
+              </radio-group>
+            </view>
+          </view>
+        </view>
+        <view class="card-footer">
+          <button class="save-btn {{isSubmitting ? 'disabled' : ''}}" bindtap="onActionClick" data-action="submit" disabled="{{isSubmitting}}">
+            {{isSubmitting ? '保存中...' : '保存修改'}}
+          </button>
+        </view>
+      </view>
+    </view>
+
+  </view>
+</view>

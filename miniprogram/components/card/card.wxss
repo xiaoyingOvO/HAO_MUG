@@ -1,0 +1,45 @@
+/* components/card/card.wxss */
+
+/* 卡（跟"游玩位"一样的样式） */
+.playlist-item {
+  height: 140rpx;
+  border-radius: 16rpx;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 20rpx;
+  padding: 0 24rpx;
+  box-sizing: border-box;
+  background: #ffffff;
+  border: 3rpx solid #07C160;
+  box-shadow: 0 4rpx 12rpx rgba(7, 193, 96, 0.15);
+}
+
+.player-index {
+  font-size: 30rpx;
+  color: #07C160;
+  font-weight: 600;
+  min-width: 40rpx;
+}
+
+.player-info {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 20rpx;
+  flex: 1;
+}
+
+.player-info > image {
+  width: 90rpx;
+  height: 90rpx;
+  border-radius: 50%;
+  flex: none;
+  background: #e9ecef;
+}
+
+.player-info > view {
+  font-size: 30rpx;
+  color: #333;
+  font-weight: 500;
+}

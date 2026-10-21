@@ -1,0 +1,24 @@
+# Windows
+[Dd]esktop.ini
+Thumbs.db
+$RECYCLE.BIN/
+
+# macOS
+.DS_Store
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+
+# Node.js
+/node_modules
+miniprogram/node_modules/
+miniprogram/miniprogram_npm
+
+# Ignore node_modules within the baseFunctions cloud function directory
+cloudfunctions/baseFunctions/node_modules/
+cloudfunctions/lowcode-automation/
+cloudfunctions/lowcode-automation-preview
+cloudfunctions/lowcode-datasource
+cloudfunctions/lowcode-datasource-preview
+cloudfunctions/queueFunctions/node_modules/

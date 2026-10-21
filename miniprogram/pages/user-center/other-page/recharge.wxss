@@ -1,0 +1,196 @@
+/* pages/user-center/other-page/recharge.wxss */
+page {
+  background-color: #f0f8ff;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+}
+
+.container.recharge-page {
+  padding: 60rpx 40rpx;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  box-sizing: border-box;
+  position: relative;
+  overflow: hidden;
+}
+
+/* 背景渐变和粒子 */
+.background-gradient {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(180deg, #e0f2f7 0%, #ffffff 70%); /* 顶部浅蓝渐变 */
+  z-index: -3; /* 最底层 */
+}
+.particle-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: -2;
+}
+
+
+/* 内容包裹器，用于动画 */
+.content-wrapper {
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    z-index: 1;
+}
+
+/* 卡片基础样式 */
+.card {
+  background-color: #ffffff;
+  border-radius: 24rpx;
+  margin-bottom: 60rpx;
+  box-shadow: 0 8rpx 24rpx rgba(39, 174, 96, 0.12);
+  width: 100%;
+  box-sizing: border-box;
+  padding: 40rpx;
+}
+
+/* 输入卡片 */
+.input-card .card-title {
+  font-size: 30rpx;
+  color: #7f8c8d;
+  margin-bottom: 30rpx;
+  text-align: center;
+}
+
+.amount-input-group {
+  display: flex;
+  align-items: center;
+  border: 2rpx solid #dcedc8;
+  border-radius: 16rpx;
+  padding: 20rpx 30rpx;
+  background: #fff;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+  position: relative;
+}
+.amount-input-group:focus-within { /* 当内部 input 获得焦点时 */
+  border-color: #27ae60;
+  box-shadow: 0 0 0 6rpx rgba(46, 204, 113, 0.2); /* 焦点辉光效果 */
+}
+
+.amount-input {
+  flex: 1;
+  font-size: 64rpx;
+  font-weight: 700;
+  color: #2c3e50;
+  text-align: right;
+  border: none;
+  outline: none;
+  background: transparent;
+  padding: 0;
+  line-height: 1;
+  height: auto;
+}
+
+.currency-unit {
+    font-size: 32rpx;
+    color: #7f8c8d;
+    margin-left: 15rpx;
+    align-self: flex-end;
+    padding-bottom: 8rpx;
+}
+
+.input-placeholder {
+  color: #abb8c3;
+  font-weight: 400;
+}
+
+/* 提示文字 */
+.hint-wrapper {
+  margin-top: 25rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 40rpx;
+}
+.gift-icon {
+    width: 30rpx;
+    height: 30rpx;
+    margin-right: 8rpx;
+    opacity: 0.7;
+}
+.hint-text {
+  color: #58d68d;
+  font-size: 26rpx;
+}
+
+/* 充值按钮 */
+.primary-button {
+  width: 90%;
+  max-width: 600rpx;
+  height: 96rpx;
+  line-height: 65rpx;
+  background: linear-gradient(135deg, #34d399 0%, #2dd4bf 100%);
+  color: #333;
+  font-size: 34rpx;
+  font-weight: 600;
+  border-radius: 50rpx;
+  box-shadow: 0 10rpx 25rpx -5rpx rgba(45, 212, 191, 0.5); /*0 8rpx 20rpx rgba(46, 204, 113, 0.3); 绿色阴影 */
+  border: 2rpx solid rgba(255, 255, 255, 0.3);
+  transition: all 0.3s ease-out;
+  position: relative;
+  overflow: hidden;
+}
+button.primary-button::after {
+    border: none;
+}
+
+/* 按钮按下效果 */
+.primary-button:active {
+  transform: scale(0.98) translateY(2rpx);
+  box-shadow: 0 6rpx 15rpx -5rpx rgba(46, 204, 113, 0.2);
+  opacity: 0.9;
+}
+
+/* 按钮禁用状态 */
+.primary-button[disabled] {
+  background: #e4e7e9;
+  color: #95a5a6;
+  box-shadow: none;
+  opacity: 0.7;
+}
+.primary-button[disabled][loading] {
+     background: #e4e7e9 !important;
+     color: #abb8c3 !important;
+     opacity: 0.7 !important;
+}
+
+/* 底部提示 */
+.footer-tip {
+    margin-top: 40rpx;
+    font-size: 24rpx;
+    color: #abb8c3;
+    text-align: center;
+}
+
+/* 动画 */
+.animation-fade-in {
+  animation: fade-in 0.6s ease-out forwards;
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animation-pulse {
+   /* 可以给按钮加个轻微呼吸效果 */
+   animation: pulse-light 2s infinite ease-in-out;
+}
+@keyframes pulse-light {
+    0% { box-shadow: 0 8rpx 20rpx rgba(46, 204, 113, 0.3); }
+    50% { box-shadow: 0 12rpx 25rpx rgba(46, 204, 113, 0.4); }
+    100% { box-shadow: 0 8rpx 20rpx rgba(46, 204, 113, 0.3); }
+}

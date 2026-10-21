@@ -1,0 +1,160 @@
+<!--pages/home/home.wxml-->
+<view class="container home-page">
+<view class="broadcast">
+  <image src="/images/icons/broadcast.svg" mode="aspectFit"></image>
+  <view>
+    <text class="broadcast-text">
+      <text>{{broadcast}}</text>
+    </text>
+  </view>
+</view>
+<!-- 公告占位 -->
+<view class="broadcast" style="position: initial; visibility: hidden;">{{broadcast}}</view>
+
+<view class="main-logo">
+  <view class="logo-sidebar"> <text>:O</text><text>:O</text> </view>
+  <image src="{{logoImg}}" mode="aspectFill"></image>
+  <view class="logo-sidebar"> <text>:O</text><text>:O</text> </view>
+</view>
+
+<!-- 店铺当前状态 -->
+<view class="card status-card" style="animation-delay: 0.1s;">
+  <view wx:if="{{woStatus.businessStatus}}" class="card-title-bar"><image class="shop__icon" src="/images/icons/shop.png" mode="aspectFit" />营业中</view>
+  <view wx:else class="card-title-bar"><image class="shop__icon" src="/images/icons/shop.png" mode="aspectFit" />已打烊</view>
+  <view class="card-content">
+    <view class="current-status-text">当前店内</view>
+
+    <!-- 三区域人数（互斥分区：三者相加 = 店内总人数）
+         音游区 / 桌游区 = 已入店且不在休息（候机中或游玩中）
+         休息区          = 休息中 -->
+    <view class="wo-customer-status">
+      <view class="wo-customer-status-amount">
+        <text>{{woStatus.arcadeNum}}</text><text>人</text>
+        <view>音游区</view>
+      </view>
+      <view class="vertical-border"></view>
+      <view class="wo-customer-status-amount">
+        <text>{{woStatus.boardNum}}</text><text>人</text>
+        <view>桌游区</view>
+      </view>
+      <view class="vertical-border"></view>
+      <view class="wo-customer-status-amount">
+        <text>{{woStatus.relaxNum}}</text><text>人</text>
+        <view>休息区</view>
+      </view>
+    </view>
+
+    <view class="wo-customer-total">店内共{{woStatus.relaxNum + woStatus.arcadeNum + woStatus.boardNum}}人</view>
+    <view class="wo-join-button-container">
+      <block wx:if="{{woStatus.enterState === 1 || woStatus.enterState === 2 || woStatus.enterState === 3}}">
+        <button bind:tap="leaveArcade" class="wo-join-button button-leave" type="primary">离店</button>
+        <button bind:tap="openDoor" class="wo-join-button button-opendoor" type="primary">开门</button>
+      </block>
+      <button wx:elif="{{woClosed}}" disabled class="button-disable">{{woClosedText}}</button>
+      <button wx:else bind:tap="enterArcade" class="wo-join-button button-enter" type="primary" disabled="{{isEnterBtnDisabled || woClosed}}">{{woClosed ? woClosedText : '入店'}}</button>
+    </view>
+
+    <block wx:if="{{woStatus.enterState !== 0}}">
+      <view class="wo-status-subtitle">
+        入店时间: {{woStatus.enterTime.show}} 您已消费: {{consumptionAmount}} 点
+      </view>
+      <!-- 欠费提醒：只提示，不影响排队与游玩 -->
+      <view wx:if="{{overdraft}}" class="overdraft-warning">
+        余额已透支{{overdraftShortage > 0 ? ' ' + overdraftShortage + ' 点' : ''}}，请及时充值（不影响排队与游玩）
+      </view>
+    </block>
+    
+  </view>
+</view>
+
+
+<view class="card contact-card" style="animation-delay: 0.25s;">
+  <view class="card-title-bar"><image class="contact__icon" src="/images/icons/contact.png" mode="aspectFit" /> 
+联系方式</view>
+  <view class="card-content">
+    <view class="contact">
+      <view>
+        <image class="qq__icon" src="/images/icons/qq.png" mode="aspectFit" /> 
+        <text>{{contact[0].type}}</text>：<text class="contact-detail tappable" bindtap="copyContact" data-text="{{contact[0].detail}}">{{contact[0].detail}}</text>
+      </view>
+      <view>
+        <image class="telephone__icon" src="/images/icons/telephone.png" mode="aspectFit" />
+        <text>{{contact[1].type}}</text>：<text class="contact-detail tappable" bindtap="copyContact" data-text="{{contact[1].detail}}">{{contact[1].detail}}</text></view>
+    </view>
+  </view>
+</view>
+
+<view class="card faq-card" style="animation-delay: 0.4s;">
+  <view class="card-title-bar"><image class="FAQ__icon" src="/images/icons/FAQ.png" mode="aspectFit" /> 
+<text class="highlight strong">常见问题</text></view>
+  <view class="card-content">
+    <view wx:for="{{faq}}" wx:key="index" class="faq-item">
+      <view bind:tap="extendFaq" data-index="{{index}}" class="faq-q {{showFaq[index] ? 'faq-q-extended' : 'faq-q-unextended'}}">
+        <image src="/images/arrow.svg" mode="aspectFit"></image>
+        <text>{{item.q}}</text>
+      </view>
+      <view class="faq-a {{showFaq[index] ? 'faq-a-show' : 'faq-a-hidden'}}">
+        <view>
+          <text>{{item.a}}</text>
+          <image wx:if="{{item.p}}" src="{{item.p}}" mode="widthFix"></image>
+        </view>
+      </view>
+    </view>
+  </view>
+  
+</view>
+</view>
+
+<!-- 入店设备选择弹层：选中设备即入店，音游设备直接进入该机台队列 -->
+<view wx:if="{{showDevicePicker}}" class="device-mask" bindtap="closeDevicePicker">
+  <view class="device-panel {{closing ? 'device-panel-closing' : ''}}" catchtap="noop">
+    <view class="device-head">
+      <view class="device-title">请选择游玩设备</view>
+      <view class="device-subtitle">先选中设备，再点下方按钮确认</view>
+    </view>
+
+<scroll-view class="device-list" scroll-y>
+  <block wx:for="{{deviceGroups}}" wx:key="groupId" wx:for-item="group" wx:for-index="gi">
+    <view class="device-group">
+
+      <!-- 卡片本体：点它 = 展开/收起（多子项）或直接选中（单子项） -->
+      <view class="device-group-main {{selectedGroup === group.groupId ? 'device-selected' : ''}}"
+        catchtap="toggleDeviceGroup"
+        data-group-index="{{gi}}">
+        <image class="device-thumb" src="{{group.icon}}" mode="aspectFill"></image>
+        <view class="device-meta">
+          <view class="device-name">{{group.groupName}}</view>
+          <view class="device-desc">{{group.desc}}</view>
+        </view>
+  <!-- "该组总人数" -->
+  <view class="device-count {{(group.totalCount || 0) < 3 ? 'count-green' : (group.totalCount || 0) < 6 ? 'count-orange' : 'count-red'}}">
+  {{group.totalCount || 0}} 人
+  </view>
+</view>
+
+      <!-- 多个变体（舞萌：官机 / MML / ADX）展开后各自独立排队 -->
+      <view class="device-children {{group.children.length > 1 && expandedGroup === group.groupId ? 'device-children-show' : ''}}">
+        <view
+          wx:for="{{group.children}}"
+          wx:key="machineId"
+          wx:for-item="child"
+          wx:for-index="ci"
+          class="device-child {{selectedKey === child.key ? 'device-selected' : ''}}"
+          catchtap="pickDevice"
+          data-group-index="{{gi}}"
+          data-child-index="{{ci}}">
+          <text class="device-child-name">{{child.label}}</text>
+          <text class="device-child-tag">{{child.maxPlayer >= 2 ? '可拼机 / 单刷' : '单刷'}}</text>
+        </view>
+      </view>
+
+    </view>
+  </block>
+</scroll-view>
+
+    <!-- 底部按钮：未选中 = 取消；已选中 = 入队（真正执行入店并排队，文案统一） -->
+    <view class="device-cancel {{selectedDevice ? 'device-confirm' : ''}}" catchtap="onPickerConfirm">{{confirmText}}</view>
+  </view>
+</view>
+
+<login-fab />

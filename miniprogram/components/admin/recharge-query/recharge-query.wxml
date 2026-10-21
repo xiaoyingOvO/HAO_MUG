@@ -1,0 +1,49 @@
+<!--components/admin/recharge-query/recharge-query.wxml-->
+<view class="module-content">
+  <view class="list-info-bar">
+    <view class="list-info-filter">
+      <view>
+        <input value="{{nicknameInput}}" placeholder="可通过昵称搜索用户" placeholder-style="font-size: 30rpx" bind:input="onInput" />
+        <view wx:if="{{userList.length > 0}}" class="search-result">
+          <view wx:for="{{userList}}" wx:key="_id" class="search-result-item" bind:tap="selectUser" data-user="{{item}}">
+            {{item.nickname}}
+          </view>
+        </view>
+      </view>
+      <button size="mini" bind:tap="clearFilter">清空筛选</button>
+    </view>
+
+    <view class="time-picker-container">
+      <picker mode="date" value="{{filter.startTime}}" bindchange="changeStartTime">
+        <button size="mini">
+          {{filter.startTime || '任意时间'}}
+        </button>
+      </picker>
+      <text>至</text>
+      <picker mode="date" value="{{filter.endTime}}" bindchange="changeEndTime">
+        <button size="mini">
+          {{filter.endTime || '任意时间'}}
+        </button>
+      </picker>
+    </view>
+
+    <text wx:if="{{filter.openid}}">用户{{filter.openid}}的充值记录</text>
+    <text wx:else>全部用户的充值记录</text>
+  </view>
+
+  <view class="list-body">
+    <view wx:for="{{rechargeInfo}}" wx:key="index" class="order-item">
+      <image src="{{item.avatar}}" mode="aspectFill"></image>
+      <view class="order-info">
+        <view class="order-header">
+          <text class="nickname">{{item.nickname}}</text>
+          <text class="amount">{{item.amount}}点</text>
+        </view>
+        <text class="order-time">下单时间: {{item.orderTime}}</text>
+        <text wx:if="{{item.state === 0}}" class="expire-time">过期: {{item.expireTime}}</text>
+      </view>
+      <text class="status {{item.statusClass}}">{{item.statusText}}</text>
+    </view>
+    <view wx:if="{{filter.openid && rechargeInfo.length == 0}}" class="empty-message">暂无该用户充值记录</view>
+  </view>
+</view>

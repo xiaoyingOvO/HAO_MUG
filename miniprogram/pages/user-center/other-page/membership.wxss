@@ -1,0 +1,165 @@
+/* pages/user-center/other-page/membership.wxss */
+.container.membership-page {
+    padding: 30rpx;
+    background-color: #f8f9fa;
+    color: #333;
+  }
+  
+  .section {
+    background-color: #fff;
+    border-radius: 16rpx;
+    padding: 30rpx;
+    margin-bottom: 40rpx;
+    box-shadow: 0 4rpx 12rpx rgba(0,0,0,0.05);
+  }
+  
+  .section-title {
+    font-size: 34rpx;
+    font-weight: bold;
+    color: #2c3e50;
+    margin-bottom: 30rpx;
+    padding-bottom: 20rpx;
+    border-bottom: 1rpx solid #ecf0f1;
+    display: flex;
+    align-items: center;
+  }
+  .title-icon {
+      width: 40rpx;
+      height: 40rpx;
+      margin-right: 15rpx;
+  }
+  
+  .intro-text {
+    display: block;
+    font-size: 28rpx;
+    line-height: 1.7;
+    color: #555;
+    margin-bottom: 30rpx;
+  }
+  
+  /* 表格样式 */
+  .level-rules-table,
+  .credit-rules-table {
+    width: 100%;
+    border: 1rpx solid #e0e6ed;
+    border-radius: 8rpx;
+    overflow: hidden;
+    margin-bottom: 30rpx;
+  }
+  
+  .table-header,
+  .table-row {
+    display: flex;
+    width: 100%;
+  }
+  
+  .table-header {
+    background-color: #f2f6fc;
+    font-weight: bold;
+    color: #303133;
+    font-size: 26rpx;
+  }
+  
+  .table-row {
+    border-top: 1rpx solid #e0e6ed;
+  }
+  .table-row:first-child { /* 如果表头是独立 view */
+      /* border-top: none; */
+  }
+  
+  
+  .table-cell {
+    flex: 1;
+    padding: 20rpx 15rpx;
+    font-size: 26rpx;
+    line-height: 1.5;
+    text-align: center;
+    border-right: 1rpx solid #e0e6ed;
+    word-break: break-word; /* 允许换行 */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+  .table-cell:last-child {
+    border-right: none;
+  }
+  
+  /* 列宽度调整 */
+  .table-header .table-cell:nth-child(1),
+  .table-row .table-cell:nth-child(1) { /* 等级/信用等级列 */
+    flex: 0.8;
+  }
+  .table-header .table-cell:nth-child(3),
+  .table-row .table-cell:nth-child(3) { /* 特权/影响列 */
+    flex: 1.8;
+    text-align: left;
+  }
+  .table-row .table-cell.perks,
+  .table-row .table-cell.effects {
+      text-align: left;
+  }
+  
+  
+  /* 等级和信用徽章样式 */
+  .level-badge, .credit-badge {
+    font-weight: bold;
+    padding: 6rpx 12rpx;
+    border-radius: 6rpx;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24rpx;
+  }
+  /* 等级徽章 */
+  /* .level-badge {
+    font-weight: bold;
+    padding: 4rpx 10rpx;
+    border-radius: 6rpx;
+    display: inline-flex;
+    font-size: 24rpx;
+    text-shadow: 0 1px 1px rgba(0,0,0,0.1);
+  } */
+
+.level-badge {
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.level-badge-1 {
+  background: linear-gradient(135deg, #43e97b, #38f9d7);
+}
+.level-badge-2 {
+  background: linear-gradient(135deg, #89f7fe, #66a6ff);
+}
+.level-badge-3 {
+  background: linear-gradient(135deg, #ff9a9e, #fecfef);
+}
+.level-badge-4 {
+  background: linear-gradient(135deg, #bdc3c7, #2c3e50);
+}
+.level-badge-5 {
+  background: linear-gradient(135deg, #f6d365, #fda085);
+}
+.level-badge-6, .level-badge-MAX {
+  background: linear-gradient(135deg, #ff3cac, #ff3cac, #2b86c5);
+}
+
+  /* 信用徽章 */
+  .credit-badge-S { background-color: rgba(255, 215, 0, 0.15); color: #c7a100; border: 1rpx solid #FFD700;}
+  .credit-badge-A { background-color: rgba(82, 196, 26, 0.15); color: #388e3c; border: 1rpx solid #52C41A;}
+  .credit-badge-B { background-color: rgba(24, 144, 255, 0.15); color: #1976d2; border: 1rpx solid #1890FF;}
+  .credit-badge-C { background-color: rgba(255, 73, 73, 0.15); color: #d32f2f; border: 1rpx solid #FF4949;}
+  
+  
+  .important-note {
+    display: block;
+    font-size: 24rpx;
+    color: #7f8c8d;
+    margin-top: 30rpx;
+    padding: 20rpx;
+    background-color: #ecf0f1;
+    border-radius: 8rpx;
+    text-align: center;
+  }
