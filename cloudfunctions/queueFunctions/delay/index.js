@@ -7,7 +7,18 @@ cloud.init({
 const db = cloud.database();
 const db_user = "user"
 var db_machine_lock = 'machine_lock'
-var final_place = -1
+
+// 把节点的新 next_id 写回数据库的公共动作
+async function updateNextId(db_queue, node) {
+  await db.collection(db_queue).where({
+    openid: node.openid
+  }).update({
+    data: {
+      next_id: node.next_id
+    }
+  });
+}
+
 // 移动云函数入口
 exports.main = async (event, context) => {
   // 获取openid
@@ -38,7 +49,7 @@ exports.main = async (event, context) => {
       errMsg: "分布式锁非用户持有，请重试"
     }
   }
-  // 移动位置(用户为u，改变u-1的nextid，u的nextid，move_final的nextid)
+  // 读出本机台队列（链表结构，next_id 指向下一位）
   var db_queue = "queue_"
   db_queue += machine_id
   var queue_record = await db.collection(db_queue)
@@ -74,13 +85,21 @@ exports.main = async (event, context) => {
     }
     queue_record.data[i].user_info = user_record.data[0]
   }
-  console.log(queue_record)
-  let sortedQ = await moveUserToPosition(queue_record,openid,move_final,machine_id)
-  console.log(sortedQ)
+  let move_result = await moveUserToPosition(queue_record, openid, move_final, machine_id)
+  if (!move_result.success) {
+    // 排序失败也要放锁，否则该用户会一直占着机台锁
+    await releaseQueueLock({
+      openid: openid,
+      machine_id: machine_id
+    })
+    return {
+      success: false,
+      errMsg: move_result.errMsg
+    }
+  }
   // 写队列日志数据库
   var db_log = "queue_log_" + machine_id
-  console.log("!!!!",final_place)
-  var content = "用户" + cur_user.nickname + "于" + new Date() + "将自身位置移至第" + final_place + "位"
+  var content = "用户" + cur_user.nickname + "于" + new Date() + "将自身位置移至第" + move_result.final_place + "位"
   await db.collection(db_log).add({
     data: {
       timestamp: new Date(),
@@ -96,20 +115,21 @@ exports.main = async (event, context) => {
     openid: openid,
     machine_id: machine_id
   })
-  
+
   return {
     success: true,
-    data: sortedQ
+    data: move_result.sortedQ
   }
 }
 
+// 把 move_openid 移动到 move_final 这一位之前；move_final === "-1" 表示排到队尾
 async function moveUserToPosition(queue_record, move_openid, move_final, machine_id) {
-  var db_queue = "queue_";
-  db_queue += machine_id;
+  var db_queue = "queue_"
+  db_queue += machine_id
 
   if (!queue_record || !queue_record.data || queue_record.data.length === 0) {
-      console.error("队列数据为空或无效");
-      return;
+    console.error("队列数据为空或无效");
+    return { success: false, errMsg: "队列数据为空" };
   }
 
   const nodeMap = new Map();
@@ -127,11 +147,10 @@ async function moveUserToPosition(queue_record, move_openid, move_final, machine
           moveNode = qdata; // 需要移动的用户
       }
   });
-  console.log("moveNode!", moveNode);
 
   if (!moveNode) {
       console.error("未找到要移动的用户");
-      return;
+      return { success: false, errMsg: "未找到要移动的用户" };
   }
 
   // 找到 moveNode 的前一个节点
@@ -141,133 +160,95 @@ async function moveUserToPosition(queue_record, move_openid, move_final, machine
       }
   });
 
-  // 如果 moveNode 已经在目标位置，则无需操作
+  // 目标就是自己：原地不动，直接返回当前顺序
   if (moveNode.openid === move_final) {
-      console.log("用户已经在目标位置");
-      return;
+      return buildResult(headNode, nodeMap, moveNode.openid);
   }
-  console.log("movePrevNode!", movePrevNode);
-  // 解除 moveNode 当前位置的链接
+
+  // 1) 先把自己从链表上摘下来（内存和数据库一起改）
   if (movePrevNode) {
       movePrevNode.next_id = moveNode.next_id; // 让前一个节点跳过 moveNode
-      // 更新数据库中 movePrevNode 的 next_id
-      await db.collection(db_queue).where({
-          openid: movePrevNode.openid
-      }).update({
-          data: {
-              next_id: moveNode.next_id
-          }
-      }).then(res => {
-        updated = res.stats.updated;
-        console.log(res);
-      })
+      await updateNextId(db_queue, movePrevNode);
   } else {
     headNode = moveNode.next_id !== "-1" ? nodeMap.get(moveNode.next_id) : null; // 如果移动的是头节点，更新头节点
-    console.log("headNode!!",headNode)
   }
 
-  // 找到 move_final 节点
-  let finalNode = nodeMap.get(move_final);
-  if (!finalNode) {
-      console.error("未找到目标位置的用户");
-      return;
+  // 摘完只剩自己一个人，没有位置可调
+  if (!headNode) {
+      return buildResult(moveNode, nodeMap, moveNode.openid);
   }
 
-  // 如果目标是队列的最前面，插入到第一位
-  if (move_final === headNode.openid && 
-        ((movePrevNode && headNode.openid == movePrevNode.openid) || headNode.next_id != "-1")) {
-      console.log(headNode.next_id)
-      moveNode.next_id = headNode.openid;
-      headNode = moveNode;
-    console.log("1!",moveNode,headNode)
-      // 更新数据库中的 headNode 和 moveNode 的 next_id
-      await db.collection(db_queue).where({
-          openid: moveNode.openid
-      }).update({
-          data: {
-              next_id: moveNode.next_id
-          }
-      });
-
-      await db.collection(db_queue).where({
-          openid: headNode.openid
-      }).update({
-          data: {
-              next_id: headNode.next_id
-          }
-      });
-  } 
-  // 如果目标是队列的最后面，插入到最后一位
-  else if (finalNode.next_id === "-1" && finalNode != movePrevNode) {
+  // 2) 把自己插到目标之前
+  if (move_final === "-1") {
+      // 目标是队尾：接到最后一个节点后面
+      let tailNode = headNode;
+      while (tailNode && tailNode.next_id !== "-1") {
+          tailNode = nodeMap.get(tailNode.next_id);
+      }
+      if (!tailNode) {
+          console.error("找不到队尾节点");
+          return { success: false, errMsg: "队列数据异常" };
+      }
       moveNode.next_id = "-1";
-      finalNode.next_id = moveNode.openid;
-      console.log("2!",moveNode,finalNode)
-      // 更新数据库中的 finalNode 和 moveNode 的 next_id
-      await db.collection(db_queue).where({
-          openid: moveNode.openid
-      }).update({
-          data: {
-              next_id: moveNode.next_id
-          }
-      });
+      tailNode.next_id = moveNode.openid;
+      await updateNextId(db_queue, moveNode);
+      await updateNextId(db_queue, tailNode);
+  } else {
+      const finalNode = nodeMap.get(move_final);
+      if (!finalNode) {
+          console.error("未找到目标位置的用户");
+          return { success: false, errMsg: "未找到目标位置的用户" };
+      }
 
-      await db.collection(db_queue).where({
-          openid: finalNode.openid
-      }).update({
-          data: {
-              next_id: finalNode.next_id
+      if (finalNode.openid === headNode.openid) {
+          // 目标在队首：自己成为新的队首
+          moveNode.next_id = headNode.openid;
+          headNode = moveNode;
+          await updateNextId(db_queue, moveNode);
+      } else {
+          // 找目标节点在「自己摘除之后」的前驱，
+          // 必须沿摘除后的活链表走：目标的前驱有可能就是自己（比如拖到自己的下一位之前），
+          // 那样的话摘除后目标的前驱已经换成了自己的前驱。
+          let finalPreNode = null;
+          let cursor = headNode;
+          while (cursor && cursor.openid !== finalNode.openid) {
+              if (cursor.next_id === finalNode.openid) {
+                  finalPreNode = cursor;
+                  break;
+              }
+              cursor = nodeMap.get(cursor.next_id);
           }
-      });
-  } 
-  // 否则，插入到目标节点之后
-  else {
-      // 找到finalNode的上一个节点
-      var finalPreNode = null
-      queue_record.data.forEach(qdata => {
-        if (qdata.next_id === finalNode.openid) {
-            finalPreNode = qdata;
-        }
-      });
-      console.log("3!",moveNode,finalNode)
-      moveNode.next_id = finalNode.openid;
-      console.log("3!",moveNode,finalNode)
-      finalPreNode.next_id = moveNode.openid;
-      console.log("3!",moveNode,finalNode,finalPreNode)
-      // 更新数据库中的 moveNode 和 finalNode 的 next_id
-      await db.collection(db_queue).where({
-          openid: moveNode.openid
-      }).update({
-          data: {
-              next_id: moveNode.next_id
+          if (!finalPreNode) {
+              console.error("找不到目标位置的前一位");
+              return { success: false, errMsg: "队列数据异常" };
           }
-      });
-
-      await db.collection(db_queue).where({
-          openid: finalPreNode.openid
-      }).update({
-          data: {
-              next_id: finalPreNode.next_id
-          }
-      });
+          moveNode.next_id = finalNode.openid;
+          finalPreNode.next_id = moveNode.openid;
+          await updateNextId(db_queue, moveNode);
+          await updateNextId(db_queue, finalPreNode);
+      }
   }
 
-  // 重新构建排序后的队列
+  return buildResult(headNode, nodeMap, moveNode.openid);
+}
+
+// 顺着链表重建顺序，并算出移动后用户排在第几位
+function buildResult(headNode, nodeMap, move_openid) {
   const sortedQ = [];
   let currentNode = headNode;
-  var idx = 1
+  let final_place = -1;
+  let idx = 1;
   while (currentNode) {
       sortedQ.push(currentNode);
-      if (currentNode.openid === moveNode.openid) {
-        final_place = idx
-        console.log("!!!",final_place)
+      if (currentNode.openid === move_openid) {
+          final_place = idx;
       }
       if (currentNode.next_id === "-1") break;
       currentNode = nodeMap.get(currentNode.next_id);
-      idx++
+      idx++;
   }
-
-  console.log("更新后的队列:", sortedQ);
-  return sortedQ;
+  console.log("更新后的队列:", sortedQ, "第", final_place, "位");
+  return { success: true, sortedQ: sortedQ, final_place: final_place };
 }
 
 async function releaseQueueLock(params) {
@@ -288,8 +269,4 @@ async function releaseQueueLock(params) {
       console.log(res);
     });
     console.log("释放锁成功");
-}
-
-async function sleep(seconds) {
-  return new Promise(resolve => setTimeout(resolve, seconds * 1000));
 }
