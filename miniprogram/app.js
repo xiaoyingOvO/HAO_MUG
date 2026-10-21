@@ -64,7 +64,6 @@ App({
       return this.globalData.loginPromise;
     }
 
-    console.log('[App] silentLogin begins');
     this.globalData.loginPromise = new Promise((resolve, reject) => {
       wx.cloud.callFunction({
         name: 'baseFunctions',
@@ -74,7 +73,6 @@ App({
       }).then(res => {
         if (res.result?.success && res.result.data?.openid) {
           // 登录成功
-          console.log('[App] silentLogin success:', res.result.data);
           this.globalData.userInfo = res.result.data;
           this.globalData.isLoggedIn = true;
           wx.setStorageSync('userInfo', res.result.data);
@@ -83,7 +81,6 @@ App({
           this.triggerUpdateLoginStatus();
           resolve(this.globalData.userInfo);
         } else if (res.result && res.result.data?.register === false && res.result.data?.openid) {
-          console.log('[App] silentLogin get openid:', res.result.data.openid);
           this.clearLoginState();
           this.globalData.userInfo = {
             openid: res.result.data.openid,
@@ -92,7 +89,6 @@ App({
           this.triggerUpdateLoginStatus();
           resolve(this.globalData.userInfo);
         } else {
-          console.log('[App] silentLogin: 获取信息失败');
           this.clearLoginState();
           reject(new Error(res.result?.errMsg || '获取用户信息失败'));
         }
@@ -126,7 +122,6 @@ App({
         this.updateUnreadCount(0);
         return;
       }
-      console.log('[App] check unread Messages...');
       await checkBadge();
     } catch (error) {
       console.error("[App] Failed to check unread messages:", error);

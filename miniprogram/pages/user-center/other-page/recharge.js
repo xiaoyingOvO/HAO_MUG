@@ -26,7 +26,6 @@ Page({
     this.eventChannel = this.getOpenerEventChannel();
     if (this.eventChannel && this.eventChannel.on) {
         this.eventChannel.on('acceptData', (data) => {
-            console.log('充值页接收到 userInfo:', data.userInfo);
             if (data && data.userInfo && data.userInfo.openid && data.userInfo.nickname){
               this.setData({
                 userInfo: data.userInfo,
@@ -75,7 +74,6 @@ Page({
         this.data.canvasNode.cancelAnimationFrame(this.data.animationFrameId);
     }
   },
-
 
   // --- 输入处理 ---
   handleAmountInput(e) {
@@ -135,11 +133,9 @@ Page({
     })
   },
 
-
   // 计算赠送点数
   calculateExtraPoint(real_point) {
       const exp = this.data.userInfo?.exp || 0;
-      console.log("当前exp：", exp, "充值金额:", real_point);
       let bonus = 0; // 赠送倍数
       if (real_point >= 100) {  // 充值大于等于100元赠送
         if (exp > 30000) {        // 5级 30%
@@ -154,8 +150,6 @@ Page({
               bonus = 0; // 1级 不额外赠送
           }
       }
-
-      
 
       let finalExtra = real_point * bonus;
       finalExtra = parseFloat(finalExtra.toFixed(2));   // 保留两位小数
@@ -180,7 +174,6 @@ Page({
           });
       });
     },
-
 
   // 充值主函数
   async handleRecharge() {
@@ -210,7 +203,6 @@ Page({
       }
 
       // 2. 调用工作流生成支付参数
-      console.log(`调用支付工作流，金额: ${amount}, openid: ${openid}`);
       const payOrder = await wx.cloud.callFunction({
         name: 'cloudbase_module',
         data: {
@@ -223,7 +215,6 @@ Page({
           }
         }
       });
-      console.log('支付工作流返回:', payOrder);
 
       // 3. 检查支付参数
       const paymentData = payOrder.result?.data;
@@ -233,7 +224,6 @@ Page({
       }
 
       // 4. 唤起微信支付
-      console.log("发起微信支付参数:", paymentData);
       await wx.requestPayment({
         timeStamp: paymentData.timeStamp,
         nonceStr: paymentData.nonceStr,
@@ -241,7 +231,6 @@ Page({
         signType: paymentData.signType || 'RSA',
         paySign: paymentData.paySign,
       });
-      console.log("微信支付接口调用成功 (不代表支付成功)");
 
       // 5. 支付成功后的处理 
       const refreshRes = await wx.cloud.callFunction({
@@ -252,7 +241,6 @@ Page({
       });
       if (refreshRes.result?.success && refreshRes.result.data) {
         const latestUsrInfo = refreshRes.result.data;
-        console.log('支付成功后，获取到最新用户信息：', latestUsrInfo);
         app.globalData.userInfo = latestUsrInfo;
         wx.setStorageSync('userInfo', latestUsrInfo);
         this.setData({ userInfo: latestUsrInfo });

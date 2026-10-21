@@ -34,7 +34,6 @@ const getNotice = async function() {
   })
 }
 
-
 /**
  * queueFunctions
  */
@@ -105,7 +104,6 @@ const leaveArcade = async function() {
     }
   })
 }
-
 
 // 开门！
 const openDoor = async function() {
@@ -310,7 +308,6 @@ const queueLog = async function(id) {
     }
   })
 }
-
 
 export default {
   modifyBusinessStatus,

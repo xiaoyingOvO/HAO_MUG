@@ -38,16 +38,17 @@ export const MOCK_ROLE = 'user';
 const DB_KEY = 'haomug_mock_db_v1';
 // 假数据版本号：改动初始数据时把它 +1，旧的本地缓存会自动失效重建
 // （避免"代码改了但页面还是老数据"的困惑）
-const DB_VERSION = 16;
+const DB_VERSION = 18;
 // 13：机台拆成 舞萌·官机 / MML / ADX + 中二节奏，入店改为选设备直接排队
 // 14：初始余额改为 0 点（方便测「扣成负数也只提醒、不踢出排队」）
 // 15：新增日麻机台 M05（桌游区，4 人一桌，可排队）；三区域人数统计改为互斥分区
 // 16：三区域改为按「在干什么」分区（休息区 = enter_state 1，两个区都算），
 //     桌游区退队后回到休息区
+// 17：（已废弃）调试用假数据 —— 三个区域各 4 人 + 铺满 queues
+// 18：改回默认空店状态：店内只有 2 人在休息，所有机台队列为空
 // ⚠️⚠️ 改了 seed() 里的 machines / queues / 用户 / 卡片，就**必须**把版本号 +1，
 //      否则本地 storage 里是旧缓存，页面还显示老数据 —— 加 M05 时就漏了这一次，
 //      导致桌游区排队报「机器不可用」（旧缓存里根本没有 M05 机台）。
-// 15：新增日麻机台 M05（桌游区，4 人一桌，可排队）；三区域人数统计改为互斥分区
 const ME_OPENID = 'mock-openid-me';
 
 const AVATAR_ME = '/images/avatar.png';
@@ -178,7 +179,8 @@ function seed() {
     cards: [],
   };
 
-  const makeUser = (openid, nickname, exp, credit, real, extra, state) => ({
+  // opt: { area, machine_id } —— 用来造「在某区、占着某台机」的假用户
+  const makeUser = (openid, nickname, exp, credit, real, extra, state, opt = {}) => ({
     _id: 'mock-user-' + openid,
     openid,
     phone: '1380000' + openid.slice(-4),
@@ -192,22 +194,32 @@ function seed() {
     extra_point: extra,
     enter_state: state,
     enter_time: state > 0 ? now - (20 + Number(openid.slice(-2))) * MIN : null,
-    machine_id: '',
-    area: AREA_ARCADE,
+    machine_id: opt.machine_id || '',
+    area: opt.area || AREA_ARCADE,
     cards: [],
   });
 
+  // 默认只放 **2 人在店内休息**（与原版截图一致：正在游玩 0 人 / 正在休息 2 人），
+  // 其余全部未入店。这样打开首页是干净的空店状态，方便自己一步步点着测。
+  //
+  // ⚠️ 想看「三区域各有几人」的效果时，把下面几行的 enter_state 改掉即可
+  //    （0 未入店 / 1 休息中 / 2 候机中 / 3 游玩中），并**同步改 queues**、把 DB_VERSION +1：
+  //      makeUser('mock-openid-04', '街机王',   ..., 3, { machine_id: 'M01' })  → 音游区
+  //      makeUser('mock-openid-05', '夜场常客', ..., 3, { area: AREA_BOARD, machine_id: 'M05' }) → 桌游区
+  //    之前为了测试铺过「每区 4 人」，现已改回默认；那段数据见改动清单第六节。
   const others = [
-    // 原版首页显示「正在游玩 0 人 / 正在休息 2 人」，所以只有 2 人在店内（enter_state = 1），其余未入店
+    // 管理员：未入店，可进管理页
     { _id: 'mock-user-admin', openid: 'mock-openid-admin', phone: '13800000000', qq_id: '10000', exp: 12000, role: 'master', credit: 100, nickname: '店长', avatar: AVATAR_OTHER, real_point: 999, extra_point: 0, enter_state: 0, enter_time: null, machine_id: '', cards: [] },
+
+    // ── 店内 2 人：休息中（enter_state 1，没排队、没上机）──
     makeUser('mock-openid-02', '阿豪', 5600, 95, 120, 10, 1),
     makeUser('mock-openid-03', '小喵', 1200, 88, 60, 0, 1),
+
+    // ── 其余未入店（enter_state 0）──
     makeUser('mock-openid-04', '街机王', 26000, 100, 800, 200, 0),
     makeUser('mock-openid-05', '夜场常客', 900, 78, 40, 5, 0),
     makeUser('mock-openid-06', '新来的', 100, 86, 30, 0, 0),
   ];
-  // 注意：排卡区（机器队列）不做任何预设，所有机器队列都是空的。
-  //      这几个假用户只在店内休息，不占任何机位。
 
   // 机台列表：对应云端 machine 集合，排卡页顶部的机台下拉、首页入店的设备选择弹层都读这份数据。
   //
@@ -233,13 +245,26 @@ function seed() {
     { _id: 'M05', machine_name: '桌游',      max_player: 4, area: 'board',  group_id: 'board',    group_name: '桌游/日麻', label: '桌游' },
   ];
 
-  // 排卡区暂不预设任何排队数据，等后续需求再定
+  // 排卡区（机器队列）默认全空 —— 假用户只在店内休息，不占任何机位。
+  //
+  // ⚠️ 想让排卡板一打开就有人的话，往对应机台里加条目，字段与真实云函数
+  //    Enqueue / Embark 写入的一致（改完记得 DB_VERSION +1）：
+  //      { openid, timestamp, play_status, is_multi, play_position }
+  //    · play_status true  = 已上机（占固定座位）
+  //    · play_status false = 候机中（在等候区）
+  //    · play_position     = 游玩区座位下标 0 ~ max_player-1，
+  //                          见 pages/queue-info/index.js:38 buildPlayingList
+  //    例（官机 2 人拼机）：
+  //      M01: [
+  //        { openid: 'mock-openid-04', timestamp: now - 26 * MIN, play_status: true,  is_multi: true, play_position: 0 },
+  //        { openid: 'mock-openid-05', timestamp: now - 24 * MIN, play_status: true,  is_multi: true, play_position: 1 },
+  //      ],
   const queues = {
-    M01: [],
-    M02: [],
-    M03: [],
-    M04: [],
-    M05: [],
+    M01: [], // 舞萌·官机（max 2）
+    M02: [], // 舞萌·MML（max 1）
+    M03: [], // 舞萌·ADX（max 1）
+    M04: [], // 中二（max 1）
+    M05: [], // 日麻（桌游区，max 4）
     M06: [],
   };
 

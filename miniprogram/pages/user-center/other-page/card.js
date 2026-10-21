@@ -14,9 +14,7 @@ Page({
         let hasReceivedUserInfo = false;
     
         if (eventChannel && eventChannel.on) {
-            console.log('Listening for acceptUserInfo event...');
             eventChannel.on('acceptUserInfo', (data) => {
-                console.log('Received userInfo via eventChannel:', data);
                 if (data && data.userInfo) {
                     const userInfo = data.userInfo;
                     const real_point = Number(userInfo.real_point) || 0;
@@ -35,7 +33,6 @@ Page({
                 }
             });
         } else {
-            console.log('No eventChannel available.');
         }
     
         // 加载卡数据
@@ -48,7 +45,6 @@ Page({
     
         setTimeout(() => {
             if (!hasReceivedUserInfo) {
-                console.log('未收到传递userInfo，将使用云函数获取');
                 this.getUserPoints();
             }
         }, 100);
@@ -67,7 +63,6 @@ Page({
               params: {}
             }
           });
-          console.log('getUserInfo result:', res.result);
           if (res.result && res.result.success && res.result.data) {
             const real_point = Number(res.result.data.real_point) || 0;
             const extra_point = Number(res.result.data.extra_point) || 0;
@@ -102,9 +97,7 @@ Page({
             params: {},
           }
         });
-  
-        console.log('getCardInfo result:', res.result);
-  
+
         if (res.result && res.result.success && Array.isArray(res.result.data)) {
           const now = new Date();
           // 过滤夜场
@@ -148,22 +141,6 @@ Page({
       }
     },
 
-    // 判断时间是否过期
-    isCardTimeExpired(duration, currentTime) {
-        if (!duration || duration.type !== 0 || !(duration.start_time instanceof Date) || !(duration.end_time instanceof Date)) {
-            return false;
-        }
-
-        // const cardStartTimeToday = new Date(currentTime.getFullYear(), currentTime.getMonth(), currentTime.getDate(), duration.start_time.getHours(), duration.start_time.getMinutes(), 0, 0);
-        const cardEndTimeToday = new Date(currentTime.getFullYear(), currentTime.getMonth(), currentTime.getDate(), duration.end_time.getHours(), duration.end_time.getMinutes(), 0, 0);
-        console.log('当前时间：', currentTime.getTime(), '   卡片结束时间：', cardEndTimeToday);
-        // 暂不考虑跨天问题
-        if (currentTime.getTime() >= cardEndTimeToday.getTime()) {
-            return true;
-        }
-        return false;
-    },
-  
     // 处理购买按钮点击事件
     handleBuyCard(e) {
       const cardId = e.currentTarget.dataset.cardId;
@@ -214,9 +191,7 @@ Page({
                   }
                 }
               });
-  
-              console.log('buyCard result:', buyRes.result);
-  
+
               // wx.hideLoading();
   
               if (buyRes.result && buyRes.result.success) {

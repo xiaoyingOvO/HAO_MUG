@@ -67,15 +67,6 @@ Page({
     selectedMachine: null/* {machineId: 't', machineName: '乌蒙1号', maxPlayer: 2} */
   },
 
-
-  // 点击顶部tab
-  handleTabClick(e) {
-    let logListKey = e.currentTarget.dataset.logListKey
-    this.setData({
-      activeLogList: logListKey
-    })
-  },
-
   // 获取机器操作日志
   getQueueLog() {
     let machineId = this.data.selectedMachine?.machineId
@@ -97,10 +88,8 @@ Page({
       this.setData({
         ['logLists.machineLogs']: machineLogs
       })
-      console.log(`获取到机台${this.data.selectedMachine.machineName}日志`, machineLogs)
     })
   },
-
 
   /**
    * 生命周期函数--监听页面加载

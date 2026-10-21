@@ -1,5 +1,4 @@
 // pages/login/login.js
-// import { getOpenData } from 'wx-server-sdk'
 import cloudFcn from '../../cloudFcn.js'
 const app = getApp();
 
@@ -39,7 +38,6 @@ Page({
 
         if (userInfo && !userInfo.isNewUser) {
           // --- 用户已登录 ---
-          console.log('[Login Page] 用户已登录，立即跳转到首页');
           wx.showToast({
             title: '您已登录',
             icon: 'success',
@@ -55,12 +53,10 @@ Page({
         }
         
         // --- 用户未登录 ---
-        console.log('[Login Page] 用户未登录，开始初始化注册页面');
         this.initAnimations();
         this.loadFaqData();
         
         if (userInfo && userInfo.isNewUser) {
-          console.log('[Login Page] 获取到待注册的 openid:', userInfo.openid);
           this.setData({ openid: userInfo.openid });
         } else {
           console.warn('[Login Page] 未能从 app.js 获取到 openid');
@@ -110,7 +106,6 @@ Page({
                 this.setData({
                     faqList: res.result.data.faq
                 });
-                console.log("FAQ 加载完成", this.data.faqList);
             } else {
                  console.error("FAQ 加载失败");
             }
@@ -132,7 +127,6 @@ Page({
             name: 'baseFunctions',
             data: { "type": 'getUsrInfo' }
         });
-        console.log(res);
         return res.result;
     },
   
@@ -147,7 +141,6 @@ Page({
       const suffix = avatarUrl.substring(avatarUrl.lastIndexOf("."));
       const avatarUuid = this.genUuid();
       const avatarCloudPath = `avatar/${avatarUuid}${suffix}`;
-      console.log("avatarCloudPath:", avatarCloudPath);
       // 上传云存储
       wx.cloud.uploadFile({
         cloudPath: avatarCloudPath,
@@ -155,7 +148,6 @@ Page({
       }).then(res => {
         // 获取资源ID
         const avatarFileID = res.fileID;
-        console.log("头像云存储ID:", avatarFileID);
         // 本地保存参数
         this.setData({
           avatarCloudPath: avatarCloudPath,
@@ -174,7 +166,6 @@ Page({
     },
 
     onNicknameinput(e) {
-      console.log(e);
       this.setData({
         nickName: e.detail.value
       });
@@ -183,9 +174,6 @@ Page({
   
     // 获取手机号
     async getPhoneNumber(e) {
-        console.log("动态令牌: ", e.detail.code);
-        console.log("回调信息（成功失败都会返回）: ", e.detail.errMsg);
-        console.log("错误码（失败时返回）: ", e.detail.errno);
         wx.showLoading({
           title: '验证中',
           mask: 'true',
@@ -201,7 +189,6 @@ Page({
                 }
             });
             wx.hideLoading();
-            console.log("手机号验证结果: ", res);
             if (res.result?.success) {
               this.setData({ phone: res.result.data.phone }, () => this.validateForm());
             } else {
@@ -212,8 +199,7 @@ Page({
             this.handleError(err);
         }
       },
-      
-  
+
     // QQ输入处理
     onQQInput(e) {
       const qq = e.detail.value.trim();
@@ -237,11 +223,6 @@ Page({
                    this.validateQQ(this.data.qq) &&
                    !!this.data.avatarFileID &&
                    !!this.data.nickName;
-      console.log("phone: ", this.data.phone,
-        "qq:", this.data.qq,
-        "avatarFileID:", this.data.avatarFileID,
-        "nickname:", this.data.nickName,
-        "valid:", valid);
       this.setData({ formValid: valid });
       return valid;
     },
@@ -257,7 +238,6 @@ Page({
       
       this.setData({ waveAnimation: wave.export() });
     },
-  
 
     // 提交表单
     async submit() {    
@@ -316,7 +296,6 @@ Page({
         if (!currentOpenid) {
           throw new Error('用户标识获取失败');
         }
-        console.log(currentOpenid, phone, qq, nickName, avatarFileID);
         try {
           const res = await wx.cloud.callFunction({
             name: 'baseFunctions',
@@ -331,7 +310,6 @@ Page({
                 }
             }
           });        
-        console.log(res);
         if (res.result && res.result.success) {
           wx.hideLoading();
           wx.showToast({
@@ -371,9 +349,6 @@ Page({
           this.handleError(err);
         }
     },
-
-      
-
 
   // 统一错误处理函数
   handleError(error) {

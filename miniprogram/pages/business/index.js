@@ -162,7 +162,6 @@ Page({
         url: `/pages/cloudbaseModuleDetail/index?envId=${this.data.selectedEnv}&type=${type}&title=${title}&subtitle=${subtitle}`,
       });
     } else {
-      console.log(level);
       wx.navigateTo({
         url: `/pages/cloudbaseModuleGuide/index?title=${title}&subtitle=${subtitle}&level=${level}`,
       });

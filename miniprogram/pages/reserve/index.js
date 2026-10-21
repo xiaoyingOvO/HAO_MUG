@@ -185,9 +185,7 @@ redirectToLogin() {
               params: { days: 5 } 
           }
         });
-    
-        console.log('result:', res.result);
-  
+
         if (res.result.success) {
             // 获取原始的 6 天数据
           const fullReserveData = res.result.data.reserve_data.map(item => ({
@@ -352,12 +350,10 @@ redirectToLogin() {
     // 获取用户信息方法 
     async batchGetUserInfo(openids) {
       if (!Array.isArray(openids) || openids.length ===0) {
-        console.log('openids 为空或非数组');
         this.setData({ reserveList: [] });
         return;
       }
       const uncached = openids.filter(id => id && !this.data.userMap[id]);
-      console.log('需要获取信息的 OpenIDs：', uncached);
 
       const newUserMap = { ...this.data.userMap };
       if(uncached.length > 0) {
@@ -397,7 +393,6 @@ redirectToLogin() {
           });
         }
       } else {
-        console.log('用户信息已缓存');
       }
 
       const finalReserveList = openids.map(id => ({
@@ -405,21 +400,12 @@ redirectToLogin() {
         nickname: newUserMap[id] || '加载中...'
       }));
 
-      console.log('更新后的 UserMap：', newUserMap);
-      console.log('最终的 ReserveList：', finalReserveList);
-
       this.setData({
         userMap: newUserMap,
         reserveList: finalReserveList,
       });
     },
-        
 
-    // 状态计算
-    calculateCanReserve(qualification, currentReserve) {
-        return (qualification && currentReserve.openids.length < this.data.maxCapacity);
-    },
-  
     // 预约操作
     async handleReserve() {
         this._updateCanReserveStatus();
@@ -450,7 +436,6 @@ redirectToLogin() {
         }
 
         const isoDate = this.formatISODate(this.data.currentReserve.day);
-        console.log("当前选中日期:", this.data.selectedDate);
 
       wx.showModal({
         title: '确认预约',
@@ -472,7 +457,6 @@ redirectToLogin() {
                     }
                 });
                 wx.hideLoading();
-                console.log("cloudRes:", cloudRes);
                 if (cloudRes.result?.success) {
                     wx.showToast({
                     title: '预约成功',
@@ -482,7 +466,6 @@ redirectToLogin() {
                     // 刷新预约用户列表
                     const updatedCurrentReserve = this.data.reserveData[this.data.activeIndex];
                     const updatedOpenids = updatedCurrentReserve?.openids || [];
-                    console.log('预约成功后，刷新列表准备获取用户信息:', updatedOpenids);
                     if (updatedOpenids.length > 0) {
                         this.setData({ isLoadingUserInfo: true });
                         await this.batchGetUserInfo(updatedOpenids);
@@ -520,7 +503,6 @@ redirectToLogin() {
       const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
       return weekdays[date.getDay()];
     },
-
 
     // 标准日期格式化方法，用于传参给云函数 (YYYY-MM-DD)
     formatISODate(date) {

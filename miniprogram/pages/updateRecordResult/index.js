@@ -28,7 +28,6 @@ Page({
       });
       wx.hideLoading();
     }).catch((e) => {
-      console.log(e);
       this.setData({
         showUploadTip: true
       });
@@ -52,7 +51,6 @@ Page({
       });
       wx.hideLoading();
     }).catch((e) => {
-      console.log(e);
       this.setData({
         showUploadTip: true
       });
