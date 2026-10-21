@@ -34,7 +34,7 @@
     "disableUseStrict": false,
     "useCompilerPlugins": false
   },
-  "projectname": "HAO_MUG-2.2.8",
+  "projectname": "HAO_MUG-2.2.9",
   "libVersion": "latest",
   "condition": {
     "search": {
