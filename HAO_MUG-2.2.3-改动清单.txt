@@ -1,0 +1,155 @@
+HAO_MUG 2.2.3 改动清单
+================================================================
+版本号规则：x.y.z
+    x = 大版本        y = 大量修复        z = 小 bug 修复
+    每修一次小 bug，只把 z 加 1。
+    本次 = 2.2.3（小 bug 修复：iOS 长按拖动时页面还会上下动）
+
+基线：Downloads/HAO_MUG-2.2.0.zip（原始包，368 个文件）
+工程结构：HAO_MUG-2.2.3/  （与原包同结构，内部根目录已同步改名）
+产出：E:\WORKBUDDY\2026-10-13-12-16-06\HAO_MUG-2.2.3.zip
+      （489 条目，testzip() 通过，2006799 bytes）
+校验：逐文件 md5 → 352 个文件未改动 / 15 个内容改动 / 1 新增 / 1 删除
+      node --check 语法校验全部通过
+
+================================================================
+第一部分  版本号统一为 2.2.3
+================================================================
+
+【1】project.config.json          "projectname": "HAO_MUG-2.2.2" → "HAO_MUG-2.2.3"
+【2】project.private.config.json  "projectname": "HAO_MUG-2.2.2" → "HAO_MUG-2.2.3"
+     （该文件的字段会覆盖 project.config.json 的同名字段，
+       开发者工具里实际显示的项目名以这份为准）
+【3】交付包改名   HAO_MUG-2.2.2.zip → HAO_MUG-2.2.3.zip
+     包内根目录   HAO_MUG-2.2.2/    → HAO_MUG-2.2.3/
+【4】本改动清单   HAO_MUG-2.2.2-改动清单.txt → HAO_MUG-2.2.3-改动清单.txt
+
+说明：README-2.1.0.txt / CHANGELOG-2.1.0.txt / HAO_MUG-2.1.1-改动清单.txt
+      是历史版本文档，描述的就是 2.1.0 那一轮，一直不跟着改。
+
+================================================================
+第二部分  本轮：iOS 拖拽时「页面上下动」
+================================================================
+
+【现象】
+排卡版长按拖动人员时，iOS 上整个**页面**会跟着上下动（不是列表在滚）。
+
+【根因】
+这是和「列表滚动」不同的另一层：
+  · 列表滚动 —— queue-area 那个 scroll-view 自己滚。2.2.2 已经用
+    `scroll-y="{{!showDragClone}}"` 锁掉了。
+  · 页面上下动 —— 手指的 touchmove 继续往上传到了文档级，
+    iOS 会触发整页的滚动 / 橡皮筋回弹。scroll-view 的 scroll-y 管不到这一层。
+    而且排卡版这套布局本来就**不需要**页面级滚动：
+      .enqueue-button 是 position: fixed
+      .queue-layout   高度 = calc(100vh - 160rpx - 136rpx - env(safe-area-inset-bottom))
+    也就是说整页是按视口排的，页面能滚本身就不对。
+
+【修法】
+  miniprogram/pages/queue-info/index.json 增加：
+      "disableScroll": true
+  —— 微信官方的页面级配置，禁止整页上下滚动/回弹。
+     只影响「页面」这一层，内部 scroll-view 照常能滚，互不影响。
+
+【未动】
+  scroll-y="{{!showDragClone}}"（2.2.2 加的列表锁滚动）保留。
+  左侧机台列表的 scroll-view 保留 enhanced + show-scrollbar，没动。
+
+【备注（可回滚）】
+  如果某些机型上「列表本身」也还在滚，第二层方案是给 card 组件做事件级拦截：
+    · card.wxml 用 wx:if / wx:else 出两份根 view，拖拽中那份写 catch:touchmove
+    · 或给 card 加 `dragging` 属性，由页面传 dragging="{{showDragClone}}"
+  之所以本轮没做：条件绑定在 WXML 里只能靠「动态事件名」实现，而
+  bind:touchmove 和 catch:touchmove 同时挂在一个元素上时，微信只会保留一个，
+  很容易把 dragmove 整个挂掉。要做得稳就得用 wx:if 复制一份根节点，代价偏大。
+  先只上 disableScroll，观察真机结果再决定是否加第二层。
+
+================================================================
+第三部分  小影 10-15 指令（离店清 area + 命名收尾）
+================================================================
+
+【1】离店时清除 area 信息（3 处）
+  a) cloudfunctions/queueFunctions/leaveArcade/index.js     ← 云端
+     · 第 8 行新增：const db_cmd = db.command
+     · update 的 data 中新增：
+           // 离店后不再保留入店区域：否则下次入店前的状态读取会拿到上次的区域
+           area: db_cmd.remove()
+  b) miniprogram/mock/cloudMock.js  leaveArcade（约 L1295）
+     · 新增：delete s.me.area;
+  c) miniprogram/mock/cloudMock.js  leaveArcadeForce（约 L1312）
+     · 新增：delete u.area;
+
+【2】删除 home.js 的历史数据兼容归一（小影：「第二个可以删掉」）
+  miniprogram/pages/home/home.js  buildDeviceGroups()
+     删除前：const rawGid = m.group_id || m._id;
+             const gid = rawGid === 'mahjong' ? 'board' : rawGid;
+     删除后：const gid = m.group_id || m._id;
+
+【3】保留项（小影：「第三个不用删」）
+     cloudMock.js 中 BOARD_NIGHT_RATE = null 保留。
+
+================================================================
+第四部分  mahjong → board 命名归一（更早一轮）
+================================================================
+9 个 js 文件共 96 处：Enqueue / enterArcade / getConsumePoint / getEnterInfo /
+scheduledTask（cloudfunctions/queueFunctions 与 scheduledTask 下）、
+miniprogram/cloudFcn.js、miniprogram/mock/cloudMock.js、
+miniprogram/pages/home/home.js、miniprogram/pages/queue-info/index.js
+标识符：AREA_MAHJONG→AREA_BOARD、MAHJONG_NIGHT_RATE→BOARD_NIGHT_RATE、
+        RATE_MAHJONG→RATE_BOARD、mahjongBillingMinutes→boardBillingMinutes、
+        字面量 'mahjong'→'board'
+图片：删 miniprogram/images/machines/mahjong.jpg
+      增 miniprogram/images/machines/board.jpg（同一张图，仅改名）
+cloudMock.js：DB_VERSION 20 → 21
+
+================================================================
+第五部分  排卡版长按拖拽修复（2.2.2 本轮）
+================================================================
+涉及 miniprogram/pages/queue-info/ 的 index.js / index.wxml / index.wxss。
+
+--- 问题 A：长按拖动人员时列表会跟着滚 ---
+根因：
+  1. data 里有 scrollEnabled，但 index.wxml 的 scroll-view 写的是静态 `scroll-y`，
+     根本没绑定这个变量。
+  2. 「拖动时透明遮罩 catch:touchmove="noop"」是无效代码：小程序触摸事件在
+     touchstart 那一刻就锁定目标节点，touchmove 只会派发给最初命中的那张卡，
+     不会改派给之后才出现的遮罩。
+  3. card 用的是 bind:touchmove（不是 catch:），事件仍会冒泡到 scroll-view。
+修法：
+  · scroll-y="{{!showDragClone}}"
+  · 去掉该 scroll-view 的 enhanced 和 show-scrollbar（增强模式下 scroll-y 动态切换不可靠；
+    show-scrollbar 是增强模式专属属性）
+  · 删掉无效的 drag-mask
+  · .queue-area::-webkit-scrollbar { display:none } 补回滚动条隐藏
+  · 删掉已无用的 noop() 和 data.scrollEnabled
+
+--- 问题 B：实机卡顿，连续长按出现「分身」 ---
+根因：
+  1. dragIndex 取自 dataset，可能是字符串 → 模板里 `dragIndex === index` 恒 false
+     → 原卡不隐藏 → 原卡 + 克隆卡同屏 = 分身
+  2. dragMove 每个 touchmove 都 setData → 跨线程通信过载 → 卡
+  3. dragStart 的 wx.nextTick + createSelectorQuery 回调迟到，覆盖新一次拖拽的 cloneRect
+  4. 拖到一半切后台 touchend 不触发 → showDragClone 卡在 true，分身永久留存
+修法：
+  · Number(e.currentTarget.dataset.index)
+  · dragMove 按 16ms 节流，同一帧最多一次 setData
+  · 新增拖拽会话号 this._dragSeq，两处异步回调校验，resetDragState 里 ++ 作废在途回调
+  · onHide / onUnload 补一次 resetDragState()
+  · 克隆卡位置 top → transform: translate3d(0,Npx,0)
+  · 克隆卡 player-index 由 myIndex 改为 dragIndex
+
+================================================================
+未改动确认
+================================================================
+· 368 个文件中 352 个 md5 完全一致，无预期外改动。
+· components/card/ 本轮未改（card.js / card.wxml / card.wxss / card.json 均与基线一致）。
+· 包内条目数保持 489（原 489 − 删 1 + 增 1）。
+
+================================================================
+部署提示
+================================================================
+1. cloudfunctions/queueFunctions/leaveArcade/index.js 属云端代码，
+   需在微信开发者工具中右键该云函数目录 → 「上传并部署：云端安装依赖」。
+   只上传小程序主包，这个改动不会生效。
+2. miniprogram/ 下改动随主包发布，需重新上传体验版 / 正式版。
+3. mock（cloudMock.js）只在测试号离线模式生效，线上不加载。
