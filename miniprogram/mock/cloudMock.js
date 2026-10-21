@@ -1787,7 +1787,10 @@ const queueFunctions = {
       toPos = at + 1;
     }
     const moverName = infoOf(s, moved.openid).nickname;
-    pushQueueLog(s, id, moved.openid, `${moverName}将${moverName}从第${fromPos}位移至第${toPos}位`);
+    const actionText = (p && p.from_openid === p.to_openid)
+      ? `${moverName}将自身位置移至第${fromPos}位`
+      : `${moverName}将${moverName}从第${fromPos}位移至第${toPos}位`;
+    pushQueueLog(s, id, moved.openid, actionText);
     return { success: true, data: buildQueue(s, id) };
   },
 

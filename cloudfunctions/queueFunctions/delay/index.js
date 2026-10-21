@@ -48,6 +48,7 @@ exports.main = async (event, context) => {
 
     // 补上用户信息（昵称头像），返回给前端直接用
     let moved_user = null
+    let operator_user = null
     for (let i = 0; i < queue_record.data.length; i++) {
       const user_record = await db.collection(db_user)
         .where({ openid: queue_record.data[i].openid })
@@ -55,7 +56,18 @@ exports.main = async (event, context) => {
         .get()
       const info = user_record.data[0]
       if (info && info.openid === move_openid) moved_user = info
+      if (info && info.openid === operator) operator_user = info
       queue_record.data[i].user_info = info
+    }
+    // 操作者可能不在该机台队列里（理论上不会，但兜底查一次）
+    if (!operator_user && operator) {
+      try {
+        const opRecord = await db.collection(db_user)
+          .where({ openid: operator })
+          .field({ openid: true, nickname: true })
+          .get()
+        operator_user = opRecord.data[0] || null
+      } catch (e) { console.warn('查询操作者失败', e) }
     }
 
     const move_result = await moveUserToPosition(queue_record, move_openid, move_final, machine_id)
@@ -63,16 +75,25 @@ exports.main = async (event, context) => {
       return { success: false, errMsg: move_result.errMsg }
     }
 
-    // 写队列日志
-    const db_log = "queue_log_" + machine_id
-    const who = moved_user ? moved_user.nickname : move_openid
-    await db.collection(db_log).add({
-      data: {
-        timestamp: new Date(),
-        openid: move_openid,
-        log_info: "用户" + who + "于" + new Date() + "将自身位置移至第" + move_result.final_place + "位"
-      }
-    })
+    // 写队列日志：位置没变就不记
+    if (move_result.orig_place !== move_result.final_place) {
+      const db_log = "queue_log_" + machine_id
+      const operatorName = operator_user ? operator_user.nickname : '某人'
+      const movedName = moved_user ? moved_user.nickname : move_openid
+      const now = new Date()
+      const timeStr = pad2(now.getHours()) + ":" + pad2(now.getMinutes()) + ":" + pad2(now.getSeconds())
+      const isSelf = operator === move_openid
+      const actionText = isSelf
+        ? operatorName + "将自身位置移至第" + move_result.final_place + "位"
+        : operatorName + "将" + movedName + "从第" + move_result.orig_place + "位移至第" + move_result.final_place + "位"
+      await db.collection(db_log).add({
+        data: {
+          timestamp: new Date(),
+          openid: move_openid,
+          log_info: "[" + timeStr + "] " + actionText
+        }
+      })
+    }
 
     return {
       success: true,
@@ -151,10 +172,11 @@ async function moveUserToPosition(queue_record, move_openid, move_final, machine
   }
 
   const moveNode = nodeMap.get(move_openid)
+  const orig_place = chain.findIndex((n) => n.openid === move_openid) + 1
 
   // 目标就是自己：原地不动，当前顺序直接返回
   if (move_final === move_openid) {
-    return buildResult(chain, move_openid)
+    return buildResult(chain, move_openid, orig_place)
   }
 
   // ===== 阶段二：只在内存里算新顺序，仍然不写库 =====
@@ -163,7 +185,7 @@ async function moveUserToPosition(queue_record, move_openid, move_final, machine
   const chainAfter = chain.filter((n) => n.openid !== move_openid)
   if (chainAfter.length === 0) {
     // 队里只有他自己，没有位置可调
-    return buildResult(chain, move_openid)
+    return buildResult(chain, move_openid, orig_place)
   }
 
   let insertAt
@@ -191,7 +213,7 @@ async function moveUserToPosition(queue_record, move_openid, move_final, machine
   // ===== 阶段三：校验都过了，才开始写库 =====
   await applyNextIdWrites(db_queue, writes)
 
-  return buildResult(newOrder, move_openid)
+  return buildResult(newOrder, move_openid, orig_place)
 }
 
 // 把重算出来的 next_id 逐条写回数据库。走到这里说明校验已经全部通过。
@@ -212,12 +234,12 @@ async function applyNextIdWrites(db_queue, writes) {
   }
 }
 
-// 按给定顺序算出返回值：新的队列数组 + 被移动的人排在第几位（从 1 开始）
-function buildResult(orderedNodes, move_openid) {
+// 按给定顺序算出返回值：新的队列数组 + 被移动的人原位置/新位置（从 1 开始）
+function buildResult(orderedNodes, move_openid, orig_place) {
   const sortedQ = orderedNodes.slice()
   const final_place = sortedQ.findIndex((n) => n.openid === move_openid) + 1
-  console.log("更新后的队列:", sortedQ, "第", final_place, "位")
-  return { success: true, sortedQ: sortedQ, final_place: final_place }
+  console.log("更新后的队列:", sortedQ, "第", orig_place, "位→第", final_place, "位")
+  return { success: true, sortedQ: sortedQ, orig_place: orig_place, final_place: final_place }
 }
 
 /**
@@ -342,4 +364,8 @@ async function releaseQueueLock(params) {
 
 async function sleep(seconds) {
   return new Promise(resolve => setTimeout(resolve, seconds * 1000));
+}
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
 }
