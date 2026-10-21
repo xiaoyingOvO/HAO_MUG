@@ -24,6 +24,8 @@ exports.main = async (event, context) => {
     openid = event.params.openid
   }
   console.log('openid: ' + openid)
+  // 获取操作者openid（实际调用者，用于日志）
+  const operatorOpenid = wxContext && wxContext.OPENID ? wxContext.OPENID : openid
   // 获取参数
   machine_id = event.params.machine_id
   is_multi = event.params.is_multi
@@ -324,6 +326,16 @@ exports.main = async (event, context) => {
       q.user_info = u
     }
   })
+  // 获取操作者昵称（实际调用者）
+  var operator_name = cur_user.nickname || '未知用户'
+  if (operatorOpenid !== openid) {
+    const operatorRecord = await db.collection(db_user).where({
+      openid: operatorOpenid
+    }).get()
+    if (operatorRecord.data.length > 0) {
+      operator_name = operatorRecord.data[0].nickname || '未知用户'
+    }
+  }
   // 单链表排序
   const nodeMap = new Map()
   let headNode = null
@@ -349,7 +361,13 @@ exports.main = async (event, context) => {
   // 写队列日志数据库
   var db_log = "queue_log_" + machine_id
   console.log(db_log)
-  var content = "用户" + cur_user.nickname + "于" + new Date() + "上机"
+  var now = new Date();
+  var bjNow = new Date(now.getTime() + 8 * 3600 * 1000);
+  var timeStr = pad2(bjNow.getHours()) + ":" + pad2(bjNow.getMinutes()) + ":" + pad2(bjNow.getSeconds());
+  var content = "[" + timeStr + "] " + cur_user.nickname + "上机了"
+  if (operatorOpenid !== openid) {
+    content = "[" + timeStr + "] " + operator_name + "让" + cur_user.nickname + "上机了"
+  }
   await db.collection(db_log).add({
     data: {
       timestamp: new Date(),
@@ -471,4 +489,8 @@ async function releaseQueueLock(params) {
 
 async function sleep(seconds) {
   return new Promise(resolve => setTimeout(resolve, seconds * 1000));
+}
+
+function pad2(n) {
+  return n < 10 ? '0' + n : '' + n;
 }

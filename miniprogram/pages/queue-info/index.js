@@ -590,7 +590,7 @@ Page({
       wx.showToast({ title: '该位置已有人', icon: 'none' })
       return
     }
-    cloudFcn.embark(machineId, isMulti, position).then(res => {
+    cloudFcn.embark(machineId, isMulti, position, player.openid).then(res => {
       if (!res.result.success) return Promise.reject(res)
       wx.showToast({ title: '上机成功', icon: 'none' })
       return this.getMachineQueueInfo(machineId, true)

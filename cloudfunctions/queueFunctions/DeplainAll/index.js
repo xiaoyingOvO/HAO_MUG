@@ -24,6 +24,8 @@ exports.main = async (event, context) => {
     openid = event.params.openid
   }
   console.log('openid: ' + openid)
+  // 获取操作者openid（实际调用者，用于日志）
+  const operatorOpenid = wxContext && wxContext.OPENID ? wxContext.OPENID : openid
   // 获取参数
   machine_id = event.params.machine_id
   // 获取分布式锁
@@ -186,9 +188,25 @@ exports.main = async (event, context) => {
         console.log(res);
       })
     }
+    // 获取操作者昵称
+    let operator_name = user_remain_record.data[0].nickname || '未知用户'
+    if (operatorOpenid !== openid) {
+      const operatorRecord = await db.collection(db_user).where({
+        openid: operatorOpenid
+      }).get()
+      if (operatorRecord.data.length > 0) {
+        operator_name = operatorRecord.data[0].nickname || '未知用户'
+      }
+    }
     // 写队列日志数据库
     var db_log = "queue_log_" + machine_id
-    var content = "用户" + user_remain_record.data[0].nickname + "于" + new Date() + "一键下机"
+    var now = new Date();
+    var bjNow = new Date(now.getTime() + 8 * 3600 * 1000);
+    var timeStr = pad2(bjNow.getHours()) + ":" + pad2(bjNow.getMinutes()) + ":" + pad2(bjNow.getSeconds());
+    var content = "[" + timeStr + "] " + user_remain_record.data[0].nickname + "下机了"
+    if (openid !== cur_openID) {
+      content = "[" + timeStr + "] " + operator_name + "让" + user_remain_record.data[0].nickname + "下机了"
+    }
     await db.collection(db_log).add({
       data: {
         timestamp: new Date(),

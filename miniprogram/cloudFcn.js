@@ -198,16 +198,20 @@ const dequeue = async function(id) {
 }
 
 // 用户上机
-const embark = async function(id, multi, playPosition) {
+const embark = async function(id, multi, playPosition, openid) {
+  const params = {
+    machine_id: id,
+    is_multi: multi,
+    play_position: playPosition
+  }
+  if (openid) {
+    params.openid = openid
+  }
   return wx.cloud.callFunction({
     name: 'queueFunctions',
     data: {
       type: 'Embark',
-      params: {
-        machine_id: id,
-        is_multi: multi,
-        play_position: playPosition
-      }
+      params
     }
   })
 }

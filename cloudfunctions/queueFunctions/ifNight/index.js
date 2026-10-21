@@ -23,12 +23,16 @@ exports.main = async (event, context) => {
     openid = event.params.openid
   }
   console.log('openid: ' + openid)
-  const current_time = new Date(); // 获取当前时间
-  const hours = current_time.getHours(); // 获取当前小时（24小时制）
-  console.log(hours)
+  const current_time = new Date(); // 获取当前时间（UTC）
+  // 云函数跑在 UTC 时区，getHours() 拿到的是 UTC 小时，必须转成北京时间再判断夜场
+  const bjNow = new Date(current_time.getTime() + 8 * 3600 * 1000)
+  const bjHour = bjNow.getUTCHours()
+  console.log('UTC hours:', current_time.getHours(), 'BJ hours:', bjHour)
+
   var night = false
   var hasCard = false
-  if ((hours >= 23 && hours <= 24) || (hours >= 0 && hours <= 9)) {
+  // 夜场时段（北京时间）：23:00 ~ 次日 09:59
+  if (bjHour >= 23 || bjHour < 10) {
       night = true;
   }
   let user_record = await db.collection(db_user)

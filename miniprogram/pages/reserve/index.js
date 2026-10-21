@@ -354,7 +354,14 @@ redirectToLogin() {
         const count = openids.length;
         const isMine = openids.indexOf(this.data.openid) >= 0;
         // 过去日期（今天之前）置灰不可点
-        const isPast = date.getTime() < today.getTime();
+        // 夜场预约到次日 10:00 结束，所以昨天在 10:00 前仍算有效（不灰显）
+        let isPast = date.getTime() < today.getTime();
+        if (isPast && now.getHours() < 10) {
+          const yesterday = new Date(today.getTime() - 24 * 60 * 60 * 1000);
+          if (date.getTime() >= yesterday.getTime()) {
+            isPast = false;
+          }
+        }
         // 按人数分档
         const level = count < 3 ? 'low' : (count <= 5 ? 'medium' : (count <= 8 ? 'high' : 'full'));
 

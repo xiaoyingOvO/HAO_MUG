@@ -81,7 +81,8 @@ exports.main = async (event, context) => {
       const operatorName = operator_user ? operator_user.nickname : '某人'
       const movedName = moved_user ? moved_user.nickname : move_openid
       const now = new Date()
-      const timeStr = pad2(now.getHours()) + ":" + pad2(now.getMinutes()) + ":" + pad2(now.getSeconds())
+      const bjNow = new Date(now.getTime() + 8 * 3600 * 1000)
+      const timeStr = pad2(bjNow.getHours()) + ":" + pad2(bjNow.getMinutes()) + ":" + pad2(bjNow.getSeconds())
       const isSelf = operator === move_openid
       const actionText = isSelf
         ? operatorName + "将自身位置移至第" + move_result.final_place + "位"

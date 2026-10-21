@@ -674,8 +674,13 @@ function pushQueueLog(s, machineId, openid, text) {
   s.queueLogs[machineId].push({ timestamp: nowTs(), openid, log_info: text });
 }
 
-function logText(s, openid, action) {
+function logText(s, openid, action, operatorOpenid) {
   const name = infoOf(s, openid).nickname;
+  // 如果有操作者且操作者不是自己，显示"操作者让xxx上机/下机"
+  if (operatorOpenid && operatorOpenid !== openid) {
+    const operatorName = infoOf(s, operatorOpenid).nickname;
+    return `${operatorName}让${name}${action}`;
+  }
   return `${name}${action}`;
 }
 
@@ -1498,18 +1503,28 @@ const queueFunctions = {
     const machine = s.machines.find((m) => m._id === id);
     if (!machine || machine.is_disabled) return { success: false, errMsg: '机器不可用' };
     const list = s.queues[id] || [];
-    const me = list.find((q) => q.openid === ME_OPENID);
+    // 支持管理员拖拽他人上机: 如果传了openid就用传入的，否则默认当前用户
+    const targetOpenid = (p && p.openid) || ME_OPENID;
+    const me = list.find((q) => q.openid === targetOpenid);
     if (!me) return { success: false, errMsg: '当前用户排队状态有误，请刷新页面重试' };
     const playing = list.filter((q) => q.play_status).length;
     if (playing >= machine.max_player && !me.play_status) return { success: false, errMsg: '当前游玩人数已满请耐心等待' };
-    if (consumedPoints(s, s.me).points > totalPoints(s.me)) return { success: false, errMsg: '余额不足' };
+    // 计算点数时要用被拖拽用户的openid
+    const targetUser = s.users.find((u) => u.openid === targetOpenid);
+    if (targetUser && consumedPoints(s, targetUser).points > totalPoints(targetUser)) return { success: false, errMsg: '余额不足' };
 
     me.play_status = true;
     me.is_multi = !!(p && p.is_multi);
     me.play_position = (p && typeof p.play_position !== 'undefined') ? Number(p.play_position) : undefined;   // ← 加这行
-    s.me.enter_state = 3;
-    s.me.machine_id = id;
-    pushQueueLog(s, id, ME_OPENID, logText(s, ME_OPENID, '上机'));
+    // 更新用户状态
+    const user = s.users.find((u) => u.openid === targetOpenid);
+    if (user) {
+      user.enter_state = 3;
+      user.machine_id = id;
+    }
+    // 如果传了操作者openid(p.operator)，在日志里体现
+    const operatorOpenid = (p && p.operator) || ME_OPENID;
+    pushQueueLog(s, id, targetOpenid, logText(s, targetOpenid, '上机', operatorOpenid));
     return { success: true, data: buildQueue(s, id) };
   },
 

@@ -214,7 +214,8 @@ exports.main = async (event, context) => {
   var db_log = "queue_log_" + machine_id
   console.log(db_log)
   var now = new Date();
-  var timeStr = pad2(now.getHours()) + ":" + pad2(now.getMinutes()) + ":" + pad2(now.getSeconds());
+  var bjNow = new Date(now.getTime() + 8 * 3600 * 1000);
+  var timeStr = pad2(bjNow.getHours()) + ":" + pad2(bjNow.getMinutes()) + ":" + pad2(bjNow.getSeconds());
   var content = "[" + timeStr + "] " + user_info.data[0].nickname + "离开了队列"
   await db.collection(db_log).add({
     data: {
