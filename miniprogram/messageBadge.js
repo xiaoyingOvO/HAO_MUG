@@ -35,7 +35,6 @@ async function checkBadge(tabBarIndex) {
       }
 
       const totalUnreadCount = personalUnreadCount + unreadAnnouncementCount;
-      console.log(`[messageBadge] 检查到总未读数： ${totalUnreadCount}`);
       updateBadge(totalUnreadCount, tabBarIndex);
       return { totalUnreadCount };
     } else {

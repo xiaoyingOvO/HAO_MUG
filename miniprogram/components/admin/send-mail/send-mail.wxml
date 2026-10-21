@@ -39,7 +39,6 @@
                 value="{{searchValue}}"
                 bindinput="onSearchInput"
                 confirm-type="search"
-                bindconfirm="onSearchClick"
                 bindfocus="onInputFocus"
                 bindblur="onInputBlur"
                 data-field="isSearchInputFocused"

@@ -61,16 +61,6 @@ Page({
       appid: e.detail.value
     })
   },
-  bindKeyInputSendCustomMessage: function(e){
-    this.setData({
-      sendCustomMessage: e.detail.value
-    })
-  },
-  bindKeyInputMediaId: function(e){
-    this.setData({
-      mediaId: e.detail.value
-    })
-  },
   bindKeyInputSecurityMedia: function(e){
     this.setData({
       securityMedia: e.detail.value
@@ -366,7 +356,6 @@ Page({
       });
   },
 
-  
 // 发送短信
 sendCloudbaseSms() {
   wx.showLoading({
@@ -596,7 +585,7 @@ sendCloudbaseSms() {
 
   // 手机号快速验证
   getPhoneNumber(e) {
-    console.log(e.detail.code); // 动态令牌
+     // 动态令牌
     wx.cloud.callFunction({
       name: 'cloudbase_module',
       data: {
@@ -607,7 +596,6 @@ sendCloudbaseSms() {
       },
       success: (res) => {
         const phoneInfo = res.result?.phoneInfo;
-        console.log('获取到的手机号信息: ', phoneInfo);
       },
     });
   }

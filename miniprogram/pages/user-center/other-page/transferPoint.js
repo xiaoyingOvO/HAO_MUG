@@ -145,7 +145,6 @@ Page({
             
             if (transferRes.result?.success) {
               // --- 获取和更新用户信息 ---
-              console.log('转移成功，正在刷新用户信息...');
               const refreshRes = await wx.cloud.callFunction({
                   name: 'baseFunctions',
                   data: {
@@ -155,7 +154,6 @@ Page({
 
               if (refreshRes.result?.success && refreshRes.result.data) {
                   const latestUsrInfo = refreshRes.result.data;
-                  console.log('获取到最新用户信息：', latestUsrInfo);
                   app.globalData.userInfo = latestUsrInfo; // 更新全局 userInfo
                   wx.setStorageSync('userInfo', latestUsrInfo); // 同时更新缓存
               }

@@ -1,6 +1,6 @@
 // pages/user-center/index.js
 import { checkBadge } from '../../messageBadge';
-import { add, subtract, toCents, toYuan } from '../../decimal';
+import { add, toCents, toYuan } from '../../decimal';
 const app = getApp();
 
 Page({
@@ -36,18 +36,15 @@ Page({
 
   // 进入页面自动刷新数据
   onShow: async function () {
-    console.log("[User-center] onShow");
     this.setData({ isLoading: true });
     const userInfo = app.globalData.userInfo;
     if (userInfo && userInfo.openid && app.globalData.isLoggedIn) {
-      console.log("[User-center] onShow: 用户已登录" );
       this.setData({
         userInfo: userInfo,
         isLoggedIn: true,
       });
       this.updatePageData();
     } else {
-      console.log("[User-center] onShow: 用户未登录，尝试静默登录");
       try {
         const loggedInUserInfo = await app.ensureLoggedIn();
         if (loggedInUserInfo) {
@@ -99,14 +96,12 @@ Page({
     try {
       const userInfo = await app.ensureLoggedIn();
       if (userInfo && !userInfo.isNewUser) {
-        console.log("[User-center] 用户已登录, userInfo:", userInfo);
         this.setData({
           userInfo: userInfo,
           isLoggedIn: true,
         });
         this.updatePageData();
       } else {
-        console.log("[User-center] 用户未登录");
         this.setData({
           userInfo: null,
           isLoggedIn: false,
@@ -196,7 +191,6 @@ Page({
   try {
     const badgeResult = await checkBadge();
     unreadCount = badgeResult.totalUnreadCount;
-    console.log("updatePageData: 未读消息数已更新为", unreadCount);
   } catch (badgeError) {
     console.error("更新小红点失败：", badgeError);
   }
@@ -291,15 +285,6 @@ Page({
     wx.nextTick(frameFunc);
   },
 
-  // 处理刷新的结束函数
-  completeRefresh: function (isPullDown) {
-    wx.hideLoading();
-    if (isPullDown) {
-      wx.stopPullDownRefresh();
-      wx.hideNavigationBarLoading();
-    }
-  },
-
   // 显示信用等级提示
   showCreditTip: function () {
     const level = this.data.creditLevel;
@@ -351,7 +336,6 @@ Page({
             url: '/pages/login/index'
           });
         } else if (res.cancel) {
-          console.log('用户取消前往登录');
         }
       }
     });
@@ -377,7 +361,6 @@ Page({
       success: (res) => {
         // 通过 eventChannel 向目标页面发送数据
         if (this.data.userInfo) {
-           console.log("准备通过 EventChannel 发送 userInfo 到充值页:", this.data.userInfo);
            res.eventChannel.emit('acceptData', { userInfo: this.data.userInfo });
         } else {
            console.warn("无法发送 userInfo，因为当前 userInfo 为空");
@@ -410,7 +393,6 @@ Page({
       success: (res) => {
         if (res.eventChannel) {
           // 将 userInfo 传递过去
-          console.log("准备通过 EventChannel 发送 userInfo 到点数转移页:", this.data.userInfo);
           res.eventChannel.emit('acceptUserInfo', { userInfo: this.data.userInfo });
         }
       },
@@ -428,9 +410,7 @@ Page({
     wx.navigateTo({
       url: '/pages/user-center/other-page/card',
       success: (res) => {
-        console.log("跳转到卡片页成功。EventChannel object:", res.eventChannel);
         if (this.data.userInfo) {
-          console.log("准备通过 EventChannel 发送 userInfo 到卡片页:", this.data.userInfo);
           res.eventChannel.emit('acceptUserInfo', { userInfo: this.data.userInfo });
         } else {
           console.warn("无法发送 userInfo 到卡片页，因为当前 userInfo 为空");
@@ -503,7 +483,6 @@ Page({
       success: (res) => {
         // 通过 eventChannel 向目标页面发送数据
         if (this.data.userInfo) {
-           console.log("准备通过 EventChannel 发送 userInfo 到管理员界面:", this.data.userInfo);
            res.eventChannel.emit('acceptData', { userInfo: this.data.userInfo });
         } else {
            console.warn("无法发送 userInfo，因为当前 userInfo 为空");
@@ -514,19 +493,5 @@ Page({
          wx.showToast({ title: '跳转失败', icon: 'none' });
       }
     });
-  },
-
-// 根据等级获取经验上限（保持不变）
-  getExpMaxByLevel: function (level) {
-    const expMaxMap = {
-      0: 0,
-      1: 2000,
-      2: 8000,
-      3: 18000,
-      4: 30000,
-      5: 114514,
-      6: Infinity
-    };
-    return expMaxMap[level] || 0;
   },
 });

@@ -12,6 +12,9 @@
 <template name="queueContent">
   <!-- 游玩区 -->
   <view class="playing-area">
+    <!-- 提示：点空位 / 红位可在「拼机 / 单刷」之间切换。
+         只有可拼机的机台（舞萌·官机）才显示，单人机台和日麻都不显示 -->
+    <view wx:if="{{canSwitchMulti}}" class="playing-tip">点击座位可切换 拼机 / 单刷</view>
     <view
       wx:for="{{playingList}}"
       wx:key="index"
@@ -39,23 +42,16 @@
       player="{{player}}"
       player-index="{{index}}"
       my-index="{{myIndex}}"
-      drag-mode="{{player.dragMode}}"
       data-index="{{index}}"
-      bind:embark="embark"
-      bind:requeue="handleRequeueBtn"
-      bind:requeued="handleRequeuedBtn"
       bind:dragstart="dragStart"
       bind:dragmove="dragMove"
-      bind:dragend="dragEnd"
-      bind:kickout="kickOut"
-      bind:report="report" />
+      bind:dragend="dragEnd" />
     <card wx:if="{{showDragClone}}"
       id="clone-player"
       style="position: absolute; top: {{cloneRect.top}}px; width: {{cloneRect.width}}px; left: 0; z-index: 999; pointer-events: none;"
       player="{{clonePlayer}}"
       player-index="{{myIndex}}"
       my-index="{{myIndex}}"
-      drag-mode="{{true}}"
     />
   </view>
 </template>
@@ -82,7 +78,7 @@
     <!-- 右：游玩区 + 等候区 -->
     <view class="queue-area-wrap">
       <scroll-view class="queue-area" scroll-y enhanced show-scrollbar="{{false}}">
-        <template is="queueContent" data="{{playingList, waitingList, myIndex, showDragClone, clonePlayer, cloneRect, dragIndex}}" />
+        <template is="queueContent" data="{{playingList, waitingList, myIndex, showDragClone, clonePlayer, cloneRect, dragIndex, canSwitchMulti}}" />
       </scroll-view>
       <!-- 拖动时透明遮罩，catch 掉 touchmove，阻止滚动 -->
       <view

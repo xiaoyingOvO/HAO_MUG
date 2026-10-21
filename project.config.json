@@ -34,7 +34,7 @@
     "disableUseStrict": false,
     "useCompilerPlugins": false
   },
-  "projectname": "quickstart-wx-cloud",
+  "projectname": "HAO_MUG-2.1.0",
   "libVersion": "latest",
   "condition": {
     "search": {
@@ -50,13 +50,7 @@
       "list": []
     },
     "miniprogram": {
-      "list": [
-        {
-          "id": -1,
-          "name": "db guide",
-          "pathName": "pages/databaseGuide/databaseGuide"
-        }
-      ]
+      "list": []
     }
   },
   "packOptions": {

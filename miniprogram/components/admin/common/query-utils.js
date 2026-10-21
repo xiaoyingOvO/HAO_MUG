@@ -16,13 +16,11 @@ export const queryCommonMethods = {
       return
     }
     const search = () => {
-      console.log(`查找用户: ${nicknameInput}`)
       cloudFcn.getUsrInfoByName(nicknameInput).then(res => {
         if (!res.result.success) return Promise.reject(res)
 
         let userList = res.result.data
         this.setData({ userList })
-        console.log('查找到用户列表: ', userList)
       }).catch(console.error)
     }
     if (timer) clearTimeout(timer)
@@ -32,7 +30,6 @@ export const queryCommonMethods = {
   // 选择用户
   selectUser(e) {
     const user = e.currentTarget.dataset.user
-    console.log('选择用户: ', user)
     this.setData({
       userList: [], // 隐藏搜索结果
       nicknameInput: user.nickname,
@@ -43,7 +40,6 @@ export const queryCommonMethods = {
   // 时间筛选 - 始
   changeStartTime(e) {
     let time = e.detail.value
-    console.log(`修改起始筛选时间: ${time}`)
     this.setData({
       userList: [], // 隐藏搜索结果
       'filter.startTime': time
@@ -53,7 +49,6 @@ export const queryCommonMethods = {
   // 时间筛选 - 终
   changeEndTime(e) {
     let time = e.detail.value
-    console.log(`修改终点筛选时间: ${time}`)
     this.setData({
       userList: [], // 隐藏搜索结果
       'filter.endTime': time
