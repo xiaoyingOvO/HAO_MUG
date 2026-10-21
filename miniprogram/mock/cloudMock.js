@@ -1476,12 +1476,16 @@ const queueFunctions = {
     return { success: true, data: buildQueue(s, id) };
   },
 
+  // 拖动排序：把 from_openid 移动到 to_openid 之前（"-1" = 队尾）。
+  // ⚠️ 与云端的已知差异：云端 delay 在改链表前会抢这台机台的分布式锁（machine_lock），
+  //    抢不到就报错；离线模拟层没有锁，所以「并发抢锁失败」这类问题在离线测不出来 ——
+  //    2.2.9 修的「拖动排序每次都失败」就是这种只在真机云端才暴露的 bug。
   Delay(p, s) {
     const id = p && p.machine_id;
     const list = s.queues[id] || [];
     const from = list.findIndex((q) => q.openid === (p && p.from_openid));
     const toOpenid = p && p.to_openid;
-    if (from < 0) return { success: false, errMsg: '分布式锁非用户持有，请重试' };
+    if (from < 0) return { success: false, errMsg: '未找到要移动的用户' };
     const moved = list[from];
     if (toOpenid === '-1') {
       // 目标为队尾：排到最后
@@ -1490,6 +1494,7 @@ const queueFunctions = {
     } else {
       // 目标为某位玩家：排到他前面。
       // 先确认目标还在队列中再摘除，否则「目标已不在」时用户会被摘掉却插不回去。
+      // 云端 delay 也是这个顺序：校验全部做完才开始写库。
       if (!list.some((q) => q.openid === toOpenid && q !== moved)) {
         return { success: false, errMsg: '目标用户已不在队列中，请刷新重试' };
       }

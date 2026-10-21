@@ -595,8 +595,15 @@ Page({
             return this.getMachineQueueInfo(machineId)
           })
           .catch(err => {
-            wx.showToast({ title: '排序失败', icon: 'none' })
+            // 把云函数给的原因显示出来。
+            // 原来这里写死一句「排序失败」，把真实原因盖掉了 —— 看不到原因就没法查。
+            const reason = (err && err.result && err.result.errMsg) || '排序失败'
+            wx.showToast({ title: reason, icon: 'none' })
             console.error('排序失败', err)
+            // 失败时也要按后端的真实顺序校准一次：
+            // 这次拖动没成功，本地这份列表不一定和后端链表一致，
+            // 不校准的话界面和后端就会分叉，之后照着界面拖也拖不对。
+            return this.getMachineQueueInfo(machineId)
           })
       })
   },
