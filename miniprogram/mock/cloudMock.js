@@ -38,7 +38,8 @@ export const MOCK_ROLE = 'user';
 const DB_KEY = 'haomug_mock_db_v1';
 // 假数据版本号：改动初始数据时把它 +1，旧的本地缓存会自动失效重建
 // （避免"代码改了但页面还是老数据"的困惑）
-const DB_VERSION = 20;
+const DB_VERSION = 21;
+// 21：桌游/日麻区标识由 'mahjong' 改回 'board'（机台 M05/M06 的 area + group_id 同步）
 // 13：机台拆成 舞萌·官机 / MML / ADX + 中二节奏，入店改为选设备直接排队
 // 14：初始余额改为 0 点（方便测「扣成负数也只提醒、不踢出排队」）
 // 15：新增日麻机台 M05（桌游区，4 人一桌，可排队）；三区域人数统计改为互斥分区
@@ -1291,6 +1292,7 @@ const queueFunctions = {
     s.me.enter_state = 0;
     s.me.enter_time = null;
     s.me.machine_id = '';
+    delete s.me.area; // 离店后不再保留入店区域（对齐云端 leaveArcade 的 area remove）
     addArcadeLog(s, ME_OPENID, totalPoints(s.me), s.me.exp, 1);
     return { success: true, errMsg: '退店成功' };
   },
@@ -1307,6 +1309,7 @@ const queueFunctions = {
     u.enter_state = 0;
     u.enter_time = null;
     u.machine_id = '';
+    delete u.area; // 离店后不再保留入店区域
     addArcadeLog(s, target, totalPoints(u), u.exp, 1);
     return { success: true };
   },
