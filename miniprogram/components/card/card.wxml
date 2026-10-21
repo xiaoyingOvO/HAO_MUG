@@ -7,6 +7,7 @@
   <view class="player-info">
     <image src="{{player.avatar}}" mode="aspectFill"></image>
     <view>{{player.nickname}}</view>
-    <view wx:if="{{player.isMe}}" class="my-badge">我</view>
   </view>
+  <!-- 「我」的标记：右上角一个红色角，只标识当前用户（认人不认位置） -->
+  <view wx:if="{{player.isMe}}" class="my-corner"></view>
 </view>
