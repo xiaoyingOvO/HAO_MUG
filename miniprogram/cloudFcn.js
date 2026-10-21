@@ -83,7 +83,7 @@ const getEnterInfo = async function() {
 }
 
 // 用户入店
-// area: 'arcade' 音游区（默认，12 点/小时）/ 'board' 桌游区（6 点/小时）
+// area: 'arcade' 音游区（默认，12 点/小时）/ 'mahjong' 桌游区（6 点/小时）
 const enterArcade = async function(area) {
   return wx.cloud.callFunction({
     name: 'queueFunctions',

@@ -11,7 +11,7 @@ const db_arcade_log = "arcade_log"
 
 // 区域：音游区（老版计费）/ 桌游区（一把时间可能很长，23 点不强制离店）
 const AREA_ARCADE = 'arcade'   // 音游区：0.2 点/分 = 12 点/小时
-const AREA_BOARD = 'board'     // 桌游区：0.1 点/分 =  6 点/小时
+const AREA_MAHJONG = 'mahjong'     // 桌游区：0.1 点/分 =  6 点/小时
 
 // 入店云函数入口
 exports.main = async (event, context) => {
@@ -25,7 +25,7 @@ exports.main = async (event, context) => {
   console.log('openid: ' + openid)
   // 入店区域：不传或传非法值时按音游区处理（兼容老版本调用）
   const params = ('params' in event) ? (event.params || {}) : {};
-  const area = params.area === AREA_BOARD ? AREA_BOARD : AREA_ARCADE;
+  const area = params.area === AREA_MAHJONG ? AREA_MAHJONG : AREA_ARCADE;
   console.log('入店区域:', area)
   // 用户状态判断
   let user_record = await db.collection(db_user)

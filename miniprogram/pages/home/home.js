@@ -10,51 +10,26 @@ var checkConsumePointCount = 0
 var remainPoint = 114514    // 用户余额
 
 // 入店设备选择弹层：一级分组对应的配图
-//   maimai / chunithm 来自云端 machine 集合的 group_id
-//   board 是前端虚拟项（桌游·日麻不是机台，不排队，只负责把用户带进桌游区）
+//   maimai / chunithm / mahjong 来自云端 machine 集合的 group_id
 // ⚠️ 这三张图已压缩到 360px 宽（小程序主包上限 2MB，原图 613KB 会把包撑爆）。
 //    弹层里只显示 128rpx 的缩略图，360px 足够；换高清图时记得重新压缩。
 const GROUP_ICONS = {
   maimai: '/images/machines/maimai.jpg',
   chunithm: '/images/machines/chunithm.jpg',
-  board: '/images/machines/mahjong.jpg',
-};
-/**
- * 桌游/日麻的兜底项：只有云端 machine 集合里**没有** area='board' 的机台（日麻 M05）时才用。
- * 内容与真机台保持一致（machineId 也指向 M05，4 人一桌），这样无论云端有没有数据，
- * 桌游/日麻走的都是同一条「入队」流程 —— 文案和行为统一。
- * ⚠️ 必须带 children：弹层的点击统一走 toggleDeviceGroup / selectDevice，
- *    少了这个数组会读 undefined.length 抛 TypeError，框架静默吞掉 → 表现就是「点了没反应」。
- */
-const BOARD_DEVICE = {
-  groupId: 'board',
-  groupName: '桌游/日麻',
-  icon: GROUP_ICONS.board,
-  desc: '4 人一桌 · 独立排队',
-  actionText: '入队',
-  children: [{
-    key: 'board',
-    machineId: 'M05',
-    label: '日麻',
-    deviceName: '日麻',
-    area: 'board',
-    maxPlayer: 4,
-  }],
+  mahjong: '/images/machines/mahjong.jpg',
 };
 
 /**
  * 把云端 machine 列表整理成入店弹层需要的两级结构。
  * 同 group_id 的机台合并成一张卡（如舞萌 → 官机 / MML / ADX 三个独立队列）；
  * 缺少 group_id 时退化成「一台机一张卡」，不会报错。
- * 最后追加虚拟的「桌游/日麻」项。
  */
 function buildDeviceGroups(machines) {
   const groups = [];
   const byGroup = new Map();
   Array.from(machines || []).forEach((m) => {
-    // max_player 为 0 / -1 表示机台不可用，不进选择列表
-    if (m.max_player === 0 || m.max_player === -1) return;
-    const gid = m.group_id || m._id;
+    const rawGid = m.group_id || m._id;
+    const gid = rawGid === 'board' ? 'mahjong' : rawGid;
     if (!byGroup.has(gid)) {
       const g = {
         groupId: gid,
@@ -66,33 +41,28 @@ function buildDeviceGroups(machines) {
       byGroup.set(gid, g);
       groups.push(g);
     }
+    const childIndex = byGroup.get(gid).children.length;
     byGroup.get(gid).children.push({
-      key: m._id,
+      key: `${gid}__${m._id}__${childIndex}`,
       machineId: m._id,
       label: m.label || m.machine_name,
       deviceName: m.machine_name,
-      // 机台自带 area（日麻 = 'board'），缺省按音游区；决定入店时进哪个区
-      area: m.area === 'board' ? 'board' : 'arcade',
+      area: m.area === 'mahjong' ? 'mahjong' : 'arcade',
       maxPlayer: m.max_player,
+      tag: m.tag || '',
+      is_disabled: !!m.is_disabled,
     });
   });
   groups.forEach((g) => {
     const only = g.children[0];
     g.desc = g.children.length > 1
       ? `${g.children.length} 台独立排队`
-      : (only.area === 'board'
-        ? `${only.maxPlayer} 人一桌 · 独立排队`
+      : (only.area === 'mahjong'
+        ? `独立排队`
         : (only.maxPlayer >= 2 ? '可拼机 / 单刷 · 独立排队' : '独立排队'));
     g.actionText = '入队';
   });
-  // 云端 machine 集合还没有日麻（area='board'）时，退化成不可排队的「桌游/日麻」虚拟项，
-  // 保证桌游区仍然可以入店。有了真机台就用真机台。
-  if (!byGroup.has('board')) {
-    groups.push({
-      ...BOARD_DEVICE,
-      children: BOARD_DEVICE.children.map((c) => ({ ...c })),
-    });
-  }
+
   return groups;
 }
 
@@ -205,7 +175,7 @@ Page({
       businessStatus: false,   // 正在营业
       relaxNum: 0,             // 休息区在店人数
       enterState: 0, // 用户是否已入店 0：未入店  1：休息中  2：候机中  3：游玩中
-      // 入店区域：'arcade' 音游区（12 点/小时）/ 'board' 桌游区（6 点/小时）
+      // 入店区域：'arcade' 音游区（12 点/小时）/ 'mahjong' 桌游区（6 点/小时）
       area: 'arcade',
       areaName: '音游区',
       arcadeNum: 0, // 音游区在店人数
@@ -265,7 +235,7 @@ Page({
       var relaxNum = data.relax_num ?? 0
       var enterState = data.enter_state ?? 0
       // 入店区域：老数据没有 area 字段时按音游区处理
-      var area = data.area === 'board' ? 'board' : 'arcade'
+      var area = data.area === 'mahjong' ? 'mahjong' : 'arcade'
       var time = new Date(data.enter_time).getTime()
       this.setData({
         ['woStatus.businessStatus']: businessStatus,
@@ -274,7 +244,7 @@ Page({
         ['woStatus.arcadeNum']: data.arcade_num ?? 0,
         ['woStatus.boardNum']: data.board_num ?? 0,
         ['woStatus.area']: area,
-        ['woStatus.areaName']: area === 'board' ? '桌游区' : '音游区',
+        ['woStatus.areaName']: area === 'mahjong' ? '桌游区' : '音游区',
         ['woStatus.enterTime.time']: time,
         ['woStatus.enterTime.show']: calcEnterTime(time) // 在店时长（正计时，每秒由 setEnterTimer 刷新）
       })
@@ -430,6 +400,10 @@ Page({
     // 单子项：直接选中（selectDevice 里已设 selectedGroup）
     if (children.length <= 1) {
       const device = children[0];
+      if (device && device.is_disabled) {
+        wx.showToast({ title: '机台不可用', icon: 'none' });
+        return;
+      }
       // 再点同一个 = 取消选中
       if (device && this.data.selectedKey === device.key) {
         this.setData({
@@ -504,6 +478,11 @@ Page({
       wx.showToast({ title: '设备数据异常，请重试', icon: 'none' });
       return;
     }
+    // 不可用机台不能被选中
+    if (device.is_disabled) {
+      wx.showToast({ title: '机台不可用', icon: 'none' });
+      return;
+    }
     if (this.data.isEntering) return;
     this.setData({
       selectedDevice: device,
@@ -538,8 +517,8 @@ Page({
 
   // 实际执行入店（音游设备紧接着直接进队列）
   async doEnterArcade(device) {
-    const area = device.area === 'board' ? 'board' : 'arcade';
-    const areaName = area === 'board' ? '桌游区' : '音游区';
+    const area = device.area === 'mahjong' ? 'mahjong' : 'arcade';
+    const areaName = area === 'mahjong' ? '桌游区' : '音游区';
     this.setData({ isEntering: true });
     try {
       const res = await cloudFcn.enterArcade(area);

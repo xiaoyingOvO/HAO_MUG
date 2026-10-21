@@ -40,7 +40,7 @@ exports.main = async (event, context) => {
     fail: console.error
   })
   var maxPlayer = machine_record.data[0].max_player
-  if (machine_record.data[0].max_player === 0){
+  if (machine_record.data[0].is_disabled){
     return {
       success: false,
       errMsg: "机器不可用"

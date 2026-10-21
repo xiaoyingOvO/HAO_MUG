@@ -136,15 +136,15 @@
       <view class="device-children {{group.children.length > 1 && expandedGroup === group.groupId ? 'device-children-show' : ''}}">
         <view
           wx:for="{{group.children}}"
-          wx:key="machineId"
+          wx:key="key"
           wx:for-item="child"
           wx:for-index="ci"
-          class="device-child {{selectedKey === child.key ? 'device-selected' : ''}}"
+          class="device-child {{selectedKey === child.key ? 'device-selected' : ''}} {{child.is_disabled ? 'device-disabled' : ''}}"
           catchtap="pickDevice"
           data-group-index="{{gi}}"
           data-child-index="{{ci}}">
           <text class="device-child-name">{{child.label}}</text>
-          <text class="device-child-tag">{{child.maxPlayer >= 2 ? '可拼机 / 单刷' : '单刷'}}</text>
+          <text class="device-child-tag">{{child.is_disabled ? '机台不可用' : child.tag}}</text>
           <!-- 子项人数：该机台自己的排队人数（游玩中 + 排队中） -->
           <text class="device-child-count">{{child.totalCount || 0}} 人</text>
         </view>
