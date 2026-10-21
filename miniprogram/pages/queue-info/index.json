@@ -4,5 +4,7 @@
     "card": "/components/card/card"
   },
   "navigationStyle": "custom",
-  "disableScroll": true
+  "disableScroll": true,
+  "enablePullDownRefresh": false,
+  "backgroundTextStyle": "dark"
 }

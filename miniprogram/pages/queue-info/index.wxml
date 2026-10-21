@@ -63,7 +63,8 @@
 
   <view wx:if="{{!checkQueueError}}" class="queue-layout">
     <!-- 左：机台列表 -->
-    <scroll-view class="machine-list" scroll-y enhanced show-scrollbar="{{false}}">
+    <!-- 左侧机台列表：bounces 关掉，避免下拉时出现「像在刷新」的回弹 -->
+    <scroll-view class="machine-list" scroll-y enhanced show-scrollbar="{{false}}" bounces="{{false}}">
       <view
         wx:for="{{machines}}"
         wx:key="machineId"
@@ -77,8 +78,9 @@
     <!-- 右：游玩区 + 等候区 -->
     <view class="queue-area-wrap">
       <!-- 拖拽中把 scroll-y 关掉，否则长按拖动时列表会跟着手指滚（安卓/iOS 都这样）。
-           ⚠️ 不要加 enhanced：增强模式下由原生接管滚动，scroll-y 的动态切换不生效 -->
-      <scroll-view class="queue-area" scroll-y="{{!showDragClone}}">
+           ⚠️ 不要加 enhanced：增强模式下由原生接管滚动，scroll-y 的动态切换不生效
+           bounces 关掉：下拉时不再回弹，看起来就不会像「在下拉刷新」 -->
+      <scroll-view class="queue-area" scroll-y="{{!showDragClone}}" bounces="{{false}}">
         <template is="queueContent" data="{{playingList, waitingList, showDragClone, clonePlayer, cloneRect, dragIndex, canSwitchMulti}}" />
       </scroll-view>
     </view>
