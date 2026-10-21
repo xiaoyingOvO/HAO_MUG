@@ -7,6 +7,6 @@
   <view class="player-info">
     <image src="{{player.avatar}}" mode="aspectFill"></image>
     <view>{{player.nickname}}</view>
-    <view wx:if="{{playerIndex === myIndex}}" class="my-badge">我</view>
+    <view wx:if="{{player.isMe}}" class="my-badge">我</view>
   </view>
 </view>

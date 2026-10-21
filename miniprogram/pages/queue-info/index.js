@@ -28,7 +28,11 @@ const handleQueueInfo = function(queueInfo) {
       isMulti: p.is_multi,
       playPosition: p.play_position,
       nickname: p.user_info ? p.user_info.nickname : undefined,
-      avatar: p.user_info ? p.user_info.avatar : undefined
+      avatar: p.user_info ? p.user_info.avatar : undefined,
+      // isMe = 是不是当前用户。卡片上的「我」只认这个人，不认列表下标：
+      // playlist（游玩区+等候区混排）和 waitingList（只含等候区）两套下标本来就不一样，
+      // 拿它们互相比较会随机撞上，把别人的卡标成「我」。
+      isMe: myOpenid === p.openid
     }
   })
 
