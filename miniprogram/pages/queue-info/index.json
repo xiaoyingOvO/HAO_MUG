@@ -3,5 +3,6 @@
     "custom-navi": "/components/custom-navi/custom-navi",
     "card": "/components/card/card"
   },
-  "navigationStyle": "custom"
+  "navigationStyle": "custom",
+  "disableScroll": true
 }
