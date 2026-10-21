@@ -1451,16 +1451,21 @@ const queueFunctions = {
     const list = s.queues[id] || [];
     const from = list.findIndex((q) => q.openid === (p && p.from_openid));
     const toOpenid = p && p.to_openid;
-    console.log('[Mock Delay] machine_id:', id, 'from:', from, 'from_openid:', p && p.from_openid, 'to_openid:', toOpenid)
     if (from < 0) return { success: false, errMsg: '分布式锁非用户持有，请重试' };
-    const moved = list.splice(from, 1)[0];
+    const moved = list[from];
     if (toOpenid === '-1') {
+      // 目标为队尾：排到最后
+      list.splice(from, 1);
       list.push(moved);
     } else {
-      const to = list.find((q) => q.openid === toOpenid);
-      if (!to) return { success: false, errMsg: '分布式锁非用户持有，请重试' };
-      const targetIdx = list.indexOf(to);
-      list.splice(Math.max(0, targetIdx), 0, moved);
+      // 目标为某位玩家：排到他前面。
+      // 先确认目标还在队列中再摘除，否则「目标已不在」时用户会被摘掉却插不回去。
+      if (!list.some((q) => q.openid === toOpenid && q !== moved)) {
+        return { success: false, errMsg: '目标用户已不在队列中，请刷新重试' };
+      }
+      list.splice(from, 1);
+      const at = list.findIndex((q) => q.openid === toOpenid);
+      list.splice(at, 0, moved);
     }
     pushQueueLog(s, id, moved.openid, logText(s, moved.openid, '位置被调整'));
     return { success: true, data: buildQueue(s, id) };
