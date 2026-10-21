@@ -9,6 +9,8 @@ const db_user = 'user';
 const db_card = 'card'
 const db_cmd = db.command;
 
+const { toBJHour } = require('../timeUtil');
+
 // 区域费率（点/分钟）
 const AREA_ARCADE = 'arcade'
 const AREA_BOARD = 'board'
@@ -16,7 +18,7 @@ const RATE_ARCADE = 0.2   // 音游区：0.2 点/分 = 12 点/小时（老版计
 const RATE_BOARD = 0.1    // 桌游区：0.1 点/分 =  6 点/小时
 
 // 获取入店情况云函数入口
-exports.main = async (event, context) => {
+async function getConsumePointMain(event, context) {
   // 获取openid
   const wxContext = cloud.getWXContext()
   var openid = wxContext != null && 'OPENID' in wxContext ? 
@@ -77,7 +79,7 @@ exports.main = async (event, context) => {
     // 入店至今包含优惠卡有效期
     if (enter_time <= endtime && current_time >= starttime) {
       var card_id = cards[i].card_id
-      // 查询优惠卡具体信息
+      // 查询优惠卡具体信息（防呆：卡集合里查不到该卡时跳过，避免 data[0] undefined 抛错导致整个函数失败）
       let card_info = await db.collection(db_card).where({
         _id: card_id
       }).get({
@@ -87,11 +89,23 @@ exports.main = async (event, context) => {
         },
         fail: console.error
       })
+      if (!card_info.data || card_info.data.length === 0) {
+        console.warn('优惠卡不存在，跳过:', card_id)
+        continue
+      }
       // 分会员卡和免费时段卡
       if (card_info.data[0].discount != 0){
         zhekou *= card_info.data[0].discount
       }else{
-        discountCards.push({start:card_info.data[0].duration.start_time.getHours(),end: card_info.data[0].duration.end_time.getHours()})          
+        // 免单时段：统一用公共工具解析成「北京时间小时数」（兼容字符串/Date/$date/数字）
+        const dur = card_info.data[0].duration || {}
+        const sh = toBJHour(dur.start_time !== undefined ? dur.start_time : dur.start_hour)
+        const eh = toBJHour(dur.end_time !== undefined ? dur.end_time : dur.end_hour)
+        if (!Number.isNaN(sh) && sh !== null && !Number.isNaN(eh) && eh !== null) {
+          discountCards.push({ start: sh, end: eh })
+        } else {
+          console.warn('免单卡时段格式无法识别，跳过:', card_id, JSON.stringify(dur))
+        }
       }
     }
   }
@@ -107,15 +121,14 @@ exports.main = async (event, context) => {
   var ori_consumePoint = billingTime * rate
   // 信誉百分比叠加
   var consumePoint = ori_consumePoint * zhekou
-  switch (credit){
-    case credit >= 85:
-      break
-    case credit < 85 && credit >= 70:
-      consumePoint = consumePoint * 1.2
-    case credit >= 60 && credit < 70:
-      consumePoint = consumePoint * 1.5
-    case credit < 60:
-      consumePoint = -1
+  // 信用分惩罚：>=85 无惩罚；70~84 加 20%；60~69 加 50%；<60 记 -1（异常标记）
+  // （原版误用 switch(credit) + 布尔 case 且缺 break，永远不会命中也不会 fall-through，这里改为 if/else）
+  if (credit < 60) {
+    consumePoint = -1
+  } else if (credit >= 60 && credit < 70) {
+    consumePoint = consumePoint * 1.5
+  } else if (credit >= 70 && credit < 85) {
+    consumePoint = consumePoint * 1.2
   }
   // Lv6等级不扣点数
   // 边界统一：enterArcade 的余额校验用的是 `exp < 114514` 才拦截（即 exp >= 114514 放行），
@@ -131,6 +144,16 @@ exports.main = async (event, context) => {
       points: consumePoint,
       experience: experience
     }
+  }
+};
+
+// 入口：兜底捕获所有异常，把错误信息明确返回给前端（而不是让函数静默失败、前端停留在 0.00）
+exports.main = async (event, context) => {
+  try {
+    return await getConsumePointMain(event, context);
+  } catch (e) {
+    console.error('getConsumePoint 异常:', e);
+    return { success: false, errMsg: 'getConsumePoint 异常: ' + e.message };
   }
 };
 
@@ -188,14 +211,25 @@ function boardBillingMinutes(playStart, playEnd, discountCards) {
   return billingTime > 0 ? billingTime : 0;
 }
 
-// 合并优惠卡
+// 合并优惠卡（并拆分跨天时段）
 function mergeDiscountCards(discountCards) {
-  // 将优惠卡时间段转换为分钟并排序
-  const intervals = discountCards.map(card => ({
-      start: timeToMinutes(card.start),
-      end: timeToMinutes(card.end),
-  })).sort((a, b) => a.start - b.start);
-  // 合并时间段
+  // 先把每个时段转成「当天分钟」，跨天时段（start > end，如夜场 23:00→次日10:00）拆成两段：
+  //   [start, 24:00] 落在当天  +  [00:00, end] 落在次日
+  // 否则 start 分钟(1380) > end 分钟(600)，交集恒为 0，抵扣失效（桌游区夜场会正常扣费）。
+  const intervals = [];
+  discountCards.forEach(card => {
+    const s = card.start;
+    const e = card.end;
+    if (s < e) {
+      intervals.push({ start: timeToMinutes(s), end: timeToMinutes(e) });
+    } else {
+      // 跨天时段：拆成当天 [s, 24:00] 和次日 [00:00, e] 两段
+      intervals.push({ start: timeToMinutes(s), end: 24 * 60 });
+      intervals.push({ start: 0, end: timeToMinutes(e) });
+    }
+  });
+  intervals.sort((a, b) => a.start - b.start);
+  // 合并重叠区间
   const merged = [];
   intervals.forEach(interval => {
       if (merged.length === 0 || merged[merged.length - 1].end < interval.start) {

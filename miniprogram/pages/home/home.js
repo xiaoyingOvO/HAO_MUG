@@ -9,6 +9,16 @@ const checkConsumePointTimeout = 1  // 已消费金额轮询时间
 var checkConsumePointCount = 0
 var remainPoint = 114514    // 用户余额
 
+/* ============================================================
+ * 模块级工具函数（不依赖 Page 实例）
+ *   buildDeviceGroups —— 云端 machine 列表 → 入店弹层两级结构
+ *   checkBalance / checkAndChargeBalance —— 余额轮询与扣费
+ *   checkConsumePoint —— 已消费点数轮询
+ *   notifyOverdraft / clearOverdraft —— 透支提醒
+ *   calcEnterTime —— 在店时长正计时
+ *   faqFilter —— FAQ 文案处理
+ * ============================================================ */
+
 // 入店设备选择弹层：一级分组对应的配图
 //   maimai / chunithm / board 来自云端 machine 集合的 group_id
 // ⚠️ 这三张图已压缩到 360px 宽（小程序主包上限 2MB，原图 613KB 会把包撑爆）。
@@ -171,7 +181,7 @@ Page({
       ? '/images/logo.svg'
       : "cloud://hao-2gz8w8z212e63bcf.6861-hao-2gz8w8z212e63bcf-1347707526/logo.jpg",
     woStatus: {
-      businessStatus: false,   // 正在营业
+      businessStatus: true,   // 是否营业中（默认 true，避免首屏误闪「已打烊」，真实值由 getEnterInfo 拉取）
       relaxNum: 0,             // 休息区在店人数
       enterState: 0, // 用户是否已入店 0：未入店  1：休息中  2：候机中  3：游玩中
       // 入店区域：'arcade' 音游区（12 点/小时）/ 'board' 桌游区（6 点/小时）
@@ -223,6 +233,13 @@ Page({
     isEnterBtnDisabled: true, //  控制入店按钮禁用
   },
 
+  /* ============================================================
+   * 【一】店内状态与公告数据
+   *   getEnterInfo —— 店内状态（人数/营业/入店时长）
+   *   checkAccess —— 是否可入店（营业/夜场）
+   *   getNotice —— 公告/FAQ/联系方式
+   * ============================================================ */
+
   // 查询店内状态
   async getEnterInfo() {
     return cloudFcn.getEnterInfo().then(res => {
@@ -252,6 +269,11 @@ Page({
   },
   // 判断是否可入店
   async checkAccess() {
+    // ⚠️ 必须先用 getEnterInfo 拿到真实的 businessStatus 再判断，
+    //    否则这里会读到初始值 true/false，把「营业中」误判成「已打烊」。
+    //    getEnterInfo 内部已 catch，不会因失败中断本函数。
+    await this.getEnterInfo();
+
     return cloudFcn.ifNight().then(res => {
       if (!res.result.success) return Promise.reject(res)
 
@@ -281,13 +303,24 @@ Page({
   },
 
   // 获取公告等信息
-  async getNotice() {
+  async getNotice(forceRefresh) {
+    // 公告/FAQ/联系方式属于低频变更数据，首次加载后缓存，避免每次 onShow 重复请求
+    if (!forceRefresh && this._noticeCache) {
+      this.setData({
+        broadcast: this._noticeCache.broadcast,
+        contact: this._noticeCache.contact,
+        faq: this._noticeCache.faq,
+      });
+      return Promise.resolve();
+    }
     return cloudFcn.getNotice().then(res => {
       if (!res.result.success) return Promise.reject(res)
 
       let { broadcast, faq, contact } = res.result.data
 
       faqFilter(faq)
+
+      this._noticeCache = { broadcast, contact, faq };
 
       this.setData({
         broadcast,
@@ -296,6 +329,14 @@ Page({
       })
     }).catch(console.error)
   },
+
+  /* ============================================================
+   * 【二】入店 / 离店 / 开门
+   *   enterArcade / loadDeviceGroups —— 入店 + 设备选择弹层
+   *   toggleDeviceGroup / pickDevice / selectDevice / onPickerConfirm —— 弹层交互
+   *   doEnterArcade —— 确认入店
+   *   leaveArcade / openDoor —— 离店 / 开门
+   * ============================================================ */
 
   // 用户进店：点「入店」后弹出设备选择弹层，选中的设备即入店并**直接进入该机台队列**。
   //   舞萌·官机 / 舞萌·MML / 舞萌·ADX —— 三个各自独立的队列
@@ -616,6 +657,20 @@ Page({
     })
   },
 
+  // 查看预约：跳转到预约页（已从 tabBar 移除，改为普通页面，用 navigateTo）
+  viewReserve() {
+    wx.navigateTo({
+      url: '/pages/reserve/index'
+    })
+  },
+
+  /* ============================================================
+   * 【三】在店计时 / FAQ 交互 / 页面加载
+   *   setEnterTimer —— 在店时长每秒刷新 + 余额轮询
+   *   extendFaq / copyContact —— FAQ 展开 / 复制联系方式
+   *   loadPageData —— 页面数据聚合加载
+   * ============================================================ */
+
   //添加入店时间计时(查询余额也在这里)
   setEnterTimer() {
     clearInterval(enterTimer)
@@ -685,7 +740,8 @@ Page({
   async loadPageData() {
     this.setData({ isLoadingPage: true });
     try {
-      await this.getEnterInfo();
+      // checkAccess 内部会先 getEnterInfo（拉店内状态），与 getNotice 并行；
+      // 避免把 getEnterInfo 再并列一次造成重复请求 + 竞态
       await Promise.all([
         this.checkAccess(),
         this.getNotice(),
@@ -701,6 +757,12 @@ Page({
       this.setData({isLoadingPage: false, isEnterBtnDisabled: false });
     }
   },
+
+  /* ============================================================
+   * 【四】页面生命周期
+   *   onLoad / onShow / onHide / onUnload / onPullDownRefresh
+   *   onReachBottom / onShareAppMessage
+   * ============================================================ */
 
   /**
    * 生命周期函数--监听页面加载

@@ -20,11 +20,13 @@ exports.main = async (event, context) => {
   const cost = event.params.cost;
 
   const type = duration.type;
-  let desc = "${card_name}：";
+  let desc;
   if (type == 0) {
-    desc = "${desc}${cost}元//(${duration.start_hour}:00-{duration.end_hour}:00)";
+    desc = `${card_name}：${cost}元/(${duration.start_hour}:00-${duration.end_hour}:00)`;
   } else if (type == 1) {
-    desc = "${desc}${cost}元//${duration.days}天";
+    desc = `${card_name}：${cost}元/${duration.days}天`;
+  } else {
+    desc = `${card_name}：${cost}元`;
   }
 
   console.log('card_name: ' + card_name +

@@ -191,11 +191,16 @@ async function paginationQuery(db_name, page_no, page_size, condition) {
     })
 }
 
-async function customTime(hours, minutes, seconds, milliseconds) {
-  var my_time = new Date()
-  my_time.setHours(hours)
-  my_time.setMinutes(minutes)
-  my_time.setSeconds(seconds)
-  my_time.setMilliseconds(milliseconds)
-  return my_time
+// 返回「今天北京时间 hours:minutes:seconds 对应的 UTC Date」。
+// 云函数运行在 UTC 时区，直接 setHours(hours) 会得到 UTC hours 点（比北京早 8 小时），
+// 导致 23 点强制离店 / 10 点重置 enter_time 等定时逻辑整体偏移 8 小时。
+// 正确换算分两步：
+//   1) 先求「北京当前日期」= (now + 8h) 的年月日（北京凌晨 0~7 点时，UTC 日期比北京早一天）
+//   2) 北京当天 H 点对应的 UTC 时刻 = UTC(北京日期 00:00) - 8h + H 小时
+function customTime(hours, minutes, seconds, milliseconds) {
+  const now = new Date()
+  // 北京当前时刻 = now + 8h，取其年月日即「北京今天」
+  const bjNow = new Date(now.getTime() + 8 * 3600 * 1000)
+  const bjMidnightUTC = Date.UTC(bjNow.getUTCFullYear(), bjNow.getUTCMonth(), bjNow.getUTCDate()) - 8 * 3600 * 1000
+  return new Date(bjMidnightUTC + hours * 3600 * 1000 + minutes * 60 * 1000 + seconds * 1000 + milliseconds)
 }

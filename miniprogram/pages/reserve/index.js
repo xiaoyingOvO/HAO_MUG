@@ -1,9 +1,9 @@
 Page({
     data: {
-      dates: [],          // 日期按钮数据
-      activeIndex: 0,     // 当前选中日期索引
-      selectedDate: '',
-      reserveData: [],    // 全部预约数据
+      calendar: null,     // 月历数据 { year, month, cells: [{key,dayNum,status,disabled,isToday,reserve,selected}] }
+      selectedDate: '',   // 选中日期展示文本（M/D）
+      selectedDateKey: '', // 选中日期键（YYYY-MM-DD），用于日历选中框高亮
+      reserveData: [],    // 全部预约数据（整月）
       openid: '',
       credit: 100,          // 用户信用分
       creditGrade: 'S',   // 用户信用分等级
@@ -32,6 +32,12 @@ Page({
       this.getUserInfo();
       this.loadReserveData();
     },
+
+    /* ============================================================
+     * 【一】登录与用户信用分
+     *   checkLoginState / redirectToLogin —— 登录校验
+     *   getUserInfo / _updateCreditDisplay —— 信用分获取与等级显示
+     * ============================================================ */
 
     // 检查登录状态
   async checkLoginState() {
@@ -159,6 +165,18 @@ redirectToLogin() {
                 });
                 // 获取到 credit 后更新显示
                 this._updateCreditDisplay(credit);
+                // ⚠️ 重新计算可预约状态：openid 到位后，之前 loadReserveData 里
+                //    那次 _updateCanReserveStatus 可能因 openid 还为空而误判「已满员」。
+                //    这里补算一次，保证 openid + currentReserve 都到位后结果正确。
+                this._updateCanReserveStatus();
+                // ⚠️ 重新构建月历状态：openid 到位后，「我预约/别人预约」的格子着色才能正确。
+                //    若 loadReserveData 先于 getUserInfo 完成，此时日历已按「openid 为空」渲染，
+                //    所有预约格子都会误标成「他人预约」。这里用最新 openid 重算日历。
+                if (this.data.reserveData && this.data.reserveData.length > 0) {
+                  this.setData({ calendar: this._buildCalendar(this.data.reserveData) });
+                  // 重建日历后重新标记选中框（否则 selected 被重置为 false）
+                  this._markSelectedCell();
+                }
 
             } else {
                 console.error('获取用户信息失败：',res.result);
@@ -170,94 +188,92 @@ redirectToLogin() {
         }
     },
 
-    // 加载预约数据
+    /* ============================================================
+     * 【二】预约数据加载与日期选择
+     *   loadReserveData / _silentRefreshReserve —— 预约数据（含缓存预取）
+     *   handleDateSelect —— 切换日期
+     * ============================================================ */
+
+    // 后台静默刷新预约数据（命中缓存后调用，保证下次 onShow 用的是最新数据）
+    _silentRefreshReserve() {
+      const app = getApp();
+      wx.cloud.callFunction({
+        name: 'baseFunctions',
+        data: { type: 'getReserveInfo', params: { days: 28 } }
+      }).then(r => {
+        if (r && r.result && r.result.success && app.globalData && app.globalData.pageCache) {
+          app.globalData.pageCache.reserve = r.result.data;
+        }
+      }).catch(err => {
+        console.warn('[Reserve] 静默刷新预约数据失败：', err);
+      });
+    },
+
+    // 加载预约数据（从今天起 28 天，4 行日历形式展示）
     async loadReserveData() {
         this.setData({ isLoading: true });
-        const DEBUG_MODE = false;
-        let debugHour = 12;
 
       try {
-        const res = await wx.cloud.callFunction({
-          name: 'baseFunctions',
-          data: {
-              type: 'getReserveInfo',
-              //params: {}, 
-              params: { days: 5 } 
+        // 优先读全局预取缓存：app 启动时已预取，命中则秒开，再后台静默刷新
+        const app = getApp();
+        const cached = app.globalData && app.globalData.pageCache && app.globalData.pageCache.reserve;
+        let res;
+        if (cached) {
+          res = { result: { success: true, data: cached } };
+          // 后台静默刷新，保证数据是最新的（下一次 onShow 直接用新缓存）
+          this._silentRefreshReserve();
+        } else {
+          res = await wx.cloud.callFunction({
+            name: 'baseFunctions',
+            data: {
+                type: 'getReserveInfo',
+                params: { days: 28 }
+            }
+          });
+          // 写回全局缓存
+          if (res.result && res.result.success && app.globalData && app.globalData.pageCache) {
+            app.globalData.pageCache.reserve = res.result.data;
           }
-        });
+        }
 
         if (res.result.success) {
-            // 获取原始的 6 天数据
-          const fullReserveData = res.result.data.reserve_data.map(item => ({
+          // 预约数据：整月，每项 { day: Date, openids: [] }
+          const reserveData = (res.result.data.reserve_data || []).map(item => ({
             ...item,
-            day: new Date(item.day), // 转换日期字符串为Date对象
+            day: new Date(item.day),
             openids: item.openids || [],
-          }));
-
-          // 判断当前时间决定是否隐藏昨天
-          const now = new Date();
-          const nowCST = new Date(now.getTime() + (8 * 60 * 60 * 1000));
-          //const currentCSTHour = nowCST.getUTCHours();
-          let currentCSTHour;
-          if (DEBUG_MODE) {
-              currentCSTHour = debugHour;
-          } else {
-              currentCSTHour = nowCST.getUTCHours();
-          }
-          let realReserveData = [...fullReserveData];    // 复制显示数组
-          let isYesterdayHidden = false;
-          let activeIndexOffset = 0;    // 索引偏移量
-          if (currentCSTHour >= 10) {
-              if (realReserveData.length > 0) {
-                  realReserveData.shift();  // 移除昨天
-                  isYesterdayHidden = true;
-                  activeIndexOffset = 1;
-              }
-          } else {
-              isYesterdayHidden = false;
-              activeIndexOffset = 0;
-          }
-          let realActiveIndex = this.data.activeIndex;  //  获取当前索引
-          if (isYesterdayHidden) {
-              realActiveIndex = Math.max(0, realActiveIndex - activeIndexOffset);
-          }
-          realActiveIndex = Math.min(realActiveIndex, realReserveData.length - 1);
-          if (realReserveData === 0) {
-              realActiveIndex = 0;
-          }
-    
-          // 生成日期按钮数据
-          const dates = realReserveData.map(item => ({
-            weekday: this.getWeekday(item.day),
-            date: this.formatDate(item.day),
           }));
 
           const reserve_limit = res.result.data.reserve_limit;
           const reserve_max = res.result.data.reserve_max ?? 3;
           const reserve_cost = res.result.data.reserve_cost ?? 100;
 
-          // 确定当前选中数据
-          const currentReserve = realReserveData.length > 0 ? realReserveData[realActiveIndex] : { day: new Date(), openids: []};
-    
+          // 构建月历数据结构
+          const calendar = this._buildCalendar(reserveData);
+
+          // 默认选中今天（若今天已过去则选今天；今天在未来月不存在的场景一般不会发生）
+          const todayKey = this._dateKey(new Date());
+          const defaultIdx = reserveData.findIndex(r => this._dateKey(r.day) === todayKey);
+          const todayReserve = defaultIdx >= 0 ? reserveData[defaultIdx] : reserveData[0];
+
           this.setData({
-            fullReserveData: fullReserveData,
-            reserveData: realReserveData,
-            dates: dates,
+            reserveData: reserveData,
+            calendar: calendar,
             reserve_limit: reserve_limit,
             reserve_max: reserve_max,
             reserve_cost: reserve_cost,
-            //credit: res.result.data.credit,
-            //reserveQualification: res.result.data.reserve_qualification,
-            currentReserve: currentReserve,
-            activeIndex: realActiveIndex,
-            selectedDate: currentReserve ? this.formatDate(currentReserve.day) : '',
+            currentReserve: todayReserve,
+            selectedDate: todayReserve ? this.formatDate(todayReserve.day) : '',
+            selectedDateKey: todayReserve ? this._dateKey(todayReserve.day) : '',
             alreadyReserved: false,
-            isYesterdayHidden: isYesterdayHidden,
           });
+          // 标记默认选中格子（今天）
+          this._markSelectedCell();
           // 更新可预约状态
           this._updateCanReserveStatus();
 
-          const initialOpenids = currentReserve?.openids || [];
+          // 加载今天预约用户列表
+          const initialOpenids = todayReserve?.openids || [];
           if (initialOpenids.length > 0) {
               this.setData({ isLoadingUserInfo: true });
               await this.batchGetUserInfo(initialOpenids);
@@ -281,47 +297,132 @@ redirectToLogin() {
         });
       }
     },
-  
-    // 日期选择处理
-    async handleDateSelect(e) {
-      const index = e.currentTarget.dataset.index;
-      if (index < 0 || index >= this.data.reserveData.length) {
-        console.warn('无效的日期索引：', index);
-        return;
+
+    /* ============================================================
+     * 【二·扩展】月历构建与状态判断
+     *   _buildCalendar —— 把整月预约数据组装成日历格子（含前置空格）
+     *   _dateKey —— 生成 YYYY-MM-DD 键
+     *   _dayStatus —— 判断某天是「我约/别人约/空闲」
+     * ============================================================ */
+
+  // 生成 YYYY-MM-DD 键
+  _dateKey(date) {
+    if (!(date instanceof Date)) return '';
+    return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  },
+
+  // 刷新日历选中态：根据当前 selectedDate 给对应格子打上 selected 标记
+  _markSelectedCell() {
+    const calendar = this.data.calendar;
+    if (!calendar || !Array.isArray(calendar.cells)) return;
+    const selectedKey = this.data.selectedDateKey;
+    const cells = calendar.cells.map(c => {
+      if (c.empty) return c;
+      return { ...c, selected: selectedKey ? c.key === selectedKey : false };
+    });
+    this.setData({ 'calendar.cells': cells });
+  },
+
+    // 构建日历格子数组：从「今天所在周的周日」开始，显示 4 行（4 行 × 7 列 = 28 天）
+    // 今天之前（本周日~昨天）的已过日期保留为灰色占位，保证星期表头始终对齐；
+    // 今天起为可预约日期。这样不再显示「上个月整月」里那些无价值的已过日期。
+    // 返回 [{ key, dayNum, level, isMine, disabled, isToday, reserve, selected }]
+    //   level: 'low' | 'medium' | 'high' | 'full'  —— 按已预约人数分档着色
+    //     low(<3)=绿  medium(3~5)=橙  high(5~8)=红  full(>8)=深红(偏褐)
+    //   isMine: 是否「我的预约」，右下角打勾
+    _buildCalendar(reserveData) {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()); // 今天 0 点
+      const todayKey = this._dateKey(today);
+
+      // 本周起始日 = 今天 - 今天所在星期几（周日为 0）
+      const weekStart = new Date(today.getFullYear(), today.getMonth(), today.getDate() - today.getDay());
+
+      // 建立日期 -> reserve 映射
+      const map = {};
+      reserveData.forEach(r => {
+        map[this._dateKey(r.day)] = r;
+      });
+
+      const cells = [];
+      // 从本周日起连续 28 天（4 行）
+      for (let i = 0; i < 28; i++) {
+        const date = new Date(weekStart.getFullYear(), weekStart.getMonth(), weekStart.getDate() + i);
+        const key = this._dateKey(date);
+        const reserve = map[key] || { day: date, openids: [] };
+        const openids = reserve.openids || [];
+        const count = openids.length;
+        const isMine = openids.indexOf(this.data.openid) >= 0;
+        // 过去日期（今天之前）置灰不可点
+        const isPast = date.getTime() < today.getTime();
+        // 按人数分档
+        const level = count < 3 ? 'low' : (count <= 5 ? 'medium' : (count <= 8 ? 'high' : 'full'));
+
+        cells.push({
+          empty: false,
+          key,
+          dayNum: date.getDate(),
+          level,
+          isMine,
+          disabled: isPast,
+          isToday: key === todayKey,
+          selected: false,
+          reserve,
+          // 1 号格子左上角标注月份（跨月时标出下个月）
+          monthLabel: date.getDate() === 1 ? `${date.getMonth() + 1}月` : '',
+        });
       }
-      const currentReserve = this.data.reserveData[index];
-      // 添加检查
+
+      return {
+        year: today.getFullYear(),
+        month: today.getMonth() + 1,
+        cells,
+      };
+    },
+
+    // 日期选择处理（点日历格子）
+    async handleDateSelect(e) {
+      const key = e.currentTarget.dataset.key;
+      const cell = (this.data.calendar.cells || []).find(c => c.key === key);
+      if (!cell || cell.disabled) {
+        return; // 空格子或过去日期不可点
+      }
+      const currentReserve = cell.reserve;
       if (!currentReserve || !currentReserve.day) {
         console.error('选择的日期数据异常：', currentReserve);
-        wx.showToast({
-          title: '选择的日期数据错误',
-          icon: 'none'
-        });
+        wx.showToast({ title: '选择的日期数据错误', icon: 'none' });
         return;
       }
       const selectedDate = this.formatDate(currentReserve.day);
-      const currentOpenids = currentReserve.openids || [];  // 确保是数组
-
-      if (!currentReserve?.openids) {
-          console.warn('当前日期无预约数据');
-          this.setData({ reserveList: [] });
-          return;
-      }
+      const currentOpenids = currentReserve.openids || [];
 
       this.setData({
-        activeIndex: index,
         currentReserve,
-        reserveList: currentOpenids.map(id => ({ openid: id, nickname: '加载中...'})),    // 清空旧数据，显示加载状态
+        reserveList: currentOpenids.map(id => ({ openid: id, nickname: '加载中...' })),
         selectedDate,
-        isLoadingUserInfo: true,
+        selectedDateKey: key,
+        isLoadingUserInfo: currentOpenids.length > 0,
         alreadyReserved: false,
       });
+      // 切换选中框高亮到当前点击的日期
+      this._markSelectedCell();
       this._updateCanReserveStatus();
 
       // 批量获取用户信息
+      if (currentOpenids.length > 0) {
         await this.batchGetUserInfo(currentOpenids);
         this.setData({ isLoadingUserInfo: false });
+      } else {
+        this.setData({ reserveList: [], isLoadingUserInfo: false });
+      }
     },
+
+    /* ============================================================
+     * 【三】预约操作与用户信息批量获取
+     *   _updateCanReserveStatus —— 更新预约资格/是否已约
+     *   batchGetUserInfo —— 按 openid 批量取昵称
+     *   handleReserve —— 发起预约
+     * ============================================================ */
 
     // 更新可预约状态的辅助函数
     _updateCanReserveStatus() {
@@ -462,16 +563,23 @@ redirectToLogin() {
                     title: '预约成功',
                     icon: 'success',
                     });
+                    // 记录刚预约的日期，刷新后重新选中它
+                    const bookedKey = this._dateKey(this.data.currentReserve.day);
                     await this.loadReserveData();
-                    // 刷新预约用户列表
-                    const updatedCurrentReserve = this.data.reserveData[this.data.activeIndex];
-                    const updatedOpenids = updatedCurrentReserve?.openids || [];
-                    if (updatedOpenids.length > 0) {
+                    // 重新定位到刚预约的日期，刷新其用户列表
+                    const updatedReserve = (this.data.reserveData || []).find(r => this._dateKey(r.day) === bookedKey);
+                    if (updatedReserve) {
+                      this.setData({ currentReserve: updatedReserve, selectedDate: this.formatDate(updatedReserve.day), selectedDateKey: bookedKey });
+                      this._markSelectedCell();
+                      this._updateCanReserveStatus();
+                      const updatedOpenids = updatedReserve.openids || [];
+                      if (updatedOpenids.length > 0) {
                         this.setData({ isLoadingUserInfo: true });
                         await this.batchGetUserInfo(updatedOpenids);
                         this.setData({ isLoadingUserInfo: false });
-                    } else {
+                      } else {
                         this.setData({ reserveList: [], isLoadingUserInfo: false });
+                      }
                     }
                 } else {
                     wx.showToast({
@@ -498,6 +606,11 @@ redirectToLogin() {
       });
     },
   
+    /* ============================================================
+     * 【四】日期工具函数
+     *   getWeekday / formatISODate / formatDate
+     * ============================================================ */
+
     // 工具方法：获取星期
     getWeekday(date) {
       const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];

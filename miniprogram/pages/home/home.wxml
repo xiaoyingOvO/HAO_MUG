@@ -45,13 +45,23 @@
     </view>
 
     <view class="wo-customer-total">店内共{{woStatus.relaxNum + woStatus.arcadeNum + woStatus.boardNum}}人</view>
+
+    <!-- 未入店：入店（或打烊提示）+ 查看预约 -->
     <view class="wo-join-button-container">
       <block wx:if="{{woStatus.enterState === 1 || woStatus.enterState === 2 || woStatus.enterState === 3}}">
         <button bind:tap="leaveArcade" class="wo-join-button button-leave" type="primary">离店</button>
-        <button bind:tap="openDoor" class="wo-join-button button-opendoor" type="primary">开门</button>
+        <button bind:tap="viewReserve" class="wo-join-button button-reserve" type="primary">查看预约</button>
       </block>
-      <button wx:elif="{{woClosed}}" disabled class="button-disable">{{woClosedText}}</button>
-      <button wx:else bind:tap="enterArcade" class="wo-join-button button-enter" type="primary" disabled="{{isEnterBtnDisabled || woClosed}}">{{woClosed ? woClosedText : '入店'}}</button>
+      <block wx:else>
+        <button wx:if="{{woClosed}}" disabled class="wo-join-button button-disable">{{woClosedText}}</button>
+        <button wx:else bind:tap="enterArcade" class="wo-join-button button-enter" type="primary" disabled="{{isEnterBtnDisabled || woClosed}}">入店</button>
+        <button bind:tap="viewReserve" class="wo-join-button button-reserve" type="primary">查看预约</button>
+      </block>
+    </view>
+
+    <!-- 已入店：开门按钮放到下方单独一行 -->
+    <view wx:if="{{woStatus.enterState === 1 || woStatus.enterState === 2 || woStatus.enterState === 3}}" class="wo-opendoor-container">
+      <button bind:tap="openDoor" class="wo-join-button button-opendoor" type="primary">开门</button>
     </view>
 
     <block wx:if="{{woStatus.enterState !== 0}}">

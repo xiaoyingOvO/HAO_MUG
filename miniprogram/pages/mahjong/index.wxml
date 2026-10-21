@@ -1,0 +1,5 @@
+<view class="mahjong-placeholder">
+  <view class="placeholder-icon">🀄</view>
+  <view class="placeholder-title">麻将模块开发中</view>
+  <view class="placeholder-desc">敬请期待</view>
+</view>

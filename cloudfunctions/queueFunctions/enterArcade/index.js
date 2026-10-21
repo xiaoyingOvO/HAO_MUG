@@ -9,6 +9,8 @@ const db_user = "user"
 const db_card = "card"
 const db_arcade_log = "arcade_log"
 
+const { toBJHour, nowBJMinutes } = require('../timeUtil');
+
 // 区域：音游区（老版计费）/ 桌游区（一把时间可能很长，23 点不强制离店）
 const AREA_ARCADE = 'arcade'   // 音游区：0.2 点/分 = 12 点/小时
 const AREA_BOARD = 'board'     // 桌游区：0.1 点/分 =  6 点/小时
@@ -139,8 +141,9 @@ exports.main = async (event, context) => {
  *     从计费时长中剔除，也就是这段时间内不扣点数。
  *     discount != 0 的卡 = 折扣卡（如 5 折高级会员卡），仍然会扣费，不计入免单。
  *   · 持有有效期：user.cards[i].start_time ~ end_time（与 getConsumePoint 一致）
- *   · 免单时段：card.duration.start_time / end_time 的小时数
- *     （云端存的是 Date 对象，取 getHours()；跨天时段如夜场 23:00-次日 10:00 需单独处理）
+ *   · 免单时段：card.duration.start_time / end_time 的北京时间小时
+ *     （duration 历史上可能是字符串 "HH:MM"、Date 或 { $date }，用 timeUtil 统一解析；
+ *      跨天时段如夜场 23:00-次日 10:00 单独处理）
  *
  * @param {Array} userCards   用户的 cards 字段，形如 [{card_id, start_time, end_time}]
  * @param {Date}  currentTime 当前时间
@@ -173,11 +176,16 @@ async function hasFreeTimeCard(userCards, currentTime) {
     // 折扣卡仍会扣费，不算免单
     if (Number(card.discount) != 0) continue
     const duration = card.duration
-    if (!duration || !duration.start_time || !duration.end_time) continue
+    if (!duration) continue
 
-    const startHour = new Date(duration.start_time).getHours()
-    const endHour = new Date(duration.end_time).getHours()
-    const curHour = currentTime.getHours()
+    // 免单时段：统一用公共工具解析成「北京时间小时」（兼容字符串/Date/$date/数字），
+    // 与 getConsumePoint 的口径严格一致，避免 new Date("23:00").getHours() 得到 NaN。
+    const startHour = toBJHour(duration.start_time !== undefined ? duration.start_time : duration.start_hour)
+    const endHour = toBJHour(duration.end_time !== undefined ? duration.end_time : duration.end_hour)
+    if (startHour === null || endHour === null) continue
+
+    // 当前北京时间小时（云函数跑 UTC，需 +8）
+    const curHour = Math.floor(nowBJMinutes(currentTime) / 60)
     // 跨天时段（如夜场 23:00 - 次日 10:00）表现为 startHour > endHour
     const inRange = startHour < endHour
       ? (curHour >= startHour && curHour < endHour)

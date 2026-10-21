@@ -10,6 +10,8 @@ const db_card = 'card';
 const db_user = 'user';
 const db_card_lock = 'card_lock';
 
+const { toBJHour, toBJMinutes, nowBJMinutes } = require('../timeUtil');
+
 const max_retry_time = 5;
 const retry_wait_seconds = 0.5;
 const max_card_lock_seconds = 2;
@@ -160,16 +162,18 @@ async function getUserAndCardInfo(params) {
     }
   }
 
-  // 校验今日还能否使用该卡
-  let now = new Date();
-  if (duration.type == 0) {
-    let tmp_time = new Date(now);
-    tmp_time.setHours(duration.end_time.getHours());
-    tmp_time.setMinutes(duration.end_time.getMinutes());
-    tmp_time.setSeconds(duration.end_time.getSeconds());
-    tmp_time.setMilliseconds(duration.end_time.getMilliseconds());
-    console.log('can_buy -- now:', now, 'end_time:', tmp_time);
-    if (now >= tmp_time) {
+  // 校验今日还能否使用该卡（兼容字符串/Date/$date 多种时段存法）
+  if (duration && duration.type == 0) {
+    const nowMin = nowBJMinutes(new Date());
+    const startMin = toBJMinutes(duration.start_time);
+    const endMin = toBJMinutes(duration.end_time);
+    if (startMin !== null && nowMin < startMin) {
+      return {
+        success: false,
+        errMsg: "还没到可购买时段"
+      };
+    }
+    if (endMin !== null && nowMin >= endMin) {
       return {
         success: false,
         errMsg: "今日已无法使用该优惠卡"
@@ -210,7 +214,6 @@ async function getUserAndCardInfo(params) {
   } else {
       console.log(`用户 ${openid} 不包含 'cards' 字段或不是一个数组`);
   }
-  // var card = user_record.data[0].cards.find(item => card_id == item.card_id); 
   console.log('card:', card);
 
   now = new Date();
@@ -235,38 +238,6 @@ async function getUserAndCardInfo(params) {
           cost: cardCost,
       }
   };
-
-//   var card = user_record.data[0].cards.find(item => card_id == item.card_id); 
-//   console.log('card:', card);
-//   const now = new Date();
-//   let tmp_time = new Date(now);
-//   tmp_time.setFullYear(card.end_time.getFullYear());
-//   tmp_time.setMonth(card.end_time.getMonth());
-//   tmp_time.setDate(card.end_time.getDate());
-//   if (card != null && now < card.end_time) {
-//     console.log("已有该优惠卡");
-//     return {
-//       success: false,
-//       errMsg: "已有该优惠卡",
-//       data: {
-//         remain: remain
-//       }
-//     };
-//   } else if (tmp_time > card.end_time) {
-//     return {
-//       success: false,
-//       errMsg: "今日已无法使用该优惠卡"
-//     };
-//   }
-
-//   return {
-//     success: true,
-//     data: {
-//       duration: duration,
-//       remain: remain,
-//       card_id: card_id
-//     }
-//   }
 }
 
 async function acquireCardLock(params) {
@@ -380,17 +351,33 @@ async function sleep(seconds) {
 
 
 async function calStartEndTime(duration) {
-  let start_time = new Date();
-  let end_time = new Date();
+  const start_time = new Date();
+  const end_time = new Date();
   console.log("now_date:", start_time);
 
   if (duration.type == 0) {
-    start_time.setHours(duration.start_time.getHours());
-    start_time.setMinutes(duration.start_time.getMinutes());
-    start_time.setSeconds(duration.start_time.getSeconds());
-    end_time.setHours(duration.end_time.getHours());
-    end_time.setMinutes(duration.end_time.getMinutes());
-    end_time.setSeconds(duration.end_time.getSeconds());
+    // 时段卡：duration.start_time/end_time 历史上可能是字符串 "HH:MM"、Date 或 { $date }，
+    // 统一用公共工具解析成「北京时间时分」，避免对字符串调用 getHours() 抛错。
+    const sh = toBJHour(duration.start_time);
+    const sm = toBJMinutes(duration.start_time);
+    const eh = toBJHour(duration.end_time);
+    const em = toBJMinutes(duration.end_time);
+
+    // 解析失败（null）时退回 0 点，避免 NaN 写库
+    const startHour = sh === null ? 0 : sh;
+    const startMin = (sm === null ? 0 : sm) % 60;
+    const endHour = eh === null ? 0 : eh;
+    const endMin = (em === null ? 0 : em) % 60;
+
+    start_time.setHours(startHour, startMin, 0, 0);
+    end_time.setHours(endHour, endMin, 0, 0);
+
+    // 跨天时段（如夜场 23:00 ~ 次日 10:00）：结束时间顺延一天
+    const endBJMin = (endHour * 60 + endMin);
+    const startBJMin = (startHour * 60 + startMin);
+    if (endBJMin < startBJMin) {
+      end_time.setDate(end_time.getDate() + 1);
+    }
   } else if (duration.type == 1) {
     start_time.setHours(10);
     start_time.setMinutes(0);
@@ -563,21 +550,6 @@ async function recordBuyInfo(params) {
       }
   }
 
-//   if (remain > 0) {
-//     await db.collection(db_card)
-//     .where({
-//       _id: card_id
-//     })
-//     .update({
-//       data: {
-//         remain: db_cmd.inc(-1)
-//       }
-//     })
-//     .then(res => {
-//       console.log(res);
-//     })
-//   }
-  
   console.log("购买完成！");
   return {
     success: true,

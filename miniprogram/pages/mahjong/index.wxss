@@ -1,0 +1,24 @@
+.mahjong-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding-top: 200rpx;
+}
+
+.placeholder-icon {
+  font-size: 120rpx;
+  margin-bottom: 40rpx;
+}
+
+.placeholder-title {
+  font-size: 36rpx;
+  font-weight: 600;
+  color: #333;
+  margin-bottom: 16rpx;
+}
+
+.placeholder-desc {
+  font-size: 28rpx;
+  color: #999;
+}

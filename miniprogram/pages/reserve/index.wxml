@@ -1,27 +1,7 @@
 <view class="container">
 
-  <!-- 日期选择 -->
-  <scroll-view scroll-x class="date-scroll" scroll-into-view="{{scrollIntoViewId}}" scroll-with-animation>
-    <view class="date-buttons">
-      <block wx:for="{{dates}}" wx:key="index">
-        <view 
-          class="date-btn {{activeIndex === index ? 'active' : ''}}" 
-          bindtap="handleDateSelect" 
-          data-index="{{index}}"
-          id="date-btn-{{index}}"
-        >
-          <text class="weekday">{{item.weekday}}</text>
-          <text class="date">{{item.date}}</text>
-        </view>
-      </block>
-    </view>
-  </scroll-view>
-
     <!-- 预约信息说明 -->
     <view class="reserve-notice card" style="animation-delay: 0.1s;">
-    <!-- <view class="notice-icon">
-        <image src="/images/icon/info-circle.png" mode="aspectFit"></image>
-    </view> -->
     <view class="notice-content">
         <text class="notice-line">夜场预约时间为当日 <text class="highlight">23:00</text> 至次日 <text class="highlight">10:00</text>。</text>
         <text class="notice-line">预约成功将立即自动扣除 <text class="highlight strong">{{reserve_cost}}</text> 点。</text>
@@ -29,6 +9,43 @@
         <text class="notice-line"><text class="highlight strong">⚠ </text>预约成功后<text class="highlight strong"> 不可取消 </text>预约！</text>
     </view>
   </view>
+
+    <!-- 月历 -->
+    <view class="calendar card" wx:if="{{calendar}}" style="animation-delay: 0.15s;">
+      <view class="calendar-header">
+        <text class="calendar-title">{{calendar.year}}年{{calendar.month}}月</text>
+      </view>
+      <view class="calendar-weekdays">
+        <text class="weekday-cell">日</text>
+        <text class="weekday-cell">一</text>
+        <text class="weekday-cell">二</text>
+        <text class="weekday-cell">三</text>
+        <text class="weekday-cell">四</text>
+        <text class="weekday-cell">五</text>
+        <text class="weekday-cell">六</text>
+      </view>
+      <view class="calendar-grid">
+        <block wx:for="{{calendar.cells}}" wx:key="index">
+          <view
+            class="calendar-cell day-cell level-{{item.level}} {{item.disabled ? 'disabled' : ''}} {{item.isToday ? 'today' : ''}} {{item.selected ? 'selected' : ''}}"
+            bindtap="handleDateSelect"
+            data-key="{{item.key}}"
+          >
+            <view wx:if="{{item.monthLabel}}" class="month-label">{{item.monthLabel}}</view>
+            <text class="day-num">{{item.dayNum}}</text>
+            <view wx:if="{{item.isMine}}" class="reserve-check">✓</view>
+          </view>
+        </block>
+      </view>
+      <!-- 图例 -->
+      <view class="calendar-legend">
+        <view class="legend-item"><view class="legend-dot dot-low"></view><text>空闲</text></view>
+        <view class="legend-item"><view class="legend-dot dot-medium"></view><text>一般</text></view>
+        <view class="legend-item"><view class="legend-dot dot-high"></view><text>拥挤</text></view>
+        <view class="legend-item"><view class="legend-dot dot-full"></view><text>爆满</text></view>
+        <view class="legend-item"><view class="legend-dot dot-mine">✓</view><text>已预约</text></view>
+      </view>
+    </view>
 
   <!-- 预约详情 -->
   <view class="reserve-card card card-fade {{isSwitchingDate ? 'fade-out' : 'fade-in'}}" style="animation-delay: 0.2s;">

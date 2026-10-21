@@ -100,9 +100,22 @@ Page({
 
         if (res.result && res.result.success && Array.isArray(res.result.data)) {
           const now = new Date();
-          // 过滤夜场
+          // 优惠卡固定展示顺序（按 card_name 关键字匹配，越小越靠前；日场排在夜场前）
+          const CARD_ORDER = [
+            '早八',               // 早八畅玩套餐 08:00-10:00
+            '日间',               // 日间畅玩套餐 10:00-17:00
+            '全天',               // 全天畅玩套餐 10:00-23:00
+            '桌游麻将票·日场',     // 桌游麻将票·日场 10:00-23:00
+            '桌游麻将票·夜场',     // 桌游麻将票·夜场 23:00-次日10:00（必须排在「夜场」关键字之前，否则会被「夜场」抢先匹配）
+            '夜场',               // 夜场畅玩卡 23:00-次日10:00
+            '高级会员',           // 高级会员卡
+          ];
+          const orderOf = (name) => {
+            const idx = CARD_ORDER.findIndex(k => name && name.includes(k));
+            return idx === -1 ? CARD_ORDER.length : idx;
+          };
+          // 夜场票也正常展示、可直接购买（临时起意购买用），不再过滤
           const processedList = res.result.data
-            .filter(card => card.card_name !=='夜场')
             .map(card => {
                 let theme = 'default';
 
@@ -114,18 +127,26 @@ Page({
                     theme = 'daylight-sun';
                 } else if (card.card_name.includes('全天')) {
                     theme = 'full-day-royal';
+                } else if (card.card_name.includes('桌游麻将')) {
+                    // 必须排在「夜场」之前判断，否则「桌游麻将票·夜场」会被误配成夜场主题
+                    theme = 'board-green';
+                } else if (card.card_name.includes('夜场')) {
+                    theme = 'night-mystic';
                 } else if (card.cost >= 80) {   // 如果有其他高价卡，使用备用主题
                     theme = 'high-value-alt';
                 }
 
-                const isTimeExpired = (card.isTimeExpired !== false);
+                const notStarted = card.notStarted === true;   // 尚未到当日可购买时段
+                const timeEnded = card.timeEnded === true;     // 已过当日可购买时段
                 return {
                     ...card,
                     theme: theme,
                     isPurchasing: false,
-                    isTimeExpired: isTimeExpired,   // 用于判断时间是否过期
+                    notStarted: notStarted,
+                    timeEnded: timeEnded,
                 };
-            });
+            })
+            .sort((a, b) => orderOf(a.card_name) - orderOf(b.card_name));
           this.setData({
             cardList: processedList,
           });
@@ -164,8 +185,12 @@ Page({
       }
 
       const selectedCard = this.data.cardList[cardIndex];
-      if (selectedCard.isTimeExpired) {
-          wx.showToast({ title: '今日已无法使用该优惠卡', icon: 'none' });
+      if (selectedCard.notStarted) {
+          wx.showToast({ title: '还没到可购买时段', icon: 'none' });
+          return;
+      }
+      if (selectedCard.timeEnded) {
+          wx.showToast({ title: '今日时段已结束，明日再来', icon: 'none' });
           return;
       }
   

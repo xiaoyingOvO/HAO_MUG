@@ -66,45 +66,40 @@ exports.main = async (event, context) => {
   const reserve_max = meta_result.data.find(item => item.key == 'reserve_max').value;
   const reserve_cost = meta_result.data.find(item => item.key == 'reserve_cost').value;
 
-  // 计算查询日期段
-  const days = event.params.days;
-  console.log('days: ' + days);
+  // 计算查询日期段：从「今天」起，向后覆盖 28 天（4 行日历）
   // 1. 获取当前时间的 CST 日期部分
   const now = new Date();
   const nowCST = new Date(now.getTime() + (8 * 60 * 60 * 1000)); // 粗略转为 CST
   const year = nowCST.getUTCFullYear();
   const month = nowCST.getUTCMonth(); // 0-indexed
-  const day = nowCST.getUTCDate();
+  const date = nowCST.getUTCDate();
 
-  // 2. 创建代表今天 CST 午夜的 Date 对象 - 计算昨天 CST 午夜，作为起始时间
-  const today_utc_midnight = Date.UTC(year, month, day);
-  const today = new Date(today_utc_midnight - (8 * 60 * 60 * 1000));
-  const first_day = new Date(today - (24 * 60 * 60 * 1000));
-
-  // 3. 创建代表最后一天 CST 午夜的 Date 对象
-  //    先计算最后一天的 UTC 午夜，再转为 CST 午夜
-  const last_day_utc_midnight = Date.UTC(year, month, day + days - 1); // days-1 因为第一天已包含
+  // 今天 0 点（CST 午夜）
+  const first_day_utc_midnight = Date.UTC(year, month, date);
+  const first_day = new Date(first_day_utc_midnight - (8 * 60 * 60 * 1000));
+  // 未来第 27 天（今天 + 27 = 28 天）
+  const last_day_utc_midnight = Date.UTC(year, month, date + 27);
   const last_day = new Date(last_day_utc_midnight - (8 * 60 * 60 * 1000));
+  const days = 28;
 
-  console.log('first day (CST Midnight): ' + first_day + '; last_day (CST Midnight): ' + last_day + 'today (CST Midnight): ' + today);
+  console.log('first day (CST Midnight): ' + first_day + '; last_day (CST Midnight): ' + last_day);
   // let first_day = new Date();
   // first_day.setHours(0, 0, 0, 0);
   // let last_day = new Date(first_day);
   // last_day.setDate(last_day.getDate() + (days - 1));
   // console.log('first day: ' + first_day + '; last_day: ' + last_day);
  
-  // 查日期段内所有预约信息
+  // 查日期段内所有预约信息（整月）
   let record = await db.collection(db_reserve)
     .where({
-      day: db_cmd.gte(first_day),
-      day: db_cmd.lte(last_day)
+      day: db_cmd.gte(first_day).and(db_cmd.lte(last_day))
     })
     .field({
       _id: false,
       day: true,
       openids: true
     })
-    .orderBy('day', 'desc')
+    .orderBy('day', 'asc')
     .limit(days)
     .get({
       success: function (res) {
