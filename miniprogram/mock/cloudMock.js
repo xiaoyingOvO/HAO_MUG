@@ -60,7 +60,7 @@ const AVATAR_OTHER = '/images/default-avatar.png';
  *  入店区域
  * ============================================================
  *  arcade = 音游区：0.2 点/分（12 点/小时，老版计费），23 点被定时任务强制离店
- *  mahjong  = 桌游区：0.1 点/分（ 6 点/小时），23 点**不**离店、继续计费
+ *  board  = 桌游区：0.1 点/分（ 6 点/小时），23 点**不**离店、继续计费
  *           （桌游一把时间可能过长，所以不走夜场免单、也不被 23 点清场）
  *  11 点之后离店仍不能再次入店，需要夜场票/预约 —— 这条与原版一致，前端 checkAccess 已处理。
  *
@@ -69,18 +69,18 @@ const AVATAR_OTHER = '/images/default-avatar.png';
  *     对两个区一视同仁，不看区域（见 cardEffects，它不区分 area）。
  *     也就是说：买了「全天畅玩套餐」的人，去桌游区同样免单。
  *   · TODO：桌游区**单独的包夜收费**方案还没定，当前按 6 点/小时 一直计到离店。
- *     定了之后在这里加 MAHJONG_NIGHT_RATE（或改成包夜一口价），并把
- *     mahjongBillingMinutes 改成「超过某个时间点后按包夜价结算」。
+ *     定了之后在这里加 BOARD_NIGHT_RATE（或改成包夜一口价），并把
+ *     boardBillingMinutes 改成「超过某个时间点后按包夜价结算」。
  * ============================================================ */
 export const AREA_ARCADE = 'arcade';
-export const AREA_MAHJONG = 'mahjong';
-const AREA_RATE = { [AREA_ARCADE]: 0.2, [AREA_MAHJONG]: 0.1 };
+export const AREA_BOARD = 'board';
+const AREA_RATE = { [AREA_ARCADE]: 0.2, [AREA_BOARD]: 0.1 };
 // TODO: 桌游区包夜价未定，暂时与日间同价（6 点/小时）
-const MAHJONG_NIGHT_RATE = null;
-const normalizeArea = (a) => (a === AREA_MAHJONG ? AREA_MAHJONG : AREA_ARCADE);
-// 机台所属区域：machine.area === 'mahjong' 才是桌游区机台，缺省按音游区
+const BOARD_NIGHT_RATE = null;
+const normalizeArea = (a) => (a === AREA_BOARD ? AREA_BOARD : AREA_ARCADE);
+// 机台所属区域：machine.area === 'board' 才是桌游区机台，缺省按音游区
 // ⚠️ 云端 machine 集合需要补 area 字段；没补之前所有机台都按音游区处理（兼容老数据）
-const machineArea = (m) => (m && m.area === AREA_MAHJONG ? AREA_MAHJONG : AREA_ARCADE);
+const machineArea = (m) => (m && m.area === AREA_BOARD ? AREA_BOARD : AREA_ARCADE);
 
 const MIN = 60 * 1000;
 const HOUR = 60 * MIN;
@@ -207,7 +207,7 @@ function seed() {
   // ⚠️ 想看「三区域各有几人」的效果时，把下面几行的 enter_state 改掉即可
   //    （0 未入店 / 1 休息中 / 2 候机中 / 3 游玩中），并**同步改 queues**、把 DB_VERSION +1：
   //      makeUser('mock-openid-04', '街机王',   ..., 3, { machine_id: 'M01' })  → 音游区
-  //      makeUser('mock-openid-05', '夜场常客', ..., 3, { area: AREA_MAHJONG, machine_id: 'M05' }) → 桌游区
+  //      makeUser('mock-openid-05', '夜场常客', ..., 3, { area: AREA_BOARD, machine_id: 'M05' }) → 桌游区
   //    之前为了测试铺过「每区 4 人」，现已改回默认；那段数据见改动清单第六节。
   const others = [
     // 管理员：未入店，可进管理页
@@ -242,8 +242,8 @@ function seed() {
     { _id: 'M02', machine_name: '舞萌·MML',  max_player: 1,  area: 'arcade',  group_id: 'maimai',   group_name: '舞萌',     label: 'MML',  tag: '单刷',        is_disabled: false },
     { _id: 'M03', machine_name: '舞萌·ADX',  max_player: 1,  area: 'arcade',  group_id: 'maimai',   group_name: '舞萌',     label: 'ADX',  tag: '单刷',        is_disabled: false },
     { _id: 'M04', machine_name: '中二',      max_player: 1,  area: 'arcade',  group_id: 'chunithm', group_name: '中二',     label: '中二', tag: '单刷',        is_disabled: false },
-    { _id: 'M05', machine_name: '麻将',      max_player: 4,  area: 'mahjong', group_id: 'mahjong',  group_name: '桌游/日麻', label: '麻将', tag: '可三麻/四麻', is_disabled: false },
-    { _id: 'M06', machine_name: '桌游',      max_player: -1, area: 'mahjong', group_id: 'mahjong',  group_name: '桌游/日麻', label: '桌游', tag: '自由人数',    is_disabled: false },
+    { _id: 'M05', machine_name: '麻将',      max_player: 4,  area: 'board', group_id: 'board',  group_name: '桌游/日麻', label: '麻将', tag: '可三麻/四麻', is_disabled: false },
+    { _id: 'M06', machine_name: '桌游',      max_player: -1, area: 'board', group_id: 'board',  group_name: '桌游/日麻', label: '桌游', tag: '自由人数',    is_disabled: false },
   ];
   
   // 排卡区（机器队列）默认全空 —— 假用户只在店内休息，不占任何机位。
@@ -558,8 +558,8 @@ function logText(s, openid, action) {
 /**
  * 首页三区域人数。把在店的人**互斥地**分成三堆（三者相加 = 店内总人数）：
  *   休息区 = enter_state 1（休息中：没排队、没上机。两个区都算）
- *   桌游区 = area 'mahjong' 且 enter_state > 1（排上日麻 2 / 上桌游玩 3）
- *   音游区 = area 非 mahjong 且 enter_state > 1（候机 2 / 游玩 3）
+ *   桌游区 = area 'board' 且 enter_state > 1（排上日麻 2 / 上桌游玩 3）
+ *   音游区 = area 非 board 且 enter_state > 1（候机 2 / 游玩 3）
  * 老数据没有 area 字段时按音游区计。
  *
  * 这样分区的用意：
@@ -580,7 +580,7 @@ function enterStats(s) {
       return;
     }
     play++;                                // play_num 沿用原版语义：候机 / 游玩
-    if (normalizeArea(u.area) === AREA_MAHJONG) board++;
+    if (normalizeArea(u.area) === AREA_BOARD) board++;
     else arcade++;
   });
   return { relax, play, arcade, board };
@@ -728,12 +728,12 @@ function billingMinutes(enter, now, freeRanges) {
 }
 
 /**
- * 桌游区计费时长（分钟）—— 对齐 getConsumePoint 的 mahjongBillingMinutes：
+ * 桌游区计费时长（分钟）—— 对齐 getConsumePoint 的 boardBillingMinutes：
  *   1. **支持跨天**：按天拆分累计真实时长（原版按当天分钟数相减，跨过 24:00 会变负数）
  *   2. **不走夜场免单**：23 点后继续按 0.1 点/分计费
  *   3. 免单卡按天分别抵扣（两个区都享受免单卡）
  */
-function mahjongBillingMinutes(enter, now, freeRanges) {
+function boardBillingMinutes(enter, now, freeRanges) {
   const intervals = freeRanges
     .map((r) => ({ start: r.start * 60, end: r.end * 60 }))
     .sort((a, b) => a.start - b.start);
@@ -790,8 +790,8 @@ function consumedPoints(s, u) {
   const area = normalizeArea(u.area);
   const rate = AREA_RATE[area];
   // 音游区走原版夜场逻辑；桌游区走跨天累计、不享受夜场免单
-  const minutes = area === AREA_MAHJONG
-    ? mahjongBillingMinutes(enter, now, freeRanges)
+  const minutes = area === AREA_BOARD
+    ? boardBillingMinutes(enter, now, freeRanges)
     : billingMinutes(enter, now, freeRanges);
 
   const ori = Number((minutes * rate).toFixed(2));
@@ -1154,7 +1154,7 @@ const queueFunctions = {
     if (myArea !== mArea) {
       return {
         success: false,
-        errMsg: myArea === AREA_MAHJONG
+        errMsg: myArea === AREA_BOARD
           ? '桌游区无法排音游机台，请先离店后重新选择音游区入店'
           : '日麻属于桌游区，请先离店后重新选择「桌游/日麻」入店',
       };

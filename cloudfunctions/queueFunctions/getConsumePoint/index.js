@@ -11,7 +11,7 @@ const db_cmd = db.command;
 
 // 区域费率（点/分钟）
 const AREA_ARCADE = 'arcade'
-const AREA_MAHJONG = 'mahjong'
+const AREA_BOARD = 'board'
 const RATE_ARCADE = 0.2   // 音游区：0.2 点/分 = 12 点/小时（老版计费）
 const RATE_BOARD = 0.1    // 桌游区：0.1 点/分 =  6 点/小时
 
@@ -65,8 +65,8 @@ exports.main = async (event, context) => {
   let cards = user_record?.data?.[0]?.cards ?? [];
   let credit = user_record.data[0].credit
   // 入店区域：老数据没有 area 字段时按音游区处理
-  const area = user_record.data[0].area === AREA_MAHJONG ? AREA_MAHJONG : AREA_ARCADE
-  const rate = area === AREA_MAHJONG ? RATE_MAHJONG : RATE_ARCADE
+  const area = user_record.data[0].area === AREA_BOARD ? AREA_BOARD : AREA_ARCADE
+  const rate = area === AREA_BOARD ? RATE_BOARD : RATE_ARCADE
   console.log('计费区域:', area, '费率:', rate, '点/分')
   let zhekou = 1
   // 处理所有优惠卡信息    
@@ -98,11 +98,11 @@ exports.main = async (event, context) => {
   // 计费点数 = 计费分钟 × 区域费率（音游区 0.2 点/分，桌游区 0.1 点/分）
   //
   // 音游区：沿用原版 calculateBillingTime（含「夜场入店且夜场结算 → 计费 0」、10 点起算等规则）
-  // 桌游区：用 mahjongBillingMinutes —— 桌游一把可能打很久、23 点不强制离店，
+  // 桌游区：用 boardBillingMinutes —— 桌游一把可能打很久、23 点不强制离店，
   //         原版那套按「小时×60+分钟」算时长的写法跨过 24:00 会变成负数，
   //         所以桌游区改为按天拆分累计真实时长，且**不走夜场免单**，23 点后继续计费。
-  var billingTime = (area === AREA_MAHJONG)
-    ? mahjongBillingMinutes(enter_time, current_time, discountCards)
+  var billingTime = (area === AREA_BOARD)
+    ? boardBillingMinutes(enter_time, current_time, discountCards)
     : calculateBillingTime(enter_time, current_time, discountCards)
   var ori_consumePoint = billingTime * rate
   // 信誉百分比叠加
@@ -155,7 +155,7 @@ function minutesOfDay(d) {
  * @param {Date} playEnd   结算时间
  * @param {Array} discountCards 免单时段 [{start:小时, end:小时}]
  */
-function mahjongBillingMinutes(playStart, playEnd, discountCards) {
+function boardBillingMinutes(playStart, playEnd, discountCards) {
   const merged = mergeDiscountCards(discountCards); // [{start,end}] 单位：当天分钟
   let total = 0;      // 真实游玩分钟
   let discounted = 0; // 被免单卡覆盖的分钟

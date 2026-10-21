@@ -1,4 +1,6 @@
 <!--pages/queue-info/index.wxml-->
+<page-meta page-style="{{scrollEnabled ? '' : 'overflow: hidden;'}}"></page-meta>
+
 <view class="login-overlay" wx:if="{{showLoginOverlay}}">
     <view class="overlay-content">
       <text>登录入店才可以参与排卡噢~</text>
