@@ -32,32 +32,23 @@
  * ============================================================
  */
 
-export const MOCK_ENABLED = false;
+export const MOCK_ENABLED = true;
 export const MOCK_ROLE = 'user';
 
 const DB_KEY = 'haomug_mock_db_v1';
 // 假数据版本号：改动初始数据时把它 +1，旧的本地缓存会自动失效重建
 // （避免"代码改了但页面还是老数据"的困惑）
-const DB_VERSION = 24;
-// 22：夜场票发卡对齐云端 chargeReserve 的时段算法（预约日 23:00 ~ 次日 10:00）
-// 21：桌游/日麻区标识由 'mahjong' 改回 'board'（机台 M05/M06 的 area + group_id 同步）
+const DB_VERSION = 16;
 // 13：机台拆成 舞萌·官机 / MML / ADX + 中二节奏，入店改为选设备直接排队
 // 14：初始余额改为 0 点（方便测「扣成负数也只提醒、不踢出排队」）
 // 15：新增日麻机台 M05（桌游区，4 人一桌，可排队）；三区域人数统计改为互斥分区
 // 16：三区域改为按「在干什么」分区（休息区 = enter_state 1，两个区都算），
 //     桌游区退队后回到休息区
-// 17：（已废弃）调试用假数据 —— 三个区域各 4 人 + 铺满 queues
-// 18：改回默认空店状态：店内只有 2 人在休息，所有机台队列为空
 // ⚠️⚠️ 改了 seed() 里的 machines / queues / 用户 / 卡片，就**必须**把版本号 +1，
 //      否则本地 storage 里是旧缓存，页面还显示老数据 —— 加 M05 时就漏了这一次，
 //      导致桌游区排队报「机器不可用」（旧缓存里根本没有 M05 机台）。
-// 19：机台新增 tag 字段，弹层子项文案改由 tag 提供
-// 20：机台新增 is_disabled 字段（不可用）；不可用机台仍显示在弹层，但不可选、tag 显示「机台不可用」
+// 15：新增日麻机台 M05（桌游区，4 人一桌，可排队）；三区域人数统计改为互斥分区
 const ME_OPENID = 'mock-openid-me';
-
-// 夜场可入店的两类卡（与云端 queueFunctions/ifNight 的常量对齐）
-const NIGHT_CARD_ID = 'e33be08d678e255a0189586d3b0d8a79';          // 夜场畅玩卡（与云端 card 集合真实 _id 一致）
-const BOARD_NIGHT_CARD_ID = 'df40db4d6ad4af26010239057dae6a3c';    // 桌游麻将票·夜场（与云端一致）
 
 const AVATAR_ME = '/images/avatar.png';
 const AVATAR_OTHER = '/images/default-avatar.png';
@@ -84,7 +75,7 @@ const AREA_RATE = { [AREA_ARCADE]: 0.2, [AREA_BOARD]: 0.1 };
 // TODO: 桌游区包夜价未定，暂时与日间同价（6 点/小时）
 const BOARD_NIGHT_RATE = null;
 const normalizeArea = (a) => (a === AREA_BOARD ? AREA_BOARD : AREA_ARCADE);
-// 机台所属区域：machine.area === 'board' 才是桌游区机台，缺省按音游区
+// 机台所属区域：machine.area === 'board' 才是桌游区机台（目前只有日麻），缺省按音游区
 // ⚠️ 云端 machine 集合需要补 area 字段；没补之前所有机台都按音游区处理（兼容老数据）
 const machineArea = (m) => (m && m.area === AREA_BOARD ? AREA_BOARD : AREA_ARCADE);
 
@@ -97,29 +88,6 @@ const pad2 = (n) => (n < 10 ? '0' + n : '' + n);
 function dayStr(offset = 0) {
   const d = new Date(nowTs() + offset * DAY);
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-}
-
-// 生成从「今天」起 28 天（4 行日历）的预约数据，对应云端 getReserveInfo 返回的 reserve_data。
-// 造几组不同人数的演示数据，方便测试四档着色：
-//   i=1 明天 1 人(<3 绿)、i=2 后天 4 人(3~5 橙)、i=3 大后天 6 人(5~8 红)、i=4 第四天 9 人(>8 深红)
-function monthReserve() {
-  const now = new Date(nowTs());
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const date = now.getDate();
-  const list = [];
-  // 每个档位预置一批 mock openid，方便构造不同人数
-  const ids = [];
-  for (let k = 1; k <= 9; k++) ids.push(`mock-openid-${String(k).padStart(2, '0')}`);
-  const demoCount = [0, 1, 4, 6, 9]; // 下标对应 i=0..4 的预约人数
-  for (let i = 0; i < 28; i++) {
-    const d = new Date(year, month, date + i);
-    const dateStr = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-    const cnt = demoCount[i] || 0;
-    const openids = cnt > 0 ? ids.slice(0, cnt) : [];
-    list.push({ _id: `rsv-${d.getDate()}`, day: dateStr, openids });
-  }
-  return list;
 }
 
 /* ============================================================
@@ -153,26 +121,6 @@ function nowTs() {
 // 虚拟「当前时间」对象
 function nowDate() {
   return new Date(nowTs());
-}
-
-// 夜场卡有效期：预约日期当天 23:00 ~ 次日 10:00，返回时间戳（与 mock 里其他卡一致）。
-// 算法对齐云端 buyReserve/index.js 的 chargeReserve（预约日 CST 午夜做基准 + UTC 换算）。
-// 注意：base 先 +DAY（推到次日 CST 午夜），再 setUTCHours(cstHourToUTC(23)=15)，
-//      这样 15:00 UTC 才落在「预约日」当天（否则会落在前一天的 15:00 UTC）。
-function nightCardPeriod(reserveDay, duration) {
-  const [year, month, day] = reserveDay.split('-').map(Number);
-  // 基准：预约日期次日的 CST 午夜（UTC 表示），配合 setUTCHours 得到「预约日 23:00 北京」
-  const base = new Date(Date.UTC(year, month - 1, day) - 8 * 3600 * 1000 + DAY);
-  const cstHourToUTC = (hourCST) => (Number(hourCST) - 8 + 24) % 24;
-  const start_time = new Date(base.getTime());
-  start_time.setUTCHours(cstHourToUTC(duration.start_hour), 0, 0, 0);
-  const end_time = new Date(base.getTime());
-  // 夜场是跨天卡（结束小时 < 开始小时），结束时间落在次日
-  if (Number(duration.end_hour) < Number(duration.start_hour)) {
-    end_time.setUTCDate(end_time.getUTCDate() + 1);
-  }
-  end_time.setUTCHours(cstHourToUTC(duration.end_hour), 0, 0, 0);
-  return { start_time: start_time.getTime(), end_time: end_time.getTime() };
 }
 
 /* ============================================================
@@ -211,7 +159,6 @@ function seed() {
     qq_id: '3296290695', // 原版截图：QQ 号 3296290695
     exp: 1586, // 原版截图：Exp 1586 → Level 1（下一级 2000）
     role: MOCK_ROLE,
-    display_title: null,
     // 信用分 → 等级（见 pages/user-center/index.js:248 calculateCreditLevel）：
     //   >=85 → S ； >=70 → A ； >=60 → B ； <60 → C
     credit: 92,
@@ -231,8 +178,7 @@ function seed() {
     cards: [],
   };
 
-  // opt: { area, machine_id } —— 用来造「在某区、占着某台机」的假用户
-  const makeUser = (openid, nickname, exp, credit, real, extra, state, opt = {}) => ({
+  const makeUser = (openid, nickname, exp, credit, real, extra, state) => ({
     _id: 'mock-user-' + openid,
     openid,
     phone: '1380000' + openid.slice(-4),
@@ -246,32 +192,22 @@ function seed() {
     extra_point: extra,
     enter_state: state,
     enter_time: state > 0 ? now - (20 + Number(openid.slice(-2))) * MIN : null,
-    machine_id: opt.machine_id || '',
-    area: opt.area || AREA_ARCADE,
+    machine_id: '',
+    area: AREA_ARCADE,
     cards: [],
   });
 
-  // 默认只放 **2 人在店内休息**（与原版截图一致：正在游玩 0 人 / 正在休息 2 人），
-  // 其余全部未入店。这样打开首页是干净的空店状态，方便自己一步步点着测。
-  //
-  // ⚠️ 想看「三区域各有几人」的效果时，把下面几行的 enter_state 改掉即可
-  //    （0 未入店 / 1 休息中 / 2 候机中 / 3 游玩中），并**同步改 queues**、把 DB_VERSION +1：
-  //      makeUser('mock-openid-04', '街机王',   ..., 3, { machine_id: 'M01' })  → 音游区
-  //      makeUser('mock-openid-05', '夜场常客', ..., 3, { area: AREA_BOARD, machine_id: 'M05' }) → 桌游区
-  //    之前为了测试铺过「每区 4 人」，现已改回默认；那段数据见改动清单第六节。
   const others = [
-    // 管理员：未入店，可进管理页
+    // 原版首页显示「正在游玩 0 人 / 正在休息 2 人」，所以只有 2 人在店内（enter_state = 1），其余未入店
     { _id: 'mock-user-admin', openid: 'mock-openid-admin', phone: '13800000000', qq_id: '10000', exp: 12000, role: 'master', credit: 100, nickname: '店长', avatar: AVATAR_OTHER, real_point: 999, extra_point: 0, enter_state: 0, enter_time: null, machine_id: '', cards: [] },
-
-    // ── 店内 2 人：休息中（enter_state 1，没排队、没上机）──
     makeUser('mock-openid-02', '阿豪', 5600, 95, 120, 10, 1),
     makeUser('mock-openid-03', '小喵', 1200, 88, 60, 0, 1),
-
-    // ── 其余未入店（enter_state 0）──
     makeUser('mock-openid-04', '街机王', 26000, 100, 800, 200, 0),
     makeUser('mock-openid-05', '夜场常客', 900, 78, 40, 5, 0),
     makeUser('mock-openid-06', '新来的', 100, 86, 30, 0, 0),
   ];
+  // 注意：排卡区（机器队列）不做任何预设，所有机器队列都是空的。
+  //      这几个假用户只在店内休息，不占任何机位。
 
   // 机台列表：对应云端 machine 集合，排卡页顶部的机台下拉、首页入店的设备选择弹层都读这份数据。
   //
@@ -288,35 +224,23 @@ function seed() {
   //   label      —— 组内的按钮文字（官机 / MML / ADX）
   // 缺这三个字段时会退化成「一台机 = 一张卡」，不会报错。
   const machines = [
-    { _id: 'M01', machine_name: '舞萌·官机', max_player: 2,  area: 'arcade',  group_id: 'maimai',   group_name: '舞萌',     label: '官机', tag: '可拼机/单刷', is_disabled: false },
-    { _id: 'M02', machine_name: '舞萌·MML',  max_player: 1,  area: 'arcade',  group_id: 'maimai',   group_name: '舞萌',     label: 'MML',  tag: '单刷',        is_disabled: false },
-    { _id: 'M03', machine_name: '舞萌·ADX',  max_player: 1,  area: 'arcade',  group_id: 'maimai',   group_name: '舞萌',     label: 'ADX',  tag: '单刷',        is_disabled: false },
-    { _id: 'M04', machine_name: '中二',      max_player: 1,  area: 'arcade',  group_id: 'chunithm', group_name: '中二',     label: '中二', tag: '单刷',        is_disabled: false },
-    { _id: 'M05', machine_name: '麻将',      max_player: 4,  area: 'board', group_id: 'board',  group_name: '桌游/日麻', label: '麻将', tag: '可三麻/四麻', is_disabled: false },
-    { _id: 'M06', machine_name: '桌游',      max_player: -1, area: 'board', group_id: 'board',  group_name: '桌游/日麻', label: '桌游', tag: '自由人数',    is_disabled: false },
+    { _id: 'M01', machine_name: '舞萌·官机', max_player: 2, area: 'arcade', group_id: 'maimai',   group_name: '舞萌',     label: '官机' },
+    { _id: 'M02', machine_name: '舞萌·MML',  max_player: 1, area: 'arcade', group_id: 'maimai',   group_name: '舞萌',     label: 'MML' },
+    { _id: 'M03', machine_name: '舞萌·ADX',  max_player: 1, area: 'arcade', group_id: 'maimai',   group_name: '舞萌',     label: 'ADX' },
+    { _id: 'M04', machine_name: '中二',   max_player: 1, area: 'arcade', group_id: 'chunithm', group_name: '中二', label: '中二' },
+    // 日麻：桌游区机台，4 人一桌，可排队（area = 'board' 决定它只能由桌游区的人排）
+    { _id: 'M05', machine_name: '麻将',      max_player: 4, area: 'board',  group_id: 'board',    group_name: '桌游/日麻', label: '日麻' },
+    { _id: 'M05', machine_name: '桌游',      max_player: 4, area: 'board',  group_id: 'board',    group_name: '桌游/日麻', label: '桌游' },
   ];
-  
-  // 排卡区（机器队列）默认全空 —— 假用户只在店内休息，不占任何机位。
-  //
-  // ⚠️ 想让排卡板一打开就有人的话，往对应机台里加条目，字段与真实云函数
-  //    Enqueue / Embark 写入的一致（改完记得 DB_VERSION +1）：
-  //      { openid, timestamp, play_status, is_multi, play_position }
-  //    · play_status true  = 已上机（占固定座位）
-  //    · play_status false = 候机中（在等候区）
-  //    · play_position     = 游玩区座位下标 0 ~ max_player-1，
-  //                          见 pages/queue-info/index.js:38 buildPlayingList
-  //    例（官机 2 人拼机）：
-  //      M01: [
-  //        { openid: 'mock-openid-04', timestamp: now - 26 * MIN, play_status: true,  is_multi: true, play_position: 0 },
-  //        { openid: 'mock-openid-05', timestamp: now - 24 * MIN, play_status: true,  is_multi: true, play_position: 1 },
-  //      ],
+
+  // 排卡区暂不预设任何排队数据，等后续需求再定
   const queues = {
-    M01: [], // 舞萌·官机（max 2）
-    M02: [], // 舞萌·MML（max 1）
-    M03: [], // 舞萌·ADX（max 1）
-    M04: [], // 中二（max 1）
-    M05: [], // 日麻（max 4）
-    M06: [], // 桌游（max -1）
+    M01: [],
+    M02: [],
+    M03: [],
+    M04: [],
+    M05: [],
+    M06: [],
   };
 
   const mails = [
@@ -366,70 +290,46 @@ function seed() {
   // ⚠️ 「全天/日间畅玩套餐」按「畅玩」语义应为免单时段卡，故 discount 填 0。
   //    这个值来自我的推断（原版截图只给了卡名/价格/描述，看不到 discount），
   //    如果你云端 card 集合里实际不是 0，改这里 + 告诉我，免单入店逻辑才会正确生效。
-  // ⚠️ 以下与云开发数据库 card 集合的真实数据保持一致（_id、卡名、价格、discount、时段）。
-  //    「日间畅玩套餐」在云端已标记 is_deleted: true，这里不再列出。
   const cards = [
     {
-      _id: 'e33be08d678e255a0189586d3b0d8a79',
-      card_name: '夜场畅玩卡',
-      trial: 0,
-      discount: 1,
-      duration: { type: 0, start_hour: 23, end_hour: 10, days: 1, start_time: null, end_time: null },
-      remain: -100,
-      cost: 68,
-      desc: '68元/(23:00-次日10:00)，购买后可畅玩夜场。',
-    },
-    {
-      _id: '9fc3269d672f10c0007c25e92548b234',
+      _id: 'card_premium',
       card_name: '高级会员卡（试营，暂时别买）',
-      trial: true,
-      discount: 0.5,
+      trial: 2,
+      discount: 0.5, // 与截图描述「计时扣费5折」一致 → 折扣卡，不免单
       duration: { type: 1, start_hour: 0, end_hour: 24, days: 30, start_time: null, end_time: null },
-      remain: 0,
+      remain: 0, // 截图：剩余：已售罄
       cost: 240,
       desc: '高级会员卡（试营）：240元/月；计时扣费5折；限3张',
     },
     {
-      _id: 'cc3a4179678380c9049b4d3c331a34c6',
+      _id: 'card_allday',
       card_name: '全天畅玩套餐',
-      trial: false,
-      discount: 0,
+      trial: 1,
+      discount: 0, // 免单时段卡：10:00-23:00 内不扣点数
       duration: { type: 0, start_hour: 10, end_hour: 23, days: 1, start_time: null, end_time: null },
-      remain: -100,
+      remain: -100, // 截图：库存充足
       cost: 69,
       desc: '全天畅玩套餐：69元/(10:00-23:00)',
     },
     {
-      _id: 'ab52283f6783807201221ba02db6611e',
-      card_name: '早八畅玩套餐',
-      trial: false,
-      discount: 0,
-      duration: { type: 0, start_hour: 8, end_hour: 10, days: 1, start_time: null, end_time: null },
-      remain: -100,
-      cost: 12,
-      desc: '早八畅玩套餐：12元/(08:00-10:00)',
+      _id: 'card_daytime',
+      card_name: '日间畅玩套餐',
+      trial: 0,
+      discount: 0, // 免单时段卡：10:00-17:00 内不扣点数
+      duration: { type: 0, start_hour: 10, end_hour: 17, days: 1, start_time: null, end_time: null },
+      remain: -100, // 截图：库存充足
+      cost: 45,
+      desc: '日间畅玩套餐：45元/(10:00-17:00)',
     },
     {
-      _id: 'df40db4d6ad4af17010238800070046a',
-      card_name: '桌游麻将票·日场',
+      _id: 'card_night',
+      card_name: '夜场',
       trial: 0,
-      discount: 0,
-      area: 'board',
-      duration: { type: 0, start_hour: 10, end_hour: 23, days: 1, start_time: null, end_time: null },
-      remain: -100,
-      cost: 30,
-      desc: '桌游麻将票（日场）：30元/(10:00-23:00)，仅限桌游/麻将',
-    },
-    {
-      _id: 'df40db4d6ad4af26010239057dae6a3c',
-      card_name: '桌游麻将票·夜场',
-      trial: 0,
-      discount: 0,
-      area: 'board',
+      discount: 1, // 夜场在 getConsumePoint 里本就不计费，无需再免单
       duration: { type: 0, start_hour: 23, end_hour: 10, days: 1, start_time: null, end_time: null },
       remain: -100,
-      cost: 30,
-      desc: '桌游麻将票（夜场）：30元/(23:00-次日10:00)，仅限桌游/麻将',
+      cost: 68, // 与预约说明「预约成功将立即自动扣除 68 点」一致
+      desc: '夜场预约用卡（不在优惠卡列表中展示）',
     },
   ];
 
@@ -467,67 +367,9 @@ function seed() {
     },
   ];
 
-  // 麻将对局战绩表 —— 对应云端 mahjong_game 集合。
-  // 一局一条：4 名玩家（openid/昵称/头像/点数/顺位），顺位按点数降序、同分同名次。
-  // 造 16 局演示数据：5 人轮换上阵，胜负模式固定循环（方便页面上四率/趋势图看出形状）。
-  const MJ_PLAYERS = [
-    { openid: ME_OPENID, nickname: 'oyyq' },
-    { openid: 'mock-openid-02', nickname: '阿豪' },
-    { openid: 'mock-openid-03', nickname: '小喵' },
-    { openid: 'mock-openid-04', nickname: '街机王' },
-    { openid: 'mock-openid-05', nickname: '夜场常客' },
-  ];
-  // 每局的点数模板（和为 0 的日麻 pt 风格），按下标循环
-  const MJ_SCORE_PATTERNS = [
-    [90, 30, -30, -90],
-    [60, 20, -10, -70],
-    [120, 40, -40, -120],
-    [45, 15, 5, -65],
-    [75, 25, -25, -75],
-  ];
-  const mahjongGames = (() => {
-    const list = [];
-    for (let gi = 0; gi < 16; gi++) {
-      // 4 人组合：从 5 人里跳过 (gi % 5) 那个人，保持轮换
-      const skip = gi % 5;
-      const four = MJ_PLAYERS.filter((_, i) => i !== skip);
-      const pat = MJ_SCORE_PATTERNS[gi % MJ_SCORE_PATTERNS.length];
-      // 胜者轮换：把 pat 按 gi 旋转，模拟不同人赢
-      const rotated = pat.map((_, i) => pat[(i + gi) % 4]);
-      const players = four.map((p, i) => ({
-        openid: p.openid,
-        nickname: p.nickname,
-        avatar: i === 0 ? AVATAR_OTHER : AVATAR_OTHER,
-        points: rotated[i],
-        rank: 0, // 下面统一算
-      }));
-      // 顺位：点数降序、同分同名次（与云端 mahjongStats 一致）
-      const order = players.slice().sort((a, b) => b.points - a.points);
-      order.forEach((p, idx) => {
-        p.rank = idx > 0 && p.points === order[idx - 1].points
-          ? order[idx - 1].rank
-          : idx + 1;
-      });
-      list.push({
-        _id: 'mj-game-' + (gi + 1),
-        game_date: new Date(now - (16 - gi) * DAY).toISOString().slice(0, 10),
-        players,
-        recorder_openid: 'mock-admin',
-        create_time: new Date(now - (16 - gi) * DAY),
-      });
-    }
-    return list;
-  })();
-
   return {
     version: DB_VERSION,
     me,
-    mahjongGames,
-    mahjongTitles: [
-      { _id: 'mt-1', openid: ME_OPENID, title: 'kokushi', count: 3, grant_by: 'mock-admin', create_time: new Date(now - 5 * DAY) },
-      { _id: 'mt-2', openid: ME_OPENID, title: 'daisangen', count: 1, grant_by: 'mock-admin', create_time: new Date(now - 2 * DAY) },
-      { _id: 'mt-3', openid: 'mock-openid-04', title: 'suankou', count: 1, grant_by: 'mock-admin', create_time: new Date(now - 3 * DAY) },
-    ],
     users: others,
     machines,
     queues,
@@ -540,9 +382,17 @@ function seed() {
     doorLog,
     reports,
     // 夜场预约表 —— 对应云端 reserve 集合。
-    // 页面（pages/reserve/index.js）以「当前自然月」日历展示，这里生成整月（1 号~月末）数据；
-    // 明天、后天各造了一条「别人」的预约用于测试日历红/橙/绿三色状态。
-    reserve: monthReserve(),
+    // 页面（pages/reserve/index.js）会请求 days: 5 天；10:00 之后自动「shift() 掉昨天」，
+    // 所以这里给 5 条：[昨天, 今天, 明天, 后天, 大后天]，界面上正好剩 4 个日期按钮
+    // （与原版截图「周一 10/12 ~ 周四 10/15」一致）。
+    // 原版截图里当前选中日「已预约人数：0 / 剩余名额：15」，所以全部日期都留空，不编造预约用户。
+    reserve: [
+      { _id: 'rsv-1', day: dayStr(-1), openids: [] },
+      { _id: 'rsv-2', day: dayStr(0), openids: [] },
+      { _id: 'rsv-3', day: dayStr(1), openids: [] },
+      { _id: 'rsv-4', day: dayStr(2), openids: [] },
+      { _id: 'rsv-5', day: dayStr(3), openids: [] },
+    ],
     userUnauthorized: [
       { _id: 'ua-1', openid: 'mock-openid-07', phone: '13900000007', qq_id: '30007', nickname: '待授权用户A', avatar: AVATAR_OTHER },
       { _id: 'ua-2', openid: 'mock-openid-08', phone: '13900000008', qq_id: '30008', nickname: '待授权用户B', avatar: AVATAR_OTHER },
@@ -587,7 +437,7 @@ function seed() {
       reserve_limit: true, // true = 有名额上限（false 时页面显示「剩余名额：无限制」）
       reserve_max: 15,
       reserve_cost: 68,
-      night_card_id: 'e33be08d678e255a0189586d3b0d8a79',
+      night_card_id: 'card_night',
     },
     pendingRecharge: null,
     seq: 100,
@@ -627,7 +477,6 @@ export function resetMockData() {
   // 否则「设成 23:30 → 重置数据 → 又变回真实时间」会很困惑。
   s.timeOffset = (prev && prev.timeOffset) || 0;
   save(s);
-  notifyAllQueueWatchers();   // 队列被重置成初始数据，推一次变更让页面跟上
   console.log(
     '[Mock] 假数据已重置（虚拟时间保持：',
     s.timeOffset ? new Date(REAL_NOW() + s.timeOffset).toLocaleString() : '真实时间',
@@ -663,7 +512,7 @@ function buildQueue(s, machineId) {
     timestamp: q.timestamp,
     play_status: !!q.play_status,
     is_multi: !!q.is_multi,
-    play_position: q.play_position,
+    play_position: q.play_position,   // ← 加这行
     next_id: i === list.length - 1 ? '-1' : list[i + 1].openid,
     user_info: infoOf(s, q.openid),
   }));
@@ -674,14 +523,10 @@ function pushQueueLog(s, machineId, openid, text) {
   s.queueLogs[machineId].push({ timestamp: nowTs(), openid, log_info: text });
 }
 
-function logText(s, openid, action, operatorOpenid) {
+function logText(s, openid, action) {
   const name = infoOf(s, openid).nickname;
-  // 如果有操作者且操作者不是自己，显示"操作者让xxx上机/下机"
-  if (operatorOpenid && operatorOpenid !== openid) {
-    const operatorName = infoOf(s, operatorOpenid).nickname;
-    return `${operatorName}让${name}${action}`;
-  }
-  return `${name}${action}`;
+  const t = nowDate();
+  return `用户${name}于${pad2(t.getHours())}:${pad2(t.getMinutes())}:${pad2(t.getSeconds())}${action}`;
 }
 
 /**
@@ -745,10 +590,10 @@ function hourInRange(hour, startHour, endHour) {
  * 入店放行（hasFreeTimeCard）和计费抵扣（consumedPoints）都走这一个函数，
  * 保证两边口径一致 —— 不会出现「放行进店了但计费照扣」的矛盾。
  *
- * 注意：这里**区分区域**——card.area 存在且与用户当前区域不一致时，该卡不生效。
- *       缺省/null/undefined 则两区通用。
+ * 注意：这里**不区分区域**，即「音游区的收费方式全部覆盖桌游区」——
+ *       买了音游区的免单卡/折扣卡，去桌游区一样生效。
  */
-function cardEffects(s, u, now = nowDate(), userArea) {
+function cardEffects(s, u, now = nowDate()) {
   const holds = (u && u.cards) || [];
   const ts = now.getTime();
   let zhekou = 1;
@@ -766,12 +611,6 @@ function cardEffects(s, u, now = nowDate(), userArea) {
     const card = s.cards.find((c) => c._id === hold.card_id);
     if (!card) continue;
 
-    // 区域限制：card.area 存在且与用户当前区域不一致 → 该卡不生效
-    if (card.area && userArea && card.area !== userArea) {
-      console.log(`[mock] 卡 ${card._id} 仅限 ${card.area} 区，用户当前 ${userArea}，跳过`)
-      continue
-    }
-
     const discount = Number(card.discount);
     if (!Number.isNaN(discount) && discount !== 0) {
       zhekou *= discount;
@@ -786,8 +625,7 @@ function cardEffects(s, u, now = nowDate(), userArea) {
 
 function hasFreeTimeCard(s, openid, now = nowDate()) {
   const u = allUsers(s).find((x) => x.openid === openid) || s.me;
-  const userArea = normalizeArea(u.area);
-  const { freeRanges } = cardEffects(s, u, now, userArea);
+  const { freeRanges } = cardEffects(s, u, now);
   const curHour = now.getHours();
   return freeRanges.some((r) => hourInRange(curHour, r.start, r.end));
 }
@@ -922,8 +760,8 @@ function consumedPoints(s, u) {
   if (u.enter_state === 0) return { points: 0, experience: 0 };
   const enter = new Date(u.enter_time || nowTs());
   const now = nowDate();
+  const { zhekou, freeRanges } = cardEffects(s, u, now);
   const area = normalizeArea(u.area);
-  const { zhekou, freeRanges } = cardEffects(s, u, now, area);
   const rate = AREA_RATE[area];
   // 音游区走原版夜场逻辑；桌游区走跨天累计、不享受夜场免单
   const minutes = area === AREA_BOARD
@@ -978,174 +816,6 @@ const baseFunctions = {
     return { success: true, data: s.userUnauthorized.slice(skip, skip + size) };
   },
 
-  /* ---------- 麻将对局战绩（对齐云端 mahjongStats） ---------- */
-
-  // 录入一局：mock 不校验管理员身份（方便本地开发），云端会校验
-  mahjongAddGame(p, s) {
-    const { game_date, players } = p || {};
-    if (!game_date) return { success: false, errMsg: '缺少对局日期' };
-    if (!Array.isArray(players) || players.length !== 4) {
-      return { success: false, errMsg: '一局需要恰好 4 名玩家' };
-    }
-    const seen = new Set();
-    for (const pl of players) {
-      if (!pl.openid) return { success: false, errMsg: '有玩家未选择' };
-      if (seen.has(pl.openid)) return { success: false, errMsg: '同一玩家不能重复入局' };
-      seen.add(pl.openid);
-      if (!Number.isFinite(Number(pl.points))) return { success: false, errMsg: '点数必须为数字' };
-    }
-    const sorted = players.slice().sort((a, b) => Number(b.points) - Number(a.points));
-    const rankMap = {};
-    sorted.forEach((pl, idx) => {
-      rankMap[pl.openid] = idx > 0 && Number(pl.points) === Number(sorted[idx - 1].points)
-        ? rankMap[sorted[idx - 1].openid] : idx + 1;
-    });
-    const uinfo = (oid) => allUsers(s).find((u) => u.openid === oid) || {};
-    s.mahjongGames.push({
-      _id: 'mj-game-' + Date.now(),
-      game_date,
-      players: players.map((pl) => ({
-        openid: pl.openid,
-        nickname: uinfo(pl.openid).nickname || '未知用户',
-        avatar: uinfo(pl.openid).avatar || AVATAR_OTHER,
-        points: Number(pl.points),
-        rank: rankMap[pl.openid],
-      })),
-      recorder_openid: s.me.openid,
-      create_time: new Date(),
-    });
-    return { success: true, data: { game_id: 'ok' } };
-  },
-
-  mahjongGetMyStats(p, s) {
-    const games = s.mahjongGames
-      .slice()
-      .sort((a, b) => (a.game_date < b.game_date ? 1 : -1));
-    const mine = games.filter((g) => g.players.some((pl) => pl.openid === s.me.openid));
-    const rankCounts = { 1: 0, 2: 0, 3: 0, 4: 0 };
-    let pointsSum = 0, rankSum = 0, maxPoints = null;
-    mine.forEach((g) => {
-      const m = g.players.find((pl) => pl.openid === s.me.openid);
-      if (rankCounts[m.rank] !== undefined) rankCounts[m.rank] += 1;
-      pointsSum += m.points; rankSum += m.rank;
-      if (maxPoints === null || m.points > maxPoints) maxPoints = m.points;
-    });
-    const total = mine.length;
-    const rate = (n) => (total ? +(n * 100 / total).toFixed(2) : 0);
-    return {
-      success: true,
-      data: {
-        total,
-        rankCounts,
-        rankRates: { 1: rate(rankCounts[1]), 2: rate(rankCounts[2]), 3: rate(rankCounts[3]), 4: rate(rankCounts[4]) },
-        flyRate: rate(rankCounts[4]),
-        avgRank: total ? +(rankSum / total).toFixed(2) : null,
-        avgPoints: total ? +(pointsSum / total).toFixed(1) : null,
-        maxPoints: total ? maxPoints : null,
-        recent: mine.slice(0, 20).reverse().map((g) => {
-          const m = g.players.find((pl) => pl.openid === s.me.openid);
-          return { game_id: g._id, game_date: g.game_date, rank: m.rank, points: m.points };
-        }),
-        titles: (s.mahjongTitles || []).filter((t) => t.openid === s.me.openid).map((t) => ({ title: t.title, count: t.count || 1 })),
-        displayTitle: s.me.display_title || null,
-      },
-    };
-  },
-
-  mahjongGetRanking(p, s) {
-    const agg = {};
-    s.mahjongGames.forEach((g) => {
-      g.players.forEach((pl) => {
-        if (!agg[pl.openid]) agg[pl.openid] = { games: 0, rankSum: 0, pointsSum: 0, win: 0 };
-        agg[pl.openid].games += 1;
-        agg[pl.openid].rankSum += pl.rank;
-        agg[pl.openid].pointsSum += pl.points;
-        if (pl.rank === 1) agg[pl.openid].win += 1;
-      });
-    });
-    const titleMap = {};
-    (s.mahjongTitles || []).forEach((t) => {
-      (titleMap[t.openid] = titleMap[t.openid] || []).push({ title: t.title, count: t.count || 1 });
-    });
-    const list = Object.keys(agg).map((oid) => {
-      const a = agg[oid];
-      const u = allUsers(s).find((x) => x.openid === oid) || {};
-      return {
-        openid: oid,
-        nickname: u.nickname || '未知用户',
-        avatar: u.avatar || AVATAR_OTHER,
-        games: a.games,
-        win: a.win,
-        winRate: +(a.win * 100 / a.games).toFixed(2),
-        avgRank: +(a.rankSum / a.games).toFixed(2),
-        totalPoints: a.pointsSum,
-        titles: titleMap[oid] || [],
-        displayTitle: u.display_title || null,
-      };
-    }).sort((x, y) => x.avgRank - y.avgRank || y.games - x.games);
-    return { success: true, data: list };
-  },
-
-  mahjongGrantTitle(p, s) {
-    const { openid, title } = p || {};
-    if (!openid) return { success: false, errMsg: '未指定玩家' };
-    if (!title) return { success: false, errMsg: '未指定称号' };
-    s.mahjongTitles = s.mahjongTitles || [];
-    const exist = s.mahjongTitles.find((t) => t.openid === openid && t.title === title);
-    if (exist) {
-      exist.count = (exist.count || 1) + 1;
-    } else {
-      s.mahjongTitles.push({
-        _id: 'mt-' + Date.now(),
-        openid, title,
-        count: 1,
-        grant_by: s.me.openid,
-        create_time: new Date(),
-      });
-    }
-    return { success: true };
-  },
-
-  mahjongGetGames(p, s) {
-    const page_no = Number(p && p.page_no) || 0;
-    const page_size = Math.min(Math.max(Number(p && p.page_size) || 20, 1), 50);
-    const sorted = s.mahjongGames.slice().sort((a, b) => (a.game_date < b.game_date ? 1 : -1));
-    return { success: true, data: sorted.slice(page_no * page_size, (page_no + 1) * page_size) };
-  },
-
-  mahjongRevokeTitle(p, s) {
-    const { openid, title, count } = p || {};
-    if (!openid) return { success: false, errMsg: '未指定玩家' };
-    if (!title) return { success: false, errMsg: '未指定称号' };
-    const dec = Math.max(1, Number(count) || 1);
-    s.mahjongTitles = s.mahjongTitles || [];
-    const idx = s.mahjongTitles.findIndex((t) => t.openid === openid && t.title === title);
-    if (idx < 0) return { success: false, errMsg: '该玩家没有此称号' };
-    const cur = s.mahjongTitles[idx].count || 1;
-    if (cur <= dec) {
-      s.mahjongTitles.splice(idx, 1);
-    } else {
-      s.mahjongTitles[idx].count = cur - dec;
-    }
-    return { success: true };
-  },
-
-  mahjongGetPlayerTitles(p, s) {
-    const { openid } = p || {};
-    if (!openid) return { success: false, errMsg: '未指定玩家' };
-    const list = (s.mahjongTitles || []).filter((t) => t.openid === openid).map((t) => ({ title: t.title, count: t.count || 1 }));
-    return { success: true, data: list };
-  },
-
-  mahjongDeleteGame(p, s) {
-    const { game_id } = p || {};
-    if (!game_id) return { success: false, errMsg: '未指定对局' };
-    const idx = s.mahjongGames.findIndex((g) => g._id === game_id);
-    if (idx < 0) return { success: false, errMsg: '对局不存在' };
-    s.mahjongGames.splice(idx, 1);
-    return { success: true };
-  },
-
   addUsrInfo(p, s) {
     s.me.nickname = (p && p.nickname) || s.me.nickname;
     s.me.phone = (p && p.phone) || s.me.phone;
@@ -1181,7 +851,7 @@ const baseFunctions = {
   modifyUsrInfo(p, s) {
     const target = allUsers(s).find((u) => u.openid === (p && p.openid)) || s.me;
     const updated = {};
-    ['exp', 'role', 'credit', 'real_point', 'extra_point', 'display_title'].forEach((k) => {
+    ['exp', 'role', 'credit', 'real_point', 'extra_point'].forEach((k) => {
       if (!p || typeof p[k] === 'undefined') return;
       if (k === 'role') {
         target[k] = p[k];
@@ -1339,8 +1009,6 @@ const baseFunctions = {
   buyReserve(p, s) {
     const day = p && p.reserve_date;
     if (!day) return { success: false, errMsg: '未传入预约时间信息' };
-    const nightCard = s.cards.find((c) => c.card_name === '夜场');
-    if (!nightCard) return { success: false, errMsg: '未搜到夜场卡信息' };
     let rec = s.reserve.find((r) => r.day === day);
     if (!rec) {
       rec = { _id: nextId(s, 'rsv'), day, openids: [] };
@@ -1350,11 +1018,6 @@ const baseFunctions = {
     if (rec.openids.length >= s.meta.reserve_max) return { success: false, errMsg: '该时段已预约满员' };
     rec.openids.push(ME_OPENID);
     s.me.exp += 100;
-    // 预约成功即把夜场卡发到 user.cards，对齐云端 buyReserve/index.js:547-551：
-    //   cards: db_cmd.push({ card_id: night_card_id, start_time, end_time })
-    // 夜场卡不在优惠卡列表展示，只能通过预约拿到。
-    const period = nightCardPeriod(day, nightCard.duration);
-    s.me.cards.push({ card_id: nightCard._id, start_time: period.start_time, end_time: period.end_time });
     return { success: true };
   },
 
@@ -1449,14 +1112,14 @@ const queueFunctions = {
     const id = p && p.machine_id;
     const machine = s.machines.find((m) => m._id === id);
     if (!machine) return { success: false, errMsg: '机器不可用' };
-    if (machine.is_disabled) return { success: false, errMsg: '机器不可用' };
+    if (machine.max_player === 0) return { success: false, errMsg: '机器不可用' };
     return { success: true, data: buildQueue(s, id) };
   },
 
   Enqueue(p, s) {
     const id = p && p.machine_id;
     const machine = s.machines.find((m) => m._id === id);
-    if (!machine || machine.is_disabled) return { success: false, errMsg: '机器不可用' };
+    if (!machine || machine.max_player === 0) return { success: false, errMsg: '机器不可用' };
     if (s.me.enter_state === 0) return { success: false, errMsg: '用户未入店，请重试' };
     // 跨区排卡拉黑：机台所属区域必须和用户当前入店区域一致
     //   桌游区的人只能排日麻，音游区的人只能排音游机台（对齐 cloudfunctions/queueFunctions/Enqueue）
@@ -1501,30 +1164,20 @@ const queueFunctions = {
   Embark(p, s) {
     const id = p && p.machine_id;
     const machine = s.machines.find((m) => m._id === id);
-    if (!machine || machine.is_disabled) return { success: false, errMsg: '机器不可用' };
+    if (!machine || machine.max_player === 0) return { success: false, errMsg: '机器不可用' };
     const list = s.queues[id] || [];
-    // 支持管理员拖拽他人上机: 如果传了openid就用传入的，否则默认当前用户
-    const targetOpenid = (p && p.openid) || ME_OPENID;
-    const me = list.find((q) => q.openid === targetOpenid);
+    const me = list.find((q) => q.openid === ME_OPENID);
     if (!me) return { success: false, errMsg: '当前用户排队状态有误，请刷新页面重试' };
     const playing = list.filter((q) => q.play_status).length;
     if (playing >= machine.max_player && !me.play_status) return { success: false, errMsg: '当前游玩人数已满请耐心等待' };
-    // 计算点数时要用被拖拽用户的openid
-    const targetUser = s.users.find((u) => u.openid === targetOpenid);
-    if (targetUser && consumedPoints(s, targetUser).points > totalPoints(targetUser)) return { success: false, errMsg: '余额不足' };
+    if (consumedPoints(s, s.me).points > totalPoints(s.me)) return { success: false, errMsg: '余额不足' };
 
     me.play_status = true;
     me.is_multi = !!(p && p.is_multi);
     me.play_position = (p && typeof p.play_position !== 'undefined') ? Number(p.play_position) : undefined;   // ← 加这行
-    // 更新用户状态
-    const user = s.users.find((u) => u.openid === targetOpenid);
-    if (user) {
-      user.enter_state = 3;
-      user.machine_id = id;
-    }
-    // 如果传了操作者openid(p.operator)，在日志里体现
-    const operatorOpenid = (p && p.operator) || ME_OPENID;
-    pushQueueLog(s, id, targetOpenid, logText(s, targetOpenid, '上机', operatorOpenid));
+    s.me.enter_state = 3;
+    s.me.machine_id = id;
+    pushQueueLog(s, id, ME_OPENID, logText(s, ME_OPENID, '上机'));
     return { success: true, data: buildQueue(s, id) };
   },
 
@@ -1612,7 +1265,6 @@ const queueFunctions = {
     s.me.enter_state = 0;
     s.me.enter_time = null;
     s.me.machine_id = '';
-    delete s.me.area; // 离店后不再保留入店区域（对齐云端 leaveArcade 的 area remove）
     addArcadeLog(s, ME_OPENID, totalPoints(s.me), s.me.exp, 1);
     return { success: true, errMsg: '退店成功' };
   },
@@ -1629,7 +1281,6 @@ const queueFunctions = {
     u.enter_state = 0;
     u.enter_time = null;
     u.machine_id = '';
-    delete u.area; // 离店后不再保留入店区域
     addArcadeLog(s, target, totalPoints(u), u.exp, 1);
     return { success: true };
   },
@@ -1742,14 +1393,12 @@ const queueFunctions = {
     const h = nowDate().getHours();
     const night = h >= 23 || h <= 9;
     const now = nowTs();
-    // 只认「夜场票」和「夜场桌游麻将票」两张卡（按 card_id 判断），
-    // 且当前时间在有效期内。与云端 queueFunctions/ifNight 一致。
-    // 其他卡（日间/全天畅玩、日场桌游麻将票等）不构成夜场入店资格。
     const hasCard = (s.me.cards || []).some((c) => {
-      const start = new Date(c.start_time).getTime();
-      const end = new Date(c.end_time).getTime();
-      const isNightCard = c.card_id === NIGHT_CARD_ID || (BOARD_NIGHT_CARD_ID && c.card_id === BOARD_NIGHT_CARD_ID);
-      return isNightCard && now >= start && now <= end;
+      const card = s.cards.find((x) => x._id === c.card_id);
+      if (!card) return false;
+      const d = card.duration || {};
+      if (d.type !== 'hour') return false;
+      return now >= new Date(c.start_time).getTime() && now <= new Date(c.end_time).getTime();
     });
     return { success: true, data: { ifNight: night, hasCard } };
   },
@@ -1758,11 +1407,8 @@ const queueFunctions = {
     const id = p && p.machine_id;
     const list = s.queues[id] || [];
     const me = list.find((q) => q.openid === ME_OPENID);
-    const toMulti = !!(p && p.is_multi);
-    if (me) me.is_multi = toMulti;
-    const action = toMulti ? '切换为拼机' : '切换为单刷'
-    pushQueueLog(s, id, ME_OPENID, logText(s, ME_OPENID, action));
-    return { success: true, data: { machine_id: id, openid: ME_OPENID, is_multi: toMulti } };
+    if (me) me.is_multi = !!(p && p.is_multi);
+    return { success: true, data: { machine_id: id, openid: ME_OPENID, is_multi: !!(p && p.is_multi) } };
   },
 
   checkUpdate(p, s) {
@@ -1771,41 +1417,23 @@ const queueFunctions = {
     return { success: true, data: buildQueue(s, id) };
   },
 
-  // 拖动排序：把 from_openid 移动到 to_openid 之前（"-1" = 队尾）。
-  // ⚠️ 与云端的已知差异：云端 delay 在改链表前会抢这台机台的分布式锁（machine_lock），
-    //    抢不到就报错；离线模拟层没有锁，所以「并发抢锁失败」这类问题在离线测不出来 ——
-    //    2.2.9 修的「拖动排序每次都失败」就是这种只在真机云端才暴露的 bug。
   Delay(p, s) {
     const id = p && p.machine_id;
     const list = s.queues[id] || [];
-    const fromIdx = list.findIndex((q) => q.openid === (p && p.from_openid));
+    const from = list.findIndex((q) => q.openid === (p && p.from_openid));
     const toOpenid = p && p.to_openid;
-    if (fromIdx < 0) return { success: false, errMsg: '未找到要移动的用户' };
-    const moved = list[fromIdx];
-    const fromPos = fromIdx + 1; // 1-based position
-    let toPos;
+    console.log('[Mock Delay] machine_id:', id, 'from:', from, 'from_openid:', p && p.from_openid, 'to_openid:', toOpenid)
+    if (from < 0) return { success: false, errMsg: '分布式锁非用户持有，请重试' };
+    const moved = list.splice(from, 1)[0];
     if (toOpenid === '-1') {
-      // 目标为队尾：排到最后
-      list.splice(fromIdx, 1);
       list.push(moved);
-      toPos = list.length;
     } else {
-      // 目标为某位玩家：排到他前面。
-      // 先确认目标还在队列中再摘除，否则「目标已不在」时用户会被摘掉却插不回去。
-      // 云端 delay 也是这个顺序：校验全部做完才开始写库。
-      if (!list.some((q) => q.openid === toOpenid && q !== moved)) {
-        return { success: false, errMsg: '目标用户已不在队列中，请刷新重试' };
-      }
-      list.splice(fromIdx, 1);
-      const at = list.findIndex((q) => q.openid === toOpenid);
-      list.splice(at, 0, moved);
-      toPos = at + 1;
+      const to = list.find((q) => q.openid === toOpenid);
+      if (!to) return { success: false, errMsg: '分布式锁非用户持有，请重试' };
+      const targetIdx = list.indexOf(to);
+      list.splice(Math.max(0, targetIdx), 0, moved);
     }
-    const moverName = infoOf(s, moved.openid).nickname;
-    const actionText = (p && p.from_openid === p.to_openid)
-      ? `${moverName}将自身位置移至第${fromPos}位`
-      : `${moverName}将${moverName}从第${fromPos}位移至第${toPos}位`;
-    pushQueueLog(s, id, moved.openid, actionText);
+    pushQueueLog(s, id, moved.openid, logText(s, moved.openid, '位置被调整'));
     return { success: true, data: buildQueue(s, id) };
   },
 
@@ -1838,12 +1466,6 @@ function dispatch(name, data) {
   const s = load();
   const type = data && data.type;
   const params = (data && data.params) || {};
-  // 记下调用前的各机台队列，调用结束后按机台比对：
-  // 只有真的变了才推给监听者，免得没动队列的调用（如 getQueueInfo）也触发刷新
-  const queuesBefore = {};
-  Object.keys(s.queues).forEach((machineId) => {
-    queuesBefore[machineId] = JSON.stringify(s.queues[machineId]);
-  });
   let result;
 
   if (name === 'baseFunctions') {
@@ -1854,6 +1476,8 @@ function dispatch(name, data) {
     const fn = queueFunctions[type];
     result = fn ? fn(params, s) : { success: true, data: null };
     if (!fn) console.warn('[Mock] queueFunctions 未实现的 type：', type);
+  } else if (name === 'quickstartFunctions') {
+    result = type === 'getOpenId' ? { success: true, data: { openid: ME_OPENID } } : { success: true, data: [] };
   } else if (name === 'cloudbase_module') {
     // 云开发工作流（此处用于生成支付参数）：伪造一笔支付单，并记录待充值的点数
     const payload = (data && data.data) || {};
@@ -1887,12 +1511,6 @@ function dispatch(name, data) {
   }
 
   save(s);
-  // 队列被改动的机台推一次变更，模拟真机数据库的实时推送
-  Object.keys(s.queues).forEach((machineId) => {
-    if (JSON.stringify(s.queues[machineId]) !== queuesBefore[machineId]) {
-      notifyQueueWatchers('queue_' + machineId);
-    }
-  });
   return result;
 }
 
@@ -1920,32 +1538,6 @@ function applyPendingRecharge() {
 /* ============================================================
  *  云能力桩
  * ============================================================ */
-
-/* ---------- 云开发数据库实时监听（watch）桩 ----------
-   真机上 watch 走客户端数据库权限、由数据库主动推变更；离线模拟层没有数据库，
-   这里用一张「集合名 → 回调表」还原同样的语义，让离线也能看到实时刷新：
-     · 建立监听后先推一次 type='init' 的首帧（真机也是这个行为）
-     · 队列数据真的被改写时推一次 type='update'（见 dispatch / resetMockData）
-     · 返回 close()，页面离开时调用
-   ⚠️ 集合名按真机规则拼成 queue_<机台ID>，对应假数据里的 s.queues[机台ID]。 */
-const queueWatchers = new Map();   // collectionName -> Set<handlers>
-
-function notifyQueueWatchers(collectionName) {
-  const handlers = queueWatchers.get(collectionName);
-  if (!handlers) return;
-  handlers.forEach((h) => {
-    try {
-      h.onChange({ type: 'update', docChanges: [] });
-    } catch (e) {
-      console.warn('[Mock] 队列监听回调出错', e);
-    }
-  });
-}
-
-function notifyAllQueueWatchers() {
-  Array.from(queueWatchers.keys()).forEach(notifyQueueWatchers);
-}
-
 function makeDatabaseStub() {
   const empty = () => Promise.resolve({ data: [] });
   const chain = {
@@ -1962,25 +1554,7 @@ function makeDatabaseStub() {
     aggregate: () => ({ match: () => chain, group: () => chain, count: () => chain, end: () => Promise.resolve({ list: [] }) }),
   };
   return {
-    collection: (name) => ({
-      ...chain,
-      watch(handlers) {
-        if (!queueWatchers.has(name)) queueWatchers.set(name, new Set());
-        queueWatchers.get(name).add(handlers);
-        // 真机的首帧是异步推下来的，这里也用异步对齐，
-        // 免得页面在 onShow 里同步重入（onChange 会立刻拉一次队列）
-        setTimeout(() => {
-          const set = queueWatchers.get(name);
-          if (set && set.has(handlers)) handlers.onChange({ type: 'init', docChanges: [] });
-        }, 0);
-        return {
-          close() {
-            const set = queueWatchers.get(name);
-            if (set) set.delete(handlers);
-          },
-        };
-      },
-    }),
+    collection: () => chain,
     command: {
       eq: (v) => v,
       neq: (v) => v,

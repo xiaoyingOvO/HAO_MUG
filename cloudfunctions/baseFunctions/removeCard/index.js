@@ -70,9 +70,8 @@ exports.main = async (event, context) => {
     };
   }
 
-  // 如果是余量卡（remain > 0，与 buyCard 的限量口径一致），回滚优惠卡余量 +1。
-  // remain 未定义或 <= 0（不限量/售罄标记）时不回滚。
-  if (typeof remain === 'number' && remain > 0) {
+  // 如果是余量优惠卡，回滚优惠卡表
+  if (remain >= 0) {
     await db.collection(db_card)
     .where({
       _id: card_id,

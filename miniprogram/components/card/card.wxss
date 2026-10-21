@@ -2,7 +2,6 @@
 
 /* 卡（跟"游玩位"一样的样式） */
 .playlist-item {
-  position: relative;      /* 给右上角「我」的角标做定位基准 */
   height: 140rpx;
   border-radius: 16rpx;
   display: flex;
@@ -14,20 +13,6 @@
   background: #ffffff;
   border: 3rpx solid #07C160;
   box-shadow: 0 4rpx 12rpx rgba(7, 193, 96, 0.15);
-}
-
-/* 卡的右上角「红角」：不写字，只标出哪张是自己。
-   top / right 用 -3rpx 是为了正好盖住卡片那 3rpx 的绿色边框 */
-.my-corner {
-  position: absolute;
-  top: -3rpx;
-  right: -3rpx;
-  width: 0;
-  height: 0;
-  border-top: 46rpx solid #FF4D4F;
-  border-left: 46rpx solid transparent;
-  border-top-right-radius: 14rpx;
-  z-index: 2;
 }
 
 .player-index {

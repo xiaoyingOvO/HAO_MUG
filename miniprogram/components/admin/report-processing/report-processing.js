@@ -147,11 +147,13 @@ Component({
       if (sendToReporter) {
         detail.data.receiver = currentReport.from_openid
         this.triggerEvent('action', detail)
+        console.log('发送给举报人:', currentReport.from_openid)
       }
       // 发送给被举报人
       if (sendToReported) {
         detail.data.receiver = currentReport.to_openid
         this.triggerEvent('action', detail)
+        console.log('发送给被举报人:', currentReport.to_openid)
       }
 
       /* try {
@@ -160,10 +162,12 @@ Component({
         // actionType, data, callback
         // 发送给举报人
         if (sendToReporter) {
+          console.log('发送给举报人:', currentReport.from_openid)
         }
         
         // 发送给被举报人
         if (sendToReported) {
+          console.log('发送给被举报人:', currentReport.to_openid)
         }
         
         wx.hideLoading()

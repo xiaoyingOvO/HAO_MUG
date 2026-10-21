@@ -4,15 +4,6 @@
     background: #f4f7f9;
     min-height: 100vh;
     box-sizing: border-box;
-    /* page 在 app.wxss 里被固定为 height:100% 且是 flex column，
-       不加 flex-shrink:0 时容器会被压缩到一屏高，内部卡片随之被压扁、
-       内容被 overflow:hidden 裁掉（日历最后一行、说明最后一行消失） */
-    flex-shrink: 0;
-  }
-
-  /* 卡片不允许被 flex 压缩：内容多高就占多高，超出由页面滚动 */
-  .card {
-    flex-shrink: 0;
   }
 
   .card {
@@ -56,190 +47,69 @@
   }
   
 
-  /* 月历区域 */
-  .calendar {
-    width: 95%;
-    margin: 30rpx auto;
-    background-color: #ffffff;
-    border-radius: 24rpx;
-    box-shadow: 0 8rpx 30rpx rgba(0, 0, 0, 0.07);
-    padding: 20rpx 16rpx 30rpx;
-    box-sizing: border-box;
+  /* 日期选择区域 */
+  .date-scroll {
+    width: 100%;
+    margin-bottom: 10rpx;
+    overflow: visible;
+    /* background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border-radius: 16rpx;
+    box-shadow: 0 4rpx 12rpx rgba(0, 0, 0, 0.08); */
   }
-
-  .calendar-header {
+  
+  .date-buttons {
     display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 10rpx 0 20rpx;
+    padding: 20rpx 20rpx 0;
   }
-
-  .calendar-title {
-    font-size: 34rpx;
-    font-weight: 600;
-    color: #2c3e50;
-  }
-
-  .calendar-weekdays {
-    display: flex;
-    padding-bottom: 10rpx;
-  }
-
-  .weekday-cell {
-    flex: 1;
-    text-align: center;
-    font-size: 26rpx;
-    color: #868e96;
-    font-weight: 500;
-  }
-
-  .calendar-grid {
-    display: flex;
-    flex-wrap: wrap;
-    padding: 6rpx 0;
-  }
-
-  .calendar-cell {
-    width: 14.2857%;
-    box-sizing: border-box;
-    padding: 6rpx 0;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    position: relative;
-  }
-
-  .empty-cell {
-    visibility: hidden;
-  }
-
-  .day-cell {
-    height: 110rpx;
-  }
-
-  .day-cell .day-num {
-    width: 64rpx;
-    height: 64rpx;
-    line-height: 64rpx;
-    text-align: center;
-    border-radius: 50%;
-    font-size: 30rpx;
-    font-weight: 500;
-    position: relative;
-    z-index: 1;
-  }
-
-  /* 四档人数状态 */
-  .day-cell.level-low .day-num {
-    background-color: #e8f5e9;
-    color: #2e7d32;
-  }
-
-  .day-cell.level-medium .day-num {
-    background-color: #fff3e0;
-    color: #e65100;
-  }
-
-  .day-cell.level-high .day-num {
-    background-color: #ffebee;
-    color: #c62828;
-  }
-
-  .day-cell.level-full .day-num {
-    background-color: #f3d5dc;
-    color: #870031;
-  }
-
-  /* 今天：外圈高亮边框 */
-  .day-cell.today .day-num {
-    box-shadow: 0 0 0 4rpx rgba(74, 144, 226, 0.35);
-    font-weight: 700;
-  }
-
-  /* 选中日期：深色描边选中框（用 outline 不影响相邻格子、不会被裁切） */
-  .day-cell.selected .day-num {
-    box-shadow: 0 0 0 4rpx #4a90e2;
-    font-weight: 700;
-  }
-
-  /* 过去日期：置灰不可点 */
-  .day-cell.disabled {
-    opacity: 0.35;
-  }
-  .day-cell.disabled .day-num {
-    background-color: #f0f0f0;
-    color: #b0b0b0;
-  }
-
-  /* 「我的预约」对勾：右下角圆形绿色底 + 白色勾 */
-  .reserve-check {
-    position: absolute;
-    bottom: 2rpx;
-    right: 4rpx;
-    width: 36rpx;
-    height: 36rpx;
-    line-height: 36rpx;
-    text-align: center;
-    border-radius: 50%;
-    background-color: #2e7d32;
-    color: #ffffff;
-    font-size: 22rpx;
-    font-weight: 700;
-    z-index: 2;
-  }
-
-  /* 1 号格子左上角的月份标注（跨月时标出下个月） */
-  .month-label {
-    position: absolute;
-    top: 0rpx;
-    left: 2rpx;
-    font-size: 18rpx;
-    line-height: 1;
-    color: #868e96;
-    z-index: 2;
-  }
-
-  /* 图例 */
-  .calendar-legend {
-    display: flex;
-    justify-content: center;
-    flex-wrap: wrap;
-    gap: 12rpx 24rpx;
-    padding-top: 20rpx;
-    border-top: 1rpx solid #f0f2f5;
-    margin-top: 16rpx;
-  }
-
-  .legend-item {
-    display: flex;
-    align-items: center;
-    font-size: 22rpx;
-    color: #868e96;
-  }
-
-  .legend-dot {
-    width: 20rpx;
-    height: 20rpx;
-    border-radius: 50%;
-    margin-right: 6rpx;
+  
+  .date-btn {
     flex-shrink: 0;
-  }
-
-  .dot-low { background-color: #e8f5e9; border: 1rpx solid #2e7d32; }
-  .dot-medium { background-color: #fff3e0; border: 1rpx solid #e65100; }
-  .dot-high { background-color: #ffebee; border: 1rpx solid #c62828; }
-  .dot-full { background-color: #f3d5dc; border: 1rpx solid #870031; }
-  .dot-mine {
-    background-color: #2e7d32;
-    border: 1rpx solid #2e7d32;
-    color: #ffffff;
-    font-size: 18rpx;
-    font-weight: 700;
-    line-height: 20rpx;
+    width: 150rpx;
+    padding: 20rpx 15rpx;
+    margin: 0 10rpx;
+    border-radius: 16rpx;
     text-align: center;
+    background: #ffffff;
+    box-shadow: 0 6rpx 18rpx rgba(0, 0, 0, 0.06);
+    transition: all 0.3s cubic-bezier(0.25, 0.1, 0.25, 1);
+    border: 2rpx solid transparent;
+    position: relative;
+    overflow: hidden;
+  }
+  
+  .date-btn.active {
+    /* background: #4a90e2; */
+    color: white;
+    transform: translateY(-4rpx) scale(1.05);
+    box-shadow: 0 10rpx 25rpx rgba(74, 144, 226, 0.3);
+    border-color: #4a90e2;
+  }
+  .date-btn.active::before {
+    content:'';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border-radius: 16rpx;
+    background: linear-gradient(135deg, #4facfe, #00f2fe);
+    z-index: -1;
   }
 
+  .date-btn .weekday {
+    display: block;
+    font-size: 28rpx;
+    font-weight: 500;
+    color: inherit;
+  }
+
+  .date-btn .date {
+    display: block;
+    font-size: 24rpx;
+    margin-top: 6rpx;
+    color: inherit;
+    opacity: 0.8;
+  }
   
   
   /* 用户信息 */

@@ -160,9 +160,24 @@ page {
   flex-direction: column;
   align-items: center;
   justify-content: space-between;
+  animation: sidebar-ani 5s linear infinite;
 }
 .logo-sidebar > text {
   transform: rotate(90deg);
+}
+@keyframes sidebar-ani {
+  from {
+    transform: translateY(0);
+  }
+  25% {
+    transform: translateY(-50%);
+  }
+  75% {
+    transform: translateY(50%);
+  }
+  to {
+    transform: translateY(0);
+  }
 }
 
 /* 店内状态 */
@@ -285,23 +300,10 @@ page {
 .button-enter { background: linear-gradient(135deg, #4CAF50, #81C784); color: white; box-shadow: 0 6rpx 15rpx rgba(40, 167, 69, 0.35); }
 .button-leave { background: linear-gradient(135deg, #FF9800, #FFB74D); color: white; box-shadow: 0 6rpx 15rpx rgba(253, 126, 20, 0.35); }
 .button-opendoor { background: linear-gradient(135deg, #2196F3, #64B5F6); color: white; box-shadow: 0 6rpx 15rpx rgba(0, 123, 255, 0.35); }
-.button-reserve { background: linear-gradient(135deg, #9C27B0, #CE93D8); color: white; box-shadow: 0 6rpx 15rpx rgba(156, 39, 176, 0.35); }
 .button-disable {
   background-color: #e0e0e0;
   color: #999;
   box-shadow: none;
-}
-
-/* 已入店时，开门按钮单独放下方一行 */
-.wo-opendoor-container {
-  display: flex;
-  width: 100%;
-  margin-top: 20rpx;
-  justify-content: center;
-}
-.wo-opendoor-container .wo-join-button {
-  flex: none;
-  width: 280rpx;
 }
 
 
@@ -553,6 +555,25 @@ page {
   color: #8a9099;
 }
 
+.device-action {
+  flex: none;
+  font-size: 26rpx;
+  color: #07C160;
+  font-weight: 500;
+  padding: 10rpx 20rpx;
+  border-radius: 999rpx;
+  background: rgba(7, 193, 96, 0.10);
+  transition: opacity 0.15s ease-out, transform 0.1s ease-out;
+}
+.device-action:active {
+  opacity: 0.7;
+  transform: scale(0.95);
+}
+.device-action-go {
+  color: #ffffff;
+  background: linear-gradient(135deg, #4CAF50, #81C784);
+}
+
 .device-children {
   display: flex;
   flex-wrap: wrap;
@@ -564,12 +585,12 @@ page {
   transition: max-height 0.3s ease-out, opacity 0.25s ease-out, padding 0.3s ease-out;
 }
 .device-children-show {
-  max-height: 260rpx;
+  max-height: 120rpx;
   opacity: 1;
   padding: 18rpx 4rpx 4rpx;
 }
 
-/* 子项卡片：整块可点（选中即高亮），不再单独的「入队」按钮 */
+/* 子项卡片本体同样不可点，只有里面的「入队」按钮有响应 */
 .device-child {
   flex: 1;
   min-width: 180rpx;
@@ -578,6 +599,21 @@ page {
   text-align: center;
   background: #ffffff;
   border: 2rpx solid #d8dde3;
+}
+.device-child-action {
+  display: inline-block;
+  margin-top: 14rpx;
+  padding: 8rpx 26rpx;
+  border-radius: 999rpx;
+  font-size: 24rpx;
+  font-weight: 500;
+  color: #ffffff;
+  background: linear-gradient(135deg, #4CAF50, #81C784);
+  transition: opacity 0.15s ease-out, transform 0.1s ease-out;
+}
+.device-child-action:active {
+  opacity: 0.7;
+  transform: scale(0.95);
 }
 .device-child-name {
   display: block;
@@ -590,14 +626,6 @@ page {
   margin-top: 6rpx;
   font-size: 21rpx;
   color: #07C160;
-}
-/* 子项人数：该机台自己的排队人数（游玩中 + 排队中） */
-.device-child-count {
-  display: block;
-  margin-top: 8rpx;
-  font-size: 21rpx;
-  font-weight: 500;
-  color: #8a9099;
 }
 
 .device-cancel {
@@ -625,6 +653,10 @@ page {
 }
 
 /* 选中态高亮 */
+.device-action-selected {
+  color: #ffffff;
+  background: linear-gradient(135deg, #FFB74D, #FF9800);
+}
 .device-selected {
   border-color: #07C160;
   background: #f2fbf6;

@@ -45,17 +45,6 @@ exports.main = async (event, context) => {
     }
     update_data.role = event.params.role
   }
-  if ('display_title' in event.params) {
-    const validDisplayTitles = ['tenhou','chihou','kokushi','daisuushii','shousuushii','daisangen','tsuuiisou','chinroutou','chuuren','ryuuiisou','suukantsu','suankou','nagashi','chonbo'];
-    const dt = event.params.display_title;
-    if (dt !== null && dt !== undefined && !validDisplayTitles.includes(dt)) {
-      return {
-        success: false,
-        errMsg: "unsupported display_title...",
-      }
-    }
-    update_data.display_title = dt || null
-  }
   if ('credit' in event.params) {
     if (!event.params.credit instanceof Number) {
       return {

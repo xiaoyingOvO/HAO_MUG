@@ -29,6 +29,7 @@ Page({
     if (eventChannel && eventChannel.on) {
       eventChannel.on('acceptAdminInfo', (data) => {
         if (data && data.adminInfo) {
+          console.log('[ManagePage] Received adminInfo:', data.adminInfo);
           this.setData({
             adminRole: data.adminInfo.role
           });
@@ -43,7 +44,7 @@ Page({
         currentModuleKey: moduleKey,
         moduleConfig: adminConfig[moduleKey],
       });
-       // <<< 确认值
+      console.log('ManagePage: currentModuleKey has been set to ->', this.data.currentModuleKey); // <<< 确认值
 
       wx.setNavigationBarTitle({
         title: adminConfig[moduleKey].name,
@@ -88,6 +89,10 @@ Page({
     this.setData({ isLoading: true, loadError: false });
     const pageNo = isRefresh ? 0 : this.data.pageNo;
 
+    console.log(`[ManagePage] Loading list data for module '${this.data.currentModuleKey}', page: ${pageNo}`);
+    console.log(`[ManagePage] Cloud function: ${loadFuncConfig.name}, type: ${loadFuncConfig.type}`);
+    console.log(`[ManagePage] Params:`, { ...this.data.filterParams, page_no: pageNo, page_size: this.data.pageSize });
+
     try {
       const res = await wx.cloud.callFunction({
         name: loadFuncConfig.name,
@@ -100,6 +105,7 @@ Page({
           }
         }
       });
+
 
       if (res.result && res.result.success) {
         const fetchedData = res.result.data || [];
@@ -121,7 +127,9 @@ Page({
           });
         }
 
+        console.log("加载列表成功: ", this.data.listData)
       } else {
+        console.log(res)
         throw new Error(res.result?.errMsg || '加载失败');
       }
     } catch (err) {
@@ -143,6 +151,7 @@ Page({
 
   // 处理来自组件的筛选条件变化
   onFilterChange(e) {
+    console.log("筛选变化：", e.detail);
     this.setData({
       filterParams: e.detail,
       listData: [],   // 清空旧数据
@@ -239,6 +248,7 @@ Page({
       }
     }
 
+    
   }
  
 });

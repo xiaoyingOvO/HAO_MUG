@@ -8,7 +8,7 @@
   <!-- 用户列表 -->
   <view class="user-list">
     <view class="empty-tip" wx:if="{{userList.length === 0 && initialLoaded}}">
-      <image class="empty-icon" src="/images/icons/info-icon.png" mode="aspectFit"></image>
+      <image class="empty-icon" src="/images/icon/empty-box.png" mode="aspectFit"></image>
       <text>当前无用户在店</text>
     </view>
 

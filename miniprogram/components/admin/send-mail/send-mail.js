@@ -57,11 +57,13 @@ Component({
       }
       this.setData({ showSearchResults: true });
       searchTimer = setTimeout(() => {
+        console.log(`[防抖] 准备执行搜索： "${keyword}"`);
         this.executeSearch(keyword);
       }, 500);
     },
 
     async executeSearch(keyword) {
+      console.log(`[executeSearch] 开始执行对 "${keyword}" 的搜索`);
       try {
         const res = await wx.cloud.callFunction({
           name: 'baseFunctions',
@@ -70,12 +72,15 @@ Component({
             params: { nickname: keyword }
           }
         });
-         // <<< 打印完整返回结果
+        console.log(`[executeSearch] 云函数返回 for "${keyword}":`, res.result); // <<< 打印完整返回结果
+
 
         if (this.data.searchValue !== keyword) {
+          console.log(`[executeSearch] 结果已过时，丢弃 for "${keyword}"`);
           return;
         }
         if (res.result?.success && Array.isArray(res.result.data)) {
+          console.log(`[executeSearch] 搜索成功，准备 setData for "${keyword}"`, res.result.data);
           this.setData({ searchedUsers: res.result.data });
         } else {
           wx.showToast({
@@ -98,6 +103,8 @@ Component({
         }
       }
     },
+
+
 
     onSelectUser(e) {
       this.setData({
@@ -182,6 +189,7 @@ Component({
                   });
                   this.validateForm();
                 } else {
+                  console.log('父页面通知：发送失败');
                 }
                 this.setData({ isSubmitting: false });
               }
@@ -208,6 +216,7 @@ Component({
       const field = e.currentTarget.dataset.field;
       this.setData({ [field]: false });
     },
+
 
   },
 });

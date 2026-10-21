@@ -58,7 +58,7 @@
 
     <!-- 空状态 -->
     <view class="empty-container" wx:if="{{!isLoading && filteredMessageList.length === 0}}">
-      <image class="empty-icon" src="/images/icons/mailbox.png" mode="aspectFit"></image>
+      <image class="empty-icon" src="/images/icons/empty-mailbox.png" mode="aspectFit"></image>
       <text class="empty-text">没有符合条件的邮件</text>
     </view>
 

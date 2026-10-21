@@ -2,13 +2,24 @@
   "pages": [
     "pages/home/home",
     "pages/login/index",
+    "pages/goods-list/index",
+    "pages/examples/index",
     "pages/user-center/index",
     "pages/user-center/other-page/recharge",
+    "pages/exampleDetail/index",
+    "pages/deployService/index",
+    "pages/updateRecord/index",
+    "pages/updateRecordResult/index",
+    "pages/updateRecordSuccess/index",
+    "pages/sumRecord/index",
+    "pages/sumRecordResult/index",
+    "pages/web/index",
+    "pages/cloudbaseModuleDetail/index",
+    "pages/cloudbaseModuleInstallTips/index",
+    "pages/cloudbaseModuleGuide/index",
+    "pages/business/index",
     "pages/reserve/index",
     "pages/queue-info/index",
-    "pages/mahjong/index",
-    "pages/mahjong/record",
-    "pages/mahjong/grantTitle",
     "pages/play-log/log",
     "pages/user-center/other-page/card",
     "pages/user-center/other-page/membership",
@@ -21,7 +32,7 @@
     "backgroundColor": "#F6F6F6",
     "backgroundTextStyle": "light",
     "navigationBarBackgroundColor": "#F6F6F6",
-    "navigationBarTitleText": "萌动报名计时",
+    "navigationBarTitleText": "云开发 QuickStart",
     "navigationBarTextStyle": "black"
   },
   "sitemapLocation": "sitemap.json",
@@ -45,10 +56,10 @@
         "selectedIconPath": "images/icons/examples-active.png"
       },
       {
-        "pagePath": "pages/mahjong/index",
-        "text": "麻将",
-        "iconPath": "images/icons/card1.png",
-        "selectedIconPath": "images/icons/card1-active.png"
+        "pagePath": "pages/reserve/index",
+        "text": "预约 ",
+        "iconPath": "images/icons/home.png",
+        "selectedIconPath": "images/icons/home-active.png"
       },
       {
         "pagePath": "pages/user-center/index",

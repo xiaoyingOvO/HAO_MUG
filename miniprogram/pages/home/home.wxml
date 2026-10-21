@@ -45,28 +45,18 @@
     </view>
 
     <view class="wo-customer-total">店内共{{woStatus.relaxNum + woStatus.arcadeNum + woStatus.boardNum}}人</view>
-
-    <!-- 未入店：入店（或打烊提示）+ 查看预约 -->
     <view class="wo-join-button-container">
       <block wx:if="{{woStatus.enterState === 1 || woStatus.enterState === 2 || woStatus.enterState === 3}}">
         <button bind:tap="leaveArcade" class="wo-join-button button-leave" type="primary">离店</button>
-        <button bind:tap="viewReserve" class="wo-join-button button-reserve" type="primary">查看预约</button>
+        <button bind:tap="openDoor" class="wo-join-button button-opendoor" type="primary">开门</button>
       </block>
-      <block wx:else>
-        <button wx:if="{{woClosed}}" disabled class="wo-join-button button-disable">{{woClosedText}}</button>
-        <button wx:else bind:tap="enterArcade" class="wo-join-button button-enter" type="primary" disabled="{{isEnterBtnDisabled || woClosed}}">入店</button>
-        <button bind:tap="viewReserve" class="wo-join-button button-reserve" type="primary">查看预约</button>
-      </block>
-    </view>
-
-    <!-- 已入店：开门按钮放到下方单独一行 -->
-    <view wx:if="{{woStatus.enterState === 1 || woStatus.enterState === 2 || woStatus.enterState === 3}}" class="wo-opendoor-container">
-      <button bind:tap="openDoor" class="wo-join-button button-opendoor" type="primary">开门</button>
+      <button wx:elif="{{woClosed}}" disabled class="button-disable">{{woClosedText}}</button>
+      <button wx:else bind:tap="enterArcade" class="wo-join-button button-enter" type="primary" disabled="{{isEnterBtnDisabled || woClosed}}">{{woClosed ? woClosedText : '入店'}}</button>
     </view>
 
     <block wx:if="{{woStatus.enterState !== 0}}">
       <view class="wo-status-subtitle">
-        已入店: {{woStatus.enterTime.show}} 您已消费: {{consumptionAmount}} 点
+        入店时间: {{woStatus.enterTime.show}} 您已消费: {{consumptionAmount}} 点
       </view>
       <!-- 欠费提醒：只提示，不影响排队与游玩 -->
       <view wx:if="{{overdraft}}" class="overdraft-warning">
@@ -136,27 +126,25 @@
           <view class="device-name">{{group.groupName}}</view>
           <view class="device-desc">{{group.desc}}</view>
         </view>
-        <!-- 一级卡片人数：该组所有机台的合计（舞萌 = 官机 + MML + ADX） -->
-        <view class="device-count {{(group.totalCount || 0) < 3 ? 'count-green' : (group.totalCount || 0) < 6 ? 'count-orange' : 'count-red'}}">
-          {{group.totalCount || 0}} 人
-        </view>
-      </view>
+  <!-- "该组总人数" -->
+  <view class="device-count {{(group.totalCount || 0) < 3 ? 'count-green' : (group.totalCount || 0) < 6 ? 'count-orange' : 'count-red'}}">
+  {{group.totalCount || 0}} 人
+  </view>
+</view>
 
-      <!-- 多个变体（舞萌：官机 / MML / ADX）展开后各自独立排队，人数各自统计 -->
+      <!-- 多个变体（舞萌：官机 / MML / ADX）展开后各自独立排队 -->
       <view class="device-children {{group.children.length > 1 && expandedGroup === group.groupId ? 'device-children-show' : ''}}">
         <view
           wx:for="{{group.children}}"
-          wx:key="key"
+          wx:key="machineId"
           wx:for-item="child"
           wx:for-index="ci"
-          class="device-child {{selectedKey === child.key ? 'device-selected' : ''}} {{child.is_disabled ? 'device-disabled' : ''}}"
+          class="device-child {{selectedKey === child.key ? 'device-selected' : ''}}"
           catchtap="pickDevice"
           data-group-index="{{gi}}"
           data-child-index="{{ci}}">
           <text class="device-child-name">{{child.label}}</text>
-          <text class="device-child-tag">{{child.is_disabled ? '机台不可用' : child.tag}}</text>
-          <!-- 子项人数：该机台自己的排队人数（游玩中 + 排队中） -->
-          <text class="device-child-count">{{child.totalCount || 0}} 人</text>
+          <text class="device-child-tag">{{child.maxPlayer >= 2 ? '可拼机 / 单刷' : '单刷'}}</text>
         </view>
       </view>
 

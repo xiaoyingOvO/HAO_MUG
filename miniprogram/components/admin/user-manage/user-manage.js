@@ -57,9 +57,11 @@ Component({
               params: { nickname: this.data.searchValue }
             }
           });
+          console.log('云函数返回结果:', res.result);
 
           if (res.result && res.result.success && res.result.data) {
             const users = res.result.data;
+            console.log(`搜索到 ${users.length} 个用户`);
 
             this.setData({
               searchedUsers: users
@@ -171,12 +173,15 @@ Component({
           confirmColor: '#ee0a24',
           success: (res) => {
             if (res.confirm) {
+              console.log("确认保存修改。");
               this.executeSubmit(changedFields);
             } else if (res.cancel) {
+              console.log('取消修改操作。');
             }
           }
         });
       },
+
 
         executeSubmit(changedFields) {
           this.setData({ isSubmitting: true });
@@ -214,5 +219,6 @@ Component({
           }, 300);
         },
 
+        
     }
 })

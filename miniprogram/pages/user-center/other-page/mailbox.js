@@ -91,6 +91,8 @@ Page({
         }
       });
 
+      console.log('统一获取消息返回 (getMail):', res.result);
+
       if (res.result && res.result.success) {
         let fetchedMessages = res.result.data || [];
         
@@ -161,6 +163,8 @@ Page({
     const { messageList, filters } = this.data;
     const { type, status } = filters;
 
+    console.log(`应用筛选: 类型=${type}, 状态=${status}`);
+
     const filteredList = messageList.filter(item => {
         const typeMatch = (type === 'all') || (item.type === type);
         const statusMatch = (status === 'all') || (status === 'read' && item.isRead) || (status === 'unread' && !item.isRead);
@@ -222,6 +226,7 @@ Page({
       }
     }).then(res => {
       if (res.result && res.result.success) {
+        console.log(`消息 ${messageId} 在云端标记为已读。`);
       } else {
         console.error(`标记消息 ${messageId} 已读失败：`, res.result?.errMsg);
         wx.showToast({
@@ -245,6 +250,7 @@ Page({
   },
 
   markAnnouncementAsRead(messageId, index) {
+    console.log(`标记公告 ${messageId} 为已读（本地缓存）`);
     this.setData({
       [`messageList[${index}].isRead`]: true,
     });
@@ -255,6 +261,7 @@ Page({
       if (!readIds.includes(messageId)) {
           readIds.push(messageId);
           wx.setStorageSync(READ_ANNOUNCEMENT_IDS_KEY, readIds);
+          console.log('更新后的已读公告ID列表：', readIds);
         }
       } catch (e) {
         console.error('更新已读公告缓存失败', e);

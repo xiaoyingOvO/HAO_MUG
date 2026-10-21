@@ -23,7 +23,6 @@ const sendMail = require('./sendMail/index');
 const getMail = require('./getMail/index');
 const readMail = require('./readMail/index');
 const getUnreadMessageCount = require('./getUnreadMessageCount/index');
-const mahjongStats = require('./mahjongStats/index');
 
 // 云函数入口函数
 exports.main = async (event, context) => {
@@ -83,23 +82,6 @@ exports.main = async (event, context) => {
       return await readMail.main(event, context);
     case 'getUnreadMessageCount':
       return await getUnreadMessageCount.main(event, context);
-    // 麻将对局战绩相关
-    case 'mahjongAddGame':
-      return await mahjongStats.addGameMain(event, context);
-    case 'mahjongGetMyStats':
-      return await mahjongStats.getMyStatsMain(event, context);
-    case 'mahjongGetRanking':
-      return await mahjongStats.getRankingMain(event, context);
-    case 'mahjongGetGames':
-      return await mahjongStats.getGamesMain(event, context);
-    case 'mahjongGrantTitle':
-      return await mahjongStats.grantTitleMain(event, context);
-    case 'mahjongRevokeTitle':
-      return await mahjongStats.revokeTitleMain(event, context);
-    case 'mahjongGetPlayerTitles':
-      return await mahjongStats.getPlayerTitlesMain(event, context);
-    case 'mahjongDeleteGame':
-      return await mahjongStats.deleteGameMain(event, context);
   }
 };
         

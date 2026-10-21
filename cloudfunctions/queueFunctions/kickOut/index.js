@@ -187,10 +187,7 @@ exports.main = async (event, context) => {
   }
   // 写队列日志数据库
   var db_log = "queue_log_" + machine_id
-  var now = new Date();
-  var bjNow = new Date(now.getTime() + 8 * 3600 * 1000);
-  var timeStr = pad2(bjNow.getHours()) + ":" + pad2(bjNow.getMinutes()) + ":" + pad2(bjNow.getSeconds());
-  var content = "[" + timeStr + "] " + cur_nickname + "将" + user_info.data[0].nickname + "踢出队列"
+  var content = "用户" + user_info.data[0].nickname + "于" + new Date() + "被" + cur_nickname + "踢出队列"
   await db.collection(db_log).add({
     data: {
       timestamp: new Date(),
@@ -317,8 +314,4 @@ async function releaseQueueLock(params) {
 
 async function sleep(seconds) {
   return new Promise(resolve => setTimeout(resolve, seconds * 1000));
-}
-
-function pad2(n) {
-  return n < 10 ? '0' + n : '' + n;
 }

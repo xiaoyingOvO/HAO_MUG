@@ -9,38 +9,51 @@ const checkConsumePointTimeout = 1  // 已消费金额轮询时间
 var checkConsumePointCount = 0
 var remainPoint = 114514    // 用户余额
 
-const ENTER_INFO_CACHE_MS = 3000 // getEnterInfo 本地缓存时间（毫秒），避免 onShow 频繁请求
-let _enterInfoCache = null // { data, ts }
-
-/* ============================================================
- * 模块级工具函数（不依赖 Page 实例）
- *   buildDeviceGroups —— 云端 machine 列表 → 入店弹层两级结构
- *   checkBalance / checkAndChargeBalance —— 余额轮询与扣费
- *   checkConsumePoint —— 已消费点数轮询
- *   notifyOverdraft / clearOverdraft —— 透支提醒
- *   calcEnterTime —— 在店时长正计时
- *   faqFilter —— FAQ 文案处理
- * ============================================================ */
-
 // 入店设备选择弹层：一级分组对应的配图
-//   maimai / chunithm / board 来自云端 machine 集合的 group_id
+//   maimai / chunithm 来自云端 machine 集合的 group_id
+//   board 是前端虚拟项（桌游·日麻不是机台，不排队，只负责把用户带进桌游区）
 // ⚠️ 这三张图已压缩到 360px 宽（小程序主包上限 2MB，原图 613KB 会把包撑爆）。
 //    弹层里只显示 128rpx 的缩略图，360px 足够；换高清图时记得重新压缩。
 const GROUP_ICONS = {
   maimai: '/images/machines/maimai.jpg',
   chunithm: '/images/machines/chunithm.jpg',
-  board: '/images/machines/board.jpg',
+  board: '/images/machines/mahjong.jpg',
+};
+/**
+ * 桌游/日麻的兜底项：只有云端 machine 集合里**没有** area='board' 的机台（日麻 M05）时才用。
+ * 内容与真机台保持一致（machineId 也指向 M05，4 人一桌），这样无论云端有没有数据，
+ * 桌游/日麻走的都是同一条「入队」流程 —— 文案和行为统一。
+ * ⚠️ 必须带 children：弹层的点击统一走 toggleDeviceGroup / selectDevice，
+ *    少了这个数组会读 undefined.length 抛 TypeError，框架静默吞掉 → 表现就是「点了没反应」。
+ */
+const BOARD_DEVICE = {
+  groupId: 'board',
+  groupName: '桌游/日麻',
+  icon: GROUP_ICONS.board,
+  desc: '4 人一桌 · 独立排队',
+  actionText: '入队',
+  children: [{
+    key: 'board',
+    machineId: 'M05',
+    label: '日麻',
+    deviceName: '日麻',
+    area: 'board',
+    maxPlayer: 4,
+  }],
 };
 
 /**
  * 把云端 machine 列表整理成入店弹层需要的两级结构。
  * 同 group_id 的机台合并成一张卡（如舞萌 → 官机 / MML / ADX 三个独立队列）；
  * 缺少 group_id 时退化成「一台机一张卡」，不会报错。
+ * 最后追加虚拟的「桌游/日麻」项。
  */
 function buildDeviceGroups(machines) {
   const groups = [];
   const byGroup = new Map();
   Array.from(machines || []).forEach((m) => {
+    // max_player 为 0 / -1 表示机台不可用，不进选择列表
+    if (m.max_player === 0 || m.max_player === -1) return;
     const gid = m.group_id || m._id;
     if (!byGroup.has(gid)) {
       const g = {
@@ -53,16 +66,14 @@ function buildDeviceGroups(machines) {
       byGroup.set(gid, g);
       groups.push(g);
     }
-    const childIndex = byGroup.get(gid).children.length;
     byGroup.get(gid).children.push({
-      key: `${gid}__${m._id}__${childIndex}`,
+      key: m._id,
       machineId: m._id,
       label: m.label || m.machine_name,
       deviceName: m.machine_name,
+      // 机台自带 area（日麻 = 'board'），缺省按音游区；决定入店时进哪个区
       area: m.area === 'board' ? 'board' : 'arcade',
       maxPlayer: m.max_player,
-      tag: m.tag || '',
-      is_disabled: !!m.is_disabled,
     });
   });
   groups.forEach((g) => {
@@ -70,17 +81,25 @@ function buildDeviceGroups(machines) {
     g.desc = g.children.length > 1
       ? `${g.children.length} 台独立排队`
       : (only.area === 'board'
-        ? `独立排队`
+        ? `${only.maxPlayer} 人一桌 · 独立排队`
         : (only.maxPlayer >= 2 ? '可拼机 / 单刷 · 独立排队' : '独立排队'));
     g.actionText = '入队';
   });
-
+  // 云端 machine 集合还没有日麻（area='board'）时，退化成不可排队的「桌游/日麻」虚拟项，
+  // 保证桌游区仍然可以入店。有了真机台就用真机台。
+  if (!byGroup.has('board')) {
+    groups.push({
+      ...BOARD_DEVICE,
+      children: BOARD_DEVICE.children.map((c) => ({ ...c })),
+    });
+  }
   return groups;
 }
 
 // 一定分钟一次的余额检查
 function checkBalance(nowTime, enterTime, timeout) {
   let count = Math.ceil((nowTime - enterTime) / 1000 / 60 / timeout)  // timeout min查询一次
+  // console.log(count)
   if (count != checkBalanceCount) { // 已过了一定分钟
     checkAndChargeBalance.call(this)
     checkBalanceCount = count
@@ -104,18 +123,14 @@ function notifyOverdraft(page, shortage) {
   });
 }
 /**
- * 在店时长：HH:mm:ss **正计时**（显示的是「已经待了多久」，不是入店时刻）。
- * 由 setEnterTimer 每秒调一次：`calcEnterTime(入店时间戳, 当前时间戳)`。
- * getEnterInfo 里也会先算一次，避免刚进页面时那一秒是空白。
+ * 入店时间显示：改为**时间戳**（YYYY-MM-DD HH:mm:ss），不再做每秒正计时。
+ * 时间戳只在 getEnterInfo 拉到入店时间时算一次，不必每秒重算。
  */
-function calcEnterTime(time, nowTime = new Date().getTime()) {
-  if (!time) return '00:00'
-  let dec = parseInt((nowTime - time) / 1000)
-  let HH = parseInt(dec / 3600) != 0 ? `${parseInt(dec / 3600)}:` : ''
-  let mm = `${parseInt(dec % 3600 / 60)}:`.padStart(3, '0')
-  let ss = `${parseInt(dec % 3600 % 60)}`.padStart(2, '0')
-  let show = dec >= 0 ? HH + mm + ss : '00:00'
-  return show
+function formatTimestamp(ts) {
+  if (!ts) return '--';
+  const d = new Date(ts);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
 // 余额恢复后清掉红字，并允许下次再透支时重新提醒一次
@@ -127,12 +142,14 @@ function clearOverdraft(page) {
 function checkAndChargeBalance() {
   cloudFcn.checkAndChargeBalance().then(res => {
     if (!res.result.success) return Promise.reject(res.result)
+    console.log('轮询检查用户余额充足')
     clearOverdraft(this)
   }).catch(err => {
     if (err.code === undefined) return console.error(err)
     if (err.code == -2) {
       // 余额已透支：只提醒，不弹 modal、不踢出队列
       notifyOverdraft(this, err.data && err.data.shortage)
+      console.log('轮询检查用户余额不足（仅提醒，不退队）', err)
     }
   })
 }
@@ -146,6 +163,7 @@ function checkConsumePoint(nowTime, enterTime, timeout) {
       if (!res.result.success) return Promise.reject(res.result)
 
       let points = res.result.data.points
+      console.log(`轮询检查已消费点数: ${points}, 剩余点数${remainPoint}`)
       this.setData({
         consumptionAmount: points.toFixed(2)
       })
@@ -159,6 +177,9 @@ function checkConsumePoint(nowTime, enterTime, timeout) {
       }
     }).catch(err => {
       if (err.code === undefined) console.error(err)
+      else if (err.code == -3) {
+        
+      }
     })
     checkConsumePointCount = count
   }
@@ -167,6 +188,7 @@ function checkConsumePoint(nowTime, enterTime, timeout) {
 // 处理faq中的文字和图片
 function faqFilter(faq) {
   faq.forEach((value) => {
+    // console.log(1, v.a)
     value.a = value.a.replace(/\&hc/g, '\n')
   })
 }
@@ -184,17 +206,18 @@ Page({
       ? '/images/logo.svg'
       : "cloud://hao-2gz8w8z212e63bcf.6861-hao-2gz8w8z212e63bcf-1347707526/logo.jpg",
     woStatus: {
-      businessStatus: true,   // 是否营业中（默认 true，避免首屏误闪「已打烊」，真实值由 getEnterInfo 拉取）
-      relaxNum: 0,             // 休息区在店人数
+      businessStatus: false,   // 正在营业
+      relaxNum: 0,
+      playNum: 0,
       enterState: 0, // 用户是否已入店 0：未入店  1：休息中  2：候机中  3：游玩中
       // 入店区域：'arcade' 音游区（12 点/小时）/ 'board' 桌游区（6 点/小时）
       area: 'arcade',
       areaName: '音游区',
       arcadeNum: 0, // 音游区在店人数
       boardNum: 0,  // 桌游区在店人数
-      enterTime: {  // 入店时间
-        time: 0,   // 入店时刻（毫秒时间戳），计时的基准
-        show: ''   // 在店时长正计时文案（HH:mm:ss），每秒刷新
+      enterTime: {  // 入店时间，以时间戳形式表示（毫秒）
+        time: 0,
+        show: ''  // 计算所得在店内的时间
       },
     },
     woClosed: false,  // 无法入店
@@ -236,66 +259,44 @@ Page({
     isEnterBtnDisabled: true, //  控制入店按钮禁用
   },
 
-  /* ============================================================
-   * 【一】店内状态与公告数据
-   *   getEnterInfo —— 店内状态（人数/营业/入店时长）
-   *   checkAccess —— 是否可入店（营业/夜场）
-   *   getNotice —— 公告/FAQ/联系方式
-   * ============================================================ */
-
   // 查询店内状态
-  //   forceRefresh=true 时跳过本地缓存（下拉刷新、入店/离店等需要最新数据的场景用）
-  async getEnterInfo(forceRefresh) {
-    // 命中缓存（3 秒内）→ 直接套用，不再打云函数
-    if (!forceRefresh && _enterInfoCache &&
-        Date.now() - _enterInfoCache.ts < ENTER_INFO_CACHE_MS) {
-      this.applyEnterInfo(_enterInfoCache.data)
-      return Promise.resolve()
-    }
+  async getEnterInfo() {
     return cloudFcn.getEnterInfo().then(res => {
       if (!res.result.success) return Promise.reject(res)
-
+      
       var data = res.result.data
-      _enterInfoCache = { data, ts: Date.now() }   // 写缓存
-      this.applyEnterInfo(data)
+      console.log('获取用户入店信息：', data)
+      remainPoint = (data.real_point ?? 0) + (data.extra_point ?? 0)
+      var businessStatus = data.business_status ?? true
+      var relaxNum = data.relax_num ?? 0, playNum = data.play_num ?? 0
+      var enterState = data.enter_state ?? 0
+      // 入店区域：老数据没有 area 字段时按音游区处理
+      var area = data.area === 'board' ? 'board' : 'arcade'
+      var time = new Date(data.enter_time).getTime()
+      this.setData({
+        ['woStatus.businessStatus']: businessStatus,
+        ['woStatus.enterState']: enterState,
+        ['woStatus.relaxNum']: relaxNum,
+        ['woStatus.playNum']: playNum,
+        ['woStatus.arcadeNum']: data.arcade_num ?? 0,
+        ['woStatus.boardNum']: data.board_num ?? 0,
+        ['woStatus.area']: area,
+        ['woStatus.areaName']: area === 'board' ? '桌游区' : '音游区',
+        ['woStatus.enterTime.time']: time,
+        ['woStatus.enterTime.show']: formatTimestamp(time) // 入店时间戳（不再每秒正计时）
+      })
+      this.setEnterTimer()
     }).catch(console.error)
-  },
-
-  // 把入店状态数据套用到页面（getEnterInfo 缓存命中/网络返回都走这里）
-  applyEnterInfo(data) {
-    remainPoint = (data.real_point ?? 0) + (data.extra_point ?? 0)
-    var businessStatus = data.business_status ?? true
-    var relaxNum = data.relax_num ?? 0
-    var enterState = data.enter_state ?? 0
-    // 入店区域：老数据没有 area 字段时按音游区处理
-    var area = data.area === 'board' ? 'board' : 'arcade'
-    var time = new Date(data.enter_time).getTime()
-    this.setData({
-      ['woStatus.businessStatus']: businessStatus,
-      ['woStatus.enterState']: enterState,
-      ['woStatus.relaxNum']: relaxNum,
-      ['woStatus.arcadeNum']: data.arcade_num ?? 0,
-      ['woStatus.boardNum']: data.board_num ?? 0,
-      ['woStatus.area']: area,
-      ['woStatus.areaName']: area === 'board' ? '桌游区' : '音游区',
-      ['woStatus.enterTime.time']: time,
-      ['woStatus.enterTime.show']: calcEnterTime(time) // 在店时长（正计时，每秒由 setEnterTimer 刷新）
-    })
-    this.setEnterTimer()
   },
   // 判断是否可入店
   async checkAccess() {
-    // ⚠️ 必须先用 getEnterInfo 拿到真实的 businessStatus 再判断，
-    //    否则这里会读到初始值 true/false，把「营业中」误判成「已打烊」。
-    //    getEnterInfo 内部已 catch，不会因失败中断本函数。
-    await this.getEnterInfo();
-
     return cloudFcn.ifNight().then(res => {
       if (!res.result.success) return Promise.reject(res)
 
       let businessStatus = this.data.woStatus.businessStatus    // 店铺是否营业
       let {ifNight, hasCard} = res.result.data  //是否夜场以及是否持有夜场卡
 
+      console.log(`店铺${businessStatus ? '正常营业' : '已打烊'}。\n当前${ifNight ? '为' : '非'}夜场，用户${hasCard ? '' : '未'}持有夜场卡。`)
       if (!businessStatus) {
         this.setData({
           woClosed: true,
@@ -314,21 +315,13 @@ Page({
         })
       }
     }).catch(err => {
-      console.error(err)
+      if (err.success === false) console.log(err)
+      else console.error(err)
     })
   },
 
   // 获取公告等信息
-  async getNotice(forceRefresh) {
-    // 公告/FAQ/联系方式属于低频变更数据，首次加载后缓存，避免每次 onShow 重复请求
-    if (!forceRefresh && this._noticeCache) {
-      this.setData({
-        broadcast: this._noticeCache.broadcast,
-        contact: this._noticeCache.contact,
-        faq: this._noticeCache.faq,
-      });
-      return Promise.resolve();
-    }
+  async getNotice() {
     return cloudFcn.getNotice().then(res => {
       if (!res.result.success) return Promise.reject(res)
 
@@ -336,23 +329,14 @@ Page({
 
       faqFilter(faq)
 
-      this._noticeCache = { broadcast, contact, faq };
-
       this.setData({
         broadcast,
         contact,
         faq
       })
+      console.log('获取到最新公告: ', res.result.data)
     }).catch(console.error)
   },
-
-  /* ============================================================
-   * 【二】入店 / 离店 / 开门
-   *   enterArcade / loadDeviceGroups —— 入店 + 设备选择弹层
-   *   toggleDeviceGroup / pickDevice / selectDevice / onPickerConfirm —— 弹层交互
-   *   doEnterArcade —— 确认入店
-   *   leaveArcade / openDoor —— 离店 / 开门
-   * ============================================================ */
 
   // 用户进店：点「入店」后弹出设备选择弹层，选中的设备即入店并**直接进入该机台队列**。
   //   舞萌·官机 / 舞萌·MML / 舞萌·ADX —— 三个各自独立的队列
@@ -373,6 +357,8 @@ Page({
             wx.navigateTo({
               url: '/pages/login/index',
             });
+          } else if (res.cancel) {
+            console.log('用户取消前往登录');
           }
         }
       });
@@ -396,17 +382,17 @@ Page({
       const groups = buildDeviceGroups(machines);
       this.setData({ deviceGroups: groups });
 
-      // 逐台拉「游玩中 + 排队中」的人数：
-      //   二级项（官机 / MML / ADX…）各自记一份 → 展开后显示在各自名称下方
-      //   一级卡片（舞萌）显示该组所有机台的**合计**
+      // 拉每个机台的"总人数"
       const tasks = [];
       groups.forEach((g) => {
         (g.children || []).forEach((c) => {
           tasks.push(
             cloudFcn.getQueueInfo(c.machineId).then(qres => {
-              c.totalCount = (qres.result && qres.result.success)
-                ? (qres.result.data || []).length
-                : 0;
+              if (qres.result && qres.result.success) {
+                c.totalCount = (qres.result.data || []).length;   // 游玩中 + 排队中
+              } else {
+                c.totalCount = 0;
+              }
             }).catch(() => {
               c.totalCount = 0;
             })
@@ -414,10 +400,6 @@ Page({
         });
       });
       return Promise.all(tasks).then(() => {
-        // 一级卡片人数 = 组内所有机台人数之和（舞萌 = 官机 + MML + ADX）
-        groups.forEach((g) => {
-          g.totalCount = (g.children || []).reduce((n, c) => n + (c.totalCount || 0), 0);
-        });
         this.setData({ deviceGroups: groups });
       });
     }).catch(err => {
@@ -456,10 +438,6 @@ Page({
     // 单子项：直接选中（selectDevice 里已设 selectedGroup）
     if (children.length <= 1) {
       const device = children[0];
-      if (device && device.is_disabled) {
-        wx.showToast({ title: '机台不可用', icon: 'none' });
-        return;
-      }
       // 再点同一个 = 取消选中
       if (device && this.data.selectedKey === device.key) {
         this.setData({
@@ -497,6 +475,18 @@ Page({
     }
   },
 
+  // 点击卡片本体：选中该一级分组（卡片本体变绿）
+  selectGroup(e) {
+    const gi = Number(e.currentTarget.dataset.groupIndex);
+    const group = this.data.deviceGroups[gi];
+    if (!group) return;
+    // 点已选中的组则取消（可选，看你要不要）
+    // const selectedGroup = this.data.selectedGroup === group.groupId ? '' : group.groupId;
+    this.setData({
+      selectedGroup: group.groupId,
+    });
+  },
+
   // 点击展开后的具体变体（官机 / MML / ADX）
   pickDevice(e) {
     const ds = e.currentTarget.dataset;
@@ -532,11 +522,6 @@ Page({
     if (!device) {
       console.error('设备选择失败：分组数据异常', groupIndex, group);
       wx.showToast({ title: '设备数据异常，请重试', icon: 'none' });
-      return;
-    }
-    // 不可用机台不能被选中
-    if (device.is_disabled) {
-      wx.showToast({ title: '机台不可用', icon: 'none' });
       return;
     }
     if (this.data.isEntering) return;
@@ -600,9 +585,11 @@ Page({
           icon: 'none',
           duration: 2500,
         });
+        console.log('用户入店并进入队列', device.deviceName);
         setTimeout(() => wx.switchTab({ url: '/pages/queue-info/index' }), 800);
       } else {
         wx.showToast({ title: `已入店：${areaName}`, icon: 'none' });
+        console.log('用户入店', areaName);
       }
     } catch (err) {
       if (err && err.success === false) {
@@ -610,6 +597,7 @@ Page({
           title: '入店失败',
           content: err.errMsg || '余额不足，请充值',
         });
+        console.log('用户入店失败', err);
       } else console.error(err);
     } finally {
       this.setData({ isEntering: false });
@@ -625,6 +613,7 @@ Page({
         title: '离店成功',
         icon: 'none'
       })
+      console.log('用户离店')
     }).catch(err => {
       if (err.success === false) {
         var title = '离店失败'
@@ -638,6 +627,7 @@ Page({
           title,
           icon: 'none'
         })
+        console.log('离店失败', err)
       }
       else console.error(err)
     }).finally(() => {
@@ -658,10 +648,12 @@ Page({
       }
       if (res.confirm) {
         return cloudFcn.openDoor().then(res => {
+          console.log(res)
           wx.showToast({
             icon: 'none',
             title: '门已开，欢迎游玩~',
-          })
+          }),
+          console.log('用户已打开门禁')
         })
       }
     }).catch(err => {
@@ -673,20 +665,6 @@ Page({
     })
   },
 
-  // 查看预约：跳转到预约页（已从 tabBar 移除，改为普通页面，用 navigateTo）
-  viewReserve() {
-    wx.navigateTo({
-      url: '/pages/reserve/index'
-    })
-  },
-
-  /* ============================================================
-   * 【三】在店计时 / FAQ 交互 / 页面加载
-   *   setEnterTimer —— 在店时长每秒刷新 + 余额轮询
-   *   extendFaq / copyContact —— FAQ 展开 / 复制联系方式
-   *   loadPageData —— 页面数据聚合加载
-   * ============================================================ */
-
   //添加入店时间计时(查询余额也在这里)
   setEnterTimer() {
     clearInterval(enterTimer)
@@ -696,14 +674,9 @@ Page({
       // 未入店 || 未获取到信息
       if (enterState === 0 || !enterState) return i
 
+      // 入店时间改为时间戳展示（getEnterInfo 里已算好），这里只负责轮询余额/消费
       let time = that.data.woStatus.enterTime.time
       let nowTime = new Date().getTime()
-
-      // 在店时长正计时（每秒 +1 秒）
-      let show = calcEnterTime(time, nowTime)
-      that.setData({
-        ['woStatus.enterTime.show']: show
-      })
 
       checkBalance.call(that, nowTime, time, checkBalanceTimeout)
 
@@ -712,6 +685,18 @@ Page({
       return i
     })(), 1000)
   },
+  // 计算入店时长（HH:mm:ss 正计时）
+  // ⚠️ 已废弃：入店时间改为展示**时间戳**（见 formatTimestamp），这里不再被调用，保留备用。
+  calcEnterTime(time, nowTime = new Date().getTime()) {
+    let dec = parseInt((nowTime - time) / 1000)
+    let HH = parseInt(dec / 3600) != 0 ? `${parseInt(dec / 3600)}:` : ''
+    let mm = `${parseInt(dec % 3600 / 60)}:`.padStart(3, '0')
+    let ss = `${parseInt(dec % 3600 % 60)}`.padStart(2, '0')
+    let show = dec >= 0 ? HH + mm + ss : '00:00'
+    return show
+    
+  },
+
   // 展开常见问题
   extendFaq(e) {
     let extendIndex = e.currentTarget.dataset.index
@@ -752,17 +737,25 @@ Page({
     }
   },
 
+
+  // 预览状态登录
+  redirectToLogin() {
+    wx.reLaunch({
+        url: '/pages/login/index' 
+      });
+  },
+
   // 页面初始化
   async loadPageData() {
     this.setData({ isLoadingPage: true });
     try {
-      // checkAccess 内部会先 getEnterInfo（拉店内状态），与 getNotice 并行；
-      // 避免把 getEnterInfo 再并列一次造成重复请求 + 竞态
+      await this.getEnterInfo();
       await Promise.all([
         this.checkAccess(),
         this.getNotice(),
       ]);
       this.setData({ isEnterBtnDisabled: true });
+      console.log("Home: 页面数据加载完成。");
     } catch (error) {
       console.error("Home: 加载页面数据时出错：", error);
       wx.showToast({
@@ -774,27 +767,26 @@ Page({
     }
   },
 
-  /* ============================================================
-   * 【四】页面生命周期
-   *   onLoad / onShow / onHide / onUnload / onPullDownRefresh
-   *   onReachBottom / onShareAppMessage
-   * ============================================================ */
-
   /**
    * 生命周期函数--监听页面加载
    */
   onLoad: async function (options) {
+      console.log("Home page onLoad");
   },
 
   /**
    * 生命周期函数--监听页面显示
    */
   onShow: async function() {
+      console.log("Home page onShow");
       app.ensureLoggedIn().then(userInfo => {
+        console.log("Home onShow: 登录状态检查完成, userInfo:", userInfo);
         if (userInfo && !userInfo.isNewUser) {
+          console.log("Home onShow: 用户已登录");
           this.setData({ userInfo: userInfo, isLoggedIn: true });
           this.loadPageData();
         } else {
+          console.log("Home onShow: 用户未登录");
           this.setData({
             userInfo: null,
             isLoggedIn: false,

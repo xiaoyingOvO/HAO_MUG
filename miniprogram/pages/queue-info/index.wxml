@@ -1,18 +1,17 @@
 <!--pages/queue-info/index.wxml-->
 <view class="login-overlay" wx:if="{{showLoginOverlay}}">
-  <view class="overlay-content">
-    <text>登录入店才可以参与排卡噢~</text>
-    <button bindtap="redirectToLogin">前往登录</button>
-  </view>
+    <view class="overlay-content">
+      <text>登录入店才可以参与排卡噢~</text>
+      <button bindtap="redirectToLogin">前往登录</button>
+    </view>
 </view>
+
+<custom-navi id="custom-navi" title="排卡板"></custom-navi>
 
 <!-- 右侧内容模板（复用：拖拽时 / 平时） -->
 <template name="queueContent">
   <!-- 游玩区 -->
   <view class="playing-area">
-    <!-- 提示：点空位 / 红位可在「拼机 / 单刷」之间切换。
-         只有可拼机的机台（舞萌·官机）才显示，单人机台和日麻都不显示 -->
-    <view wx:if="{{canSwitchMulti}}" class="playing-tip">点击座位可切换 拼机 / 单刷</view>
     <view
       wx:for="{{playingList}}"
       wx:key="index"
@@ -39,16 +38,24 @@
       style="{{showDragClone && dragIndex === index ? 'visibility: hidden;' : ''}}"
       player="{{player}}"
       player-index="{{index}}"
+      my-index="{{myIndex}}"
+      drag-mode="{{player.dragMode}}"
       data-index="{{index}}"
+      bind:embark="embark"
+      bind:requeue="handleRequeueBtn"
+      bind:requeued="handleRequeuedBtn"
       bind:dragstart="dragStart"
       bind:dragmove="dragMove"
-      bind:dragend="dragEnd" />
-    <!-- 跟手的克隆卡。位置用 transform 走合成层，不用 top，避免每帧触发重排 -->
+      bind:dragend="dragEnd"
+      bind:kickout="kickOut"
+      bind:report="report" />
     <card wx:if="{{showDragClone}}"
       id="clone-player"
-      style="position: absolute; top: 0; left: 0; width: {{cloneRect.width}}px; z-index: 999; pointer-events: none; transform: translate3d(0, {{cloneRect.top}}px, 0);"
+      style="position: absolute; top: {{cloneRect.top}}px; width: {{cloneRect.width}}px; left: 0; z-index: 999; pointer-events: none;"
       player="{{clonePlayer}}"
-      player-index="{{dragIndex}}"
+      player-index="{{myIndex}}"
+      my-index="{{myIndex}}"
+      drag-mode="{{true}}"
     />
   </view>
 </template>
@@ -61,8 +68,7 @@
 
   <view wx:if="{{!checkQueueError}}" class="queue-layout">
     <!-- 左：机台列表 -->
-    <!-- 左侧机台列表：bounces 关掉，避免下拉时出现「像在刷新」的回弹 -->
-    <scroll-view class="machine-list" scroll-y enhanced show-scrollbar="{{false}}" bounces="{{false}}">
+    <scroll-view class="machine-list" scroll-y enhanced show-scrollbar="{{false}}">
       <view
         wx:for="{{machines}}"
         wx:key="machineId"
@@ -75,12 +81,15 @@
 
     <!-- 右：游玩区 + 等候区 -->
     <view class="queue-area-wrap">
-      <!-- 拖拽中把 scroll-y 关掉，否则长按拖动时列表会跟着手指滚（安卓/iOS 都这样）。
-           ⚠️ 不要加 enhanced：增强模式下由原生接管滚动，scroll-y 的动态切换不生效
-           bounces 关掉：下拉时不再回弹，看起来就不会像「在下拉刷新」 -->
-      <scroll-view class="queue-area" scroll-y="{{!showDragClone}}" bounces="{{false}}">
-        <template is="queueContent" data="{{playingList, waitingList, showDragClone, clonePlayer, cloneRect, dragIndex, canSwitchMulti}}" />
+      <scroll-view class="queue-area" scroll-y enhanced show-scrollbar="{{false}}">
+        <template is="queueContent" data="{{playingList, waitingList, myIndex, showDragClone, clonePlayer, cloneRect, dragIndex}}" />
       </scroll-view>
+      <!-- 拖动时透明遮罩，catch 掉 touchmove，阻止滚动 -->
+      <view
+        wx:if="{{showDragClone}}"
+        class="drag-mask"
+        catch:touchmove="noop"
+      />
     </view>
   </view>
   <view wx:else class="queue-error">{{queueErrorText}}</view>

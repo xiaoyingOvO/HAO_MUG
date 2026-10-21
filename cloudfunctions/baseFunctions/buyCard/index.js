@@ -10,8 +10,6 @@ const db_card = 'card';
 const db_user = 'user';
 const db_card_lock = 'card_lock';
 
-const { toBJHour, toBJMinutes, nowBJMinutes } = require('../timeUtil');
-
 const max_retry_time = 5;
 const retry_wait_seconds = 0.5;
 const max_card_lock_seconds = 2;
@@ -162,28 +160,19 @@ async function getUserAndCardInfo(params) {
     }
   }
 
-  // 校验今日还能否使用该卡（兼容字符串/Date/$date 多种时段存法）
-  // 支持跨天时段：startMin > endMin 表示跨天（如夜场 23:00-次日 10:00）
-  if (duration && duration.type == 0) {
-    const nowMin = nowBJMinutes(new Date());
-    const startMin = toBJMinutes(duration.start_time);
-    const endMin = toBJMinutes(duration.end_time);
-
-    let inRange = false;
-    if (startMin !== null && endMin !== null) {
-      if (startMin < endMin) {
-        // 不跨天：如 10:00-17:00
-        inRange = nowMin >= startMin && nowMin < endMin;
-      } else {
-        // 跨天：如 23:00-次日 10:00（startMin=1380, endMin=600）
-        inRange = nowMin >= startMin || nowMin < endMin;
-      }
-    }
-
-    if (!inRange) {
+  // 校验今日还能否使用该卡
+  let now = new Date();
+  if (duration.type == 0) {
+    let tmp_time = new Date(now);
+    tmp_time.setHours(duration.end_time.getHours());
+    tmp_time.setMinutes(duration.end_time.getMinutes());
+    tmp_time.setSeconds(duration.end_time.getSeconds());
+    tmp_time.setMilliseconds(duration.end_time.getMilliseconds());
+    console.log('can_buy -- now:', now, 'end_time:', tmp_time);
+    if (now >= tmp_time) {
       return {
         success: false,
-        errMsg: "当前不在可购买时段"
+        errMsg: "今日已无法使用该优惠卡"
       };
     }
   }
@@ -221,6 +210,7 @@ async function getUserAndCardInfo(params) {
   } else {
       console.log(`用户 ${openid} 不包含 'cards' 字段或不是一个数组`);
   }
+  // var card = user_record.data[0].cards.find(item => card_id == item.card_id); 
   console.log('card:', card);
 
   now = new Date();
@@ -245,6 +235,38 @@ async function getUserAndCardInfo(params) {
           cost: cardCost,
       }
   };
+
+//   var card = user_record.data[0].cards.find(item => card_id == item.card_id); 
+//   console.log('card:', card);
+//   const now = new Date();
+//   let tmp_time = new Date(now);
+//   tmp_time.setFullYear(card.end_time.getFullYear());
+//   tmp_time.setMonth(card.end_time.getMonth());
+//   tmp_time.setDate(card.end_time.getDate());
+//   if (card != null && now < card.end_time) {
+//     console.log("已有该优惠卡");
+//     return {
+//       success: false,
+//       errMsg: "已有该优惠卡",
+//       data: {
+//         remain: remain
+//       }
+//     };
+//   } else if (tmp_time > card.end_time) {
+//     return {
+//       success: false,
+//       errMsg: "今日已无法使用该优惠卡"
+//     };
+//   }
+
+//   return {
+//     success: true,
+//     data: {
+//       duration: duration,
+//       remain: remain,
+//       card_id: card_id
+//     }
+//   }
 }
 
 async function acquireCardLock(params) {
@@ -358,55 +380,27 @@ async function sleep(seconds) {
 
 
 async function calStartEndTime(duration) {
-  // 云函数跑在 UTC 时区，而所有卡的时段语义都是「北京时间」。
-  // 用「当前北京时间」定日期，再按 BJ = UTC + 8 反推出 UTC 时间戳写库，
-  // 避免出现「UTC 日期还没到 / 已经过了」导致卡在正确时段内却无法使用的问题。
-  const nowUTC = new Date();
-  const nowBJ = new Date(nowUTC.getTime() + 8 * 60 * 60 * 1000);
-  // 取北京时间的年月日（nowBJ 是偏移后的 Date，用 UTC 取值即为北京时间）
-  const bjY = nowBJ.getUTCFullYear();
-  const bjM = nowBJ.getUTCMonth();
-  const bjD = nowBJ.getUTCDate();
-  console.log('now_date (UTC):', nowUTC, 'now (BJ):', nowBJ, 'BJ date:', bjY, bjM + 1, bjD);
-
-  // 把「北京时间 Y-M-D h:m」转成真正的 UTC 时间戳
-  // Date.UTC 会自动处理小时为负（即往前退一天）的情况
-  const bjToDate = (hour, minute) =>
-    new Date(Date.UTC(bjY, bjM, bjD, hour - 8, minute, 0, 0));
-
-  let start_time;
-  let end_time;
+  let start_time = new Date();
+  let end_time = new Date();
+  console.log("now_date:", start_time);
 
   if (duration.type == 0) {
-    // 时段卡：duration.start_time/end_time 历史上可能是字符串 "HH:MM"、Date 或 { $date }，
-    // 统一用公共工具解析成「北京时间时分」，避免对字符串调用 getHours() 抛错。
-    const sm = toBJMinutes(duration.start_time);
-    const em = toBJMinutes(duration.end_time);
-    const startHour = sm === null ? 0 : Math.floor(sm / 60);
-    const startMin = sm === null ? 0 : sm % 60;
-    const endHour = em === null ? 0 : Math.floor(em / 60);
-    const endMin = em === null ? 0 : em % 60;
-
-    start_time = bjToDate(startHour, startMin);
-    end_time = bjToDate(endHour, endMin);
-
-    // 跨天时段（如夜场 23:00 ~ 次日 10:00）：结束时间顺延一天
-    if (em !== null && sm !== null && em <= sm) {
-      end_time = new Date(end_time.getTime() + 24 * 60 * 60 * 1000);
-    }
+    start_time.setHours(duration.start_time.getHours());
+    start_time.setMinutes(duration.start_time.getMinutes());
+    start_time.setSeconds(duration.start_time.getSeconds());
+    end_time.setHours(duration.end_time.getHours());
+    end_time.setMinutes(duration.end_time.getMinutes());
+    end_time.setSeconds(duration.end_time.getSeconds());
   } else if (duration.type == 1) {
-    // 天数卡：从今天 10:00（北京时间）开始，持续 duration.days 天，最后一天 22:00 结束
-    start_time = bjToDate(10, 0);
-    const endBase = bjToDate(22, 0);
-    const days = (typeof duration.days === 'number' && duration.days > 0) ? duration.days : 1;
-    end_time = new Date(endBase.getTime() + (days - 1) * 24 * 60 * 60 * 1000);
-  } else {
-    // 未知类型：给一个保底值，避免写库时为 undefined
-    start_time = nowUTC;
-    end_time = nowUTC;
+    start_time.setHours(10);
+    start_time.setMinutes(0);
+    start_time.setSeconds(0);
+    end_time.setDate(end_time.getDate() + duration.days - 1);
+    end_time.setHours(22);
+    end_time.setMinutes(0);
+    end_time.setSeconds(0);
   }
-
-  console.log('start_time:', start_time, 'end_time:', end_time);
+  console.log("start_time:", start_time, "end_time:", end_time);
 
   return {
     start_time: start_time,
@@ -569,6 +563,21 @@ async function recordBuyInfo(params) {
       }
   }
 
+//   if (remain > 0) {
+//     await db.collection(db_card)
+//     .where({
+//       _id: card_id
+//     })
+//     .update({
+//       data: {
+//         remain: db_cmd.inc(-1)
+//       }
+//     })
+//     .then(res => {
+//       console.log(res);
+//     })
+//   }
+  
   console.log("购买完成！");
   return {
     success: true,

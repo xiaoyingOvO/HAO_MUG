@@ -16,8 +16,14 @@ exports.main = async (event, context) => {
   let machine_record = await db.collection(db_machine).where({
     _id: machine_id
   })
-  .get()
-  if (machine_record.data[0].is_disabled){
+  .get({
+    success: function (res) {
+      console.log('success!!!')
+      return res
+    },
+    fail: console.error
+  })
+  if (machine_record.data[0].max_player === 0){
     return {
       success: false,
       errMsg: "机器不可用"
@@ -25,27 +31,34 @@ exports.main = async (event, context) => {
   }
   // 查排队机器情况
   db_queue += machine_id
-  const queue_record = await db.collection(db_queue).get()
-
-  // 一次性批量查所有排队用户的昵称头像（解决 N+1 查询问题）
-  const openids = queue_record.data.map(q => q.openid).filter(Boolean)
-  const userMap = {}
-  if (openids.length > 0) {
-    const chunks = []
-    for (let i = 0; i < openids.length; i += 100) chunks.push(openids.slice(i, i + 100))
-    for (const chunk of chunks) {
-      const users = await db.collection(db_user).where({
-        openid: db.command.in(chunk)
-      }).field({ openid: true, avatar: true, nickname: true }).get()
-      users.data.forEach(u => { userMap[u.openid] = u })
-    }
-  }
-
-  // 给每条队列记录附加用户信息
-  queue_record.data.forEach(q => {
-    q.user_info = userMap[q.openid] || null
+  queue_record = await db.collection(db_queue)
+  .get({
+    success: function (res) {
+      console.log('success!!!')
+      return res
+    },
+    fail: console.error
   })
-
+  // 添加用户信息
+  for (var i = 0 ; i  < queue_record.data.length ; i++){
+    let user_record = await db.collection(db_user)
+    .where({
+      openid: queue_record.data[i].openid
+    })
+    .field({
+      openid: true,
+      avatar: true,
+      nickname: true,
+    })
+    .get({
+      success: function (res) {
+        console.log('success!!!')
+        return res
+      },
+      fail: console.error
+    })
+    queue_record.data[i].user_info = user_record.data[0]
+  }
   // 单链表排序
   const nodeMap = new Map()
   let headNode = null

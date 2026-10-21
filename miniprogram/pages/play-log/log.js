@@ -67,6 +67,15 @@ Page({
     selectedMachine: null/* {machineId: 't', machineName: '乌蒙1号', maxPlayer: 2} */
   },
 
+
+  // 点击顶部tab
+  handleTabClick(e) {
+    let logListKey = e.currentTarget.dataset.logListKey
+    this.setData({
+      activeLogList: logListKey
+    })
+  },
+
   // 获取机器操作日志
   getQueueLog() {
     let machineId = this.data.selectedMachine?.machineId
@@ -76,60 +85,22 @@ Page({
       if(!res.result.success) return Promise.reject(res)
       
       let machineLogs = Array.from(res.result.data.reverse(), log => {
-        // 兼容三种历史格式：
-        //   新格式：[HH:MM:SS] 用户名动作
-        //   旧格式：用户名于<Date>动作
-        //   更旧格式：用户用户名于<Date>动作
-        const logInfo = String(log.log_info || '')
-        let userName = '未知用户'
-        let action = logInfo
-
-        // 动作关键词（用于切分「用户名」和「动作」）
-        const markers = ['加入了队列', '离开了队列', '切换为拼机', '切换为单刷', '将', '上机', '下机']
-
-        if (logInfo.startsWith('[')) {
-          // 新格式：[HH:MM:SS] 用户名动作
-          const body = logInfo.replace(/^\[\d{2}:\d{2}:\d{2}\]\s*/, '').replace(/^用户/, '')
-          let cut = -1
-          for (const m of markers) {
-            const i = body.indexOf(m)
-            if (i >= 0 && (cut < 0 || i < cut)) cut = i
-          }
-          if (cut > 0) {
-            userName = body.slice(0, cut).trim()
-            action = body.slice(cut).trim()
-          } else {
-            action = body.trim()
-          }
-        } else {
-          // 旧格式：用户名于<Date>动作
-          const body = logInfo.replace(/^用户/, '')
-          const yiIdx = body.indexOf('于')
-          if (yiIdx > 0) {
-            userName = body.slice(0, yiIdx).trim()
-            let rest = body.slice(yiIdx + 1)
-            // 去掉 JS Date 字符串："Tue Oct 20 2026 18:37:35 GMT+0800 (China Standard Time)"
-            rest = rest.replace(/^[A-Z][a-z]{2} [A-Z][a-z]{2} \d{1,2} \d{4} \d{2}:\d{2}:\d{2} GMT[+-]\d{4}[^)]*\)?/, '')
-            // 再去掉可能残留的 [HH:MM:SS]
-            rest = rest.replace(/^\[\d{2}:\d{2}:\d{2}\]\s*/, '')
-            action = rest.trim()
-          } else {
-            action = body.trim()
-          }
-        }
-
+        // console.log(log.log_info)
+        const match = log.log_info.match(/用户(.+?)于/)
         return {
           time: Date.parse(new Date(log.timestamp).toString()),
           timeShow: new Date(log.timestamp).toLocaleString('zh-CN', {hour12: false}).replace(/\//g, "-"),
-          action,
-          userName,
+          action: log.log_info.replace(/^用户.+?于.*?Time\)/, ""),
+          userName: match ? match[1] : '未知用户',
         }
       })
       this.setData({
         ['logLists.machineLogs']: machineLogs
       })
+      console.log(`获取到机台${this.data.selectedMachine.machineName}日志`, machineLogs)
     })
   },
+
 
   /**
    * 生命周期函数--监听页面加载

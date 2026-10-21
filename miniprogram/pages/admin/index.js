@@ -11,6 +11,7 @@ Page({
     isLoading: true,
   },
 
+
   onLoad: function(options) {
     this.setData({ isLoading: true });
     this.initializeAdminInfo();
@@ -21,6 +22,7 @@ Page({
   },
 
   onPullDownRefresh: function() {
+    console.log('下拉刷新管理员信息');
     this.loadStoreStatus();
     wx.stopPullDownRefresh();
   },
@@ -29,6 +31,7 @@ Page({
     return new Promise((resolve, reject) => {
       const cachedAdminInfo = wx.getStorageSync(ADMIN_INFO_CACHE_KEY);
       if (cachedAdminInfo && cachedAdminInfo.role) {
+        console.log('从缓存中恢复管理员信息：', cachedAdminInfo);
         this.setAdminInfo(cachedAdminInfo);
         resolve();
         return;
@@ -51,6 +54,7 @@ Page({
 
         eventChannel.on('acceptData', (data) => {
           clearTimeout(timer);
+          console.log('管理员界面接收到 userInfo：', data.userInfo);
           if (data.userInfo && data.userInfo.role) {
             this.setAdminInfo(data.userInfo);
             resolve();
@@ -103,8 +107,10 @@ Page({
   async refreshAdminInfo() {
     const cachedAdminInfo = wx.getStorageSync(ADMIN_INFO_CACHE_KEY);
     if (cachedAdminInfo && cachedAdminInfo.role) {
+      console.log('从缓存中恢复管理员信息:', cachedAdminInfo);
       this.setAdminInfo(cachedAdminInfo);
     }
+    console.log('后台静默刷新管理员信息...');
     try {
       const res = await wx.cloud.callFunction({
         name: 'baseFunctions',
@@ -115,8 +121,10 @@ Page({
       if (res.result && res.result.success && res.result.data) {
         const latestAdminInfo = res.result.data;
         if (!this.data.adminInfo || latestAdminInfo.role !== this.data.adminInfo.role) {
+          console.log('管理员信息有变动，正在更新...');
           this.setAdminInfo(latestAdminInfo, true);
         } else {
+          console.log('管理员信息无变动，无需更新。');
         }
       } else {
         console.warn('获取管理员最新信息失败或已无权限：', res.result?.errMsg);
@@ -148,6 +156,7 @@ Page({
 
   // 加载模块
   loadModules: function() {
+    console.log(`当前管理员级别：${this.data.adminInfo.role}`);
     const modules = getAvailableModules(this.data.adminInfo.role);
     // console.log(`当前可用功能模块：${JSON.stringify(modules, null, 2)}`);
     this.setData({ availableModules: modules });
@@ -160,6 +169,7 @@ Page({
       
       var data = res.result.data
       var businessStatus = data.business_status ?? true
+      console.log('店铺营业状态: ', businessStatus)
       this.setData({ isStoreOpen: businessStatus })
     }).catch(console.error)
   },
@@ -181,6 +191,7 @@ Page({
               title: '切换成功',
               icon: 'none'
             })
+            console.log(`营业状态切换至${newStatus}`)
           }).catch(err => {
             this.setData({ isStoreOpen: !newStatus })
             wx.showToast({
@@ -196,6 +207,7 @@ Page({
       }
     })
 
+    
   },
 
   navigateToModule: function(e) {
@@ -211,5 +223,10 @@ Page({
       });
     }
   },
+
+
+
+
+
 
 })

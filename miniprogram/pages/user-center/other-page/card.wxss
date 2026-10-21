@@ -113,7 +113,30 @@ page {
   background-image: radial-gradient(circle, rgba(255, 255, 255, 0.1) 1px, transparent 1px);
   background-size: 20px 20px;
   opacity: 0.5;
+  animation: bg-pan 15s linear infinite;
   z-index: 0;
+}
+
+@keyframes bg-pan {
+  0% {
+    transform: translate(0, 0);
+  }
+
+  25% {
+    transform: translate(10px, 10px);
+  }
+
+  50% {
+    transform: translate(0, 20px);
+  }
+
+  75% {
+    transform: translate(-10px, 10px);
+  }
+
+  100% {
+    transform: translate(0, 0);
+  }
 }
 
 /* --- 主题定义 --- */
@@ -171,26 +194,6 @@ page {
   background: radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%);
   border-color: rgba(191, 219, 254, 0.4);
   animation: glowing-particles 5s linear infinite;
-  --card-text-color: #fff;
-  --card-text-secondary-color: rgba(255, 255, 255, 0.9);
-  --card-element-bg: rgba(255, 255, 255, 0.2);
-  --card-remain-bg: rgba(0, 0, 0, 0.15);
-  --card-remain-color: rgba(255, 255, 255, 0.8);
-  --card-border-color: rgba(255, 255, 255, 0.2);
-}
-
-.theme-night-mystic {
-  background: linear-gradient(135deg, #2c3e50 0%, #4ca1af 100%);
-  --card-text-color: #fff;
-  --card-text-secondary-color: rgba(255, 255, 255, 0.9);
-  --card-element-bg: rgba(255, 255, 255, 0.2);
-  --card-remain-bg: rgba(0, 0, 0, 0.15);
-  --card-remain-color: rgba(255, 255, 255, 0.8);
-  --card-border-color: rgba(255, 255, 255, 0.2);
-}
-
-.theme-board-green {
-  background: linear-gradient(135deg, #2e7d32 0%, #66bb6a 100%);
   --card-text-color: #fff;
   --card-text-secondary-color: rgba(255, 255, 255, 0.9);
   --card-element-bg: rgba(255, 255, 255, 0.2);

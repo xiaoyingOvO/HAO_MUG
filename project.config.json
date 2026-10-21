@@ -1,5 +1,5 @@
 {
-  "appid": "wxd3c108ab394a32f3",
+  "appid": "wx719ebc8fcd606fb1",
   "compileType": "miniprogram",
   "miniprogramRoot": "miniprogram/",
   "srcMiniprogramRoot": "miniprogram/",
@@ -34,7 +34,7 @@
     "disableUseStrict": false,
     "useCompilerPlugins": false
   },
-  "projectname": "HAO_MUG-2.2.9",
+  "projectname": "quickstart-wx-cloud",
   "libVersion": "latest",
   "condition": {
     "search": {
@@ -50,7 +50,13 @@
       "list": []
     },
     "miniprogram": {
-      "list": []
+      "list": [
+        {
+          "id": -1,
+          "name": "db guide",
+          "pathName": "pages/databaseGuide/databaseGuide"
+        }
+      ]
     }
   },
   "packOptions": {
@@ -69,6 +75,5 @@
   "projectArchitecture": "multiPlatform",
   "simulatorPluginLibVersion": {
     "wxext14566970e7e9f62": "3.6.5-29"
-  },
-  "isGameTourist": false
+  }
 }

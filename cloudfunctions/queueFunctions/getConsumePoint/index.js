@@ -9,8 +9,6 @@ const db_user = 'user';
 const db_card = 'card'
 const db_cmd = db.command;
 
-const { toBJHour } = require('../timeUtil');
-
 // 区域费率（点/分钟）
 const AREA_ARCADE = 'arcade'
 const AREA_BOARD = 'board'
@@ -18,7 +16,7 @@ const RATE_ARCADE = 0.2   // 音游区：0.2 点/分 = 12 点/小时（老版计
 const RATE_BOARD = 0.1    // 桌游区：0.1 点/分 =  6 点/小时
 
 // 获取入店情况云函数入口
-async function getConsumePointMain(event, context) {
+exports.main = async (event, context) => {
   // 获取openid
   const wxContext = cloud.getWXContext()
   var openid = wxContext != null && 'OPENID' in wxContext ? 
@@ -70,50 +68,30 @@ async function getConsumePointMain(event, context) {
   const area = user_record.data[0].area === AREA_BOARD ? AREA_BOARD : AREA_ARCADE
   const rate = area === AREA_BOARD ? RATE_BOARD : RATE_ARCADE
   console.log('计费区域:', area, '费率:', rate, '点/分')
-  // 处理所有优惠卡信息（批量查询，避免 N+1）
-  // 1. 先筛选出时间范围有效的卡，收集 card_id
-  const activeCardRefs = []
-  cards.forEach(c => {
-    if (enter_time <= c.end_time && current_time >= c.start_time) {
-      activeCardRefs.push(c)
-    }
-  })
-  // 2. 批量查询卡详情
-  const cardDetails = {}
-  if (activeCardRefs.length > 0) {
-    const cardIds = activeCardRefs.map(c => c.card_id).filter(Boolean)
-    const chunks = []
-    for (let i = 0; i < cardIds.length; i += 100) chunks.push(cardIds.slice(i, i + 100))
-    for (const chunk of chunks) {
-      const cr = await db.collection(db_card).where({ _id: db.command.in(chunk) }).get()
-      cr.data.forEach(cd => { cardDetails[cd._id] = cd })
-    }
-  }
-  // 3. 处理每张卡的折扣和免单时段
   let zhekou = 1
-  const discountCards = []
-  for (const c of activeCardRefs) {
-    const cardInfo = cardDetails[c.card_id]
-    if (!cardInfo) {
-      console.warn('优惠卡不存在，跳过:', c.card_id)
-      continue
-    }
-    if (cardInfo.discount != 0) {
-      zhekou *= cardInfo.discount
-    } else {
-      // 区域限制：card.area 存在且不等于用户当前区域 → 该卡不享受免单
-      const cardArea = cardInfo.area
-      if (cardArea && cardArea !== area) {
-        console.log(`卡 ${cardInfo._id} 仅限 ${cardArea} 区，用户当前 ${area}，不计免单`)
-        continue
-      }
-      const dur = cardInfo.duration || {}
-      const sh = toBJHour(dur.start_time !== undefined ? dur.start_time : dur.start_hour)
-      const eh = toBJHour(dur.end_time !== undefined ? dur.end_time : dur.end_hour)
-      if (!Number.isNaN(sh) && sh !== null && !Number.isNaN(eh) && eh !== null) {
-        discountCards.push({ start: sh, end: eh })
-      } else {
-        console.warn('免单卡时段格式无法识别，跳过:', c.card_id, JSON.stringify(dur))
+  // 处理所有优惠卡信息    
+  var discountCards = []
+  for(var i = 0 ; i < cards.length ; i++){
+    var endtime = cards[i].end_time
+    var starttime = cards[i].start_time
+    // 入店至今包含优惠卡有效期
+    if (enter_time <= endtime && current_time >= starttime) {
+      var card_id = cards[i].card_id
+      // 查询优惠卡具体信息
+      let card_info = await db.collection(db_card).where({
+        _id: card_id
+      }).get({
+        success: function (res) {
+          console.log('success!!!')
+          return res
+        },
+        fail: console.error
+      })
+      // 分会员卡和免费时段卡
+      if (card_info.data[0].discount != 0){
+        zhekou *= card_info.data[0].discount
+      }else{
+        discountCards.push({start:card_info.data[0].duration.start_time.getHours(),end: card_info.data[0].duration.end_time.getHours()})          
       }
     }
   }
@@ -129,14 +107,15 @@ async function getConsumePointMain(event, context) {
   var ori_consumePoint = billingTime * rate
   // 信誉百分比叠加
   var consumePoint = ori_consumePoint * zhekou
-  // 信用分惩罚：>=85 无惩罚；70~84 加 20%；60~69 加 50%；<60 记 -1（异常标记）
-  // （原版误用 switch(credit) + 布尔 case 且缺 break，永远不会命中也不会 fall-through，这里改为 if/else）
-  if (credit < 60) {
-    consumePoint = -1
-  } else if (credit >= 60 && credit < 70) {
-    consumePoint = consumePoint * 1.5
-  } else if (credit >= 70 && credit < 85) {
-    consumePoint = consumePoint * 1.2
+  switch (credit){
+    case credit >= 85:
+      break
+    case credit < 85 && credit >= 70:
+      consumePoint = consumePoint * 1.2
+    case credit >= 60 && credit < 70:
+      consumePoint = consumePoint * 1.5
+    case credit < 60:
+      consumePoint = -1
   }
   // Lv6等级不扣点数
   // 边界统一：enterArcade 的余额校验用的是 `exp < 114514` 才拦截（即 exp >= 114514 放行），
@@ -155,16 +134,6 @@ async function getConsumePointMain(event, context) {
   }
 };
 
-// 入口：兜底捕获所有异常，把错误信息明确返回给前端（而不是让函数静默失败、前端停留在 0.00）
-exports.main = async (event, context) => {
-  try {
-    return await getConsumePointMain(event, context);
-  } catch (e) {
-    console.error('getConsumePoint 异常:', e);
-    return { success: false, errMsg: 'getConsumePoint 异常: ' + e.message };
-  }
-};
-
 // 时间转换
 function timeToMinutes(timeStr) {
   return timeStr * 60;
@@ -176,7 +145,7 @@ function minutesOfDay(d) {
 }
 
 /**
- * 桌游/日麻区计费时长（分钟）—— 与原版 calculateBillingTime 的区别：
+ * 桌游区计费时长（分钟）—— 与原版 calculateBillingTime 的区别：
  *   1. **支持跨天**：原版用「当天分钟数相减」，跨过 24:00 会得到负数；
  *      这里按天拆分累计真实游玩时长，跨夜、跨多天都能算对。
  *   2. **不走夜场免单**：桌游区 23 点后不强制离店、继续计费。
@@ -219,25 +188,14 @@ function boardBillingMinutes(playStart, playEnd, discountCards) {
   return billingTime > 0 ? billingTime : 0;
 }
 
-// 合并优惠卡（并拆分跨天时段）
+// 合并优惠卡
 function mergeDiscountCards(discountCards) {
-  // 先把每个时段转成「当天分钟」，跨天时段（start > end，如夜场 23:00→次日10:00）拆成两段：
-  //   [start, 24:00] 落在当天  +  [00:00, end] 落在次日
-  // 否则 start 分钟(1380) > end 分钟(600)，交集恒为 0，抵扣失效（桌游区夜场会正常扣费）。
-  const intervals = [];
-  discountCards.forEach(card => {
-    const s = card.start;
-    const e = card.end;
-    if (s < e) {
-      intervals.push({ start: timeToMinutes(s), end: timeToMinutes(e) });
-    } else {
-      // 跨天时段：拆成当天 [s, 24:00] 和次日 [00:00, e] 两段
-      intervals.push({ start: timeToMinutes(s), end: 24 * 60 });
-      intervals.push({ start: 0, end: timeToMinutes(e) });
-    }
-  });
-  intervals.sort((a, b) => a.start - b.start);
-  // 合并重叠区间
+  // 将优惠卡时间段转换为分钟并排序
+  const intervals = discountCards.map(card => ({
+      start: timeToMinutes(card.start),
+      end: timeToMinutes(card.end),
+  })).sort((a, b) => a.start - b.start);
+  // 合并时间段
   const merged = [];
   intervals.forEach(interval => {
       if (merged.length === 0 || merged[merged.length - 1].end < interval.start) {

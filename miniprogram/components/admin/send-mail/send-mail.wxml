@@ -39,6 +39,7 @@
                 value="{{searchValue}}"
                 bindinput="onSearchInput"
                 confirm-type="search"
+                bindconfirm="onSearchClick"
                 bindfocus="onInputFocus"
                 bindblur="onInputBlur"
                 data-field="isSearchInputFocused"
@@ -64,7 +65,7 @@
                   data-user="{{item}}"
                   hover-class="hover"
                 >
-                  <image class="item-avatar" src="{{item.avatar || '/images/default-avatar.png'}}" mode="aspectFill"></image>
+                  <image class="item-avatar" src="{{item.avatar || '/images/icons/default-avatar.png'}}" mode="aspectFill"></image>
                   <text class="item-nickname">{{item.nickname}}</text>
                 </view>
               </block>

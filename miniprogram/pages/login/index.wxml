@@ -41,6 +41,7 @@
 
       <!-- 手机号输入 -->
       <view class="input-group">
+        <!--image src="/images/icon-phone.png" class="input-icon" /-->
         <button class="phone-button" open-type="getPhoneNumber" bindgetphonenumber="getPhoneNumber">
           {{phone ? phone : '点击授权手机号'}}
         </button>
@@ -48,6 +49,7 @@
 
       <!-- QQ号输入 -->
       <view class="input-group">
+        <!--image src="/images/icon-qq.png" class="input-icon" /-->
         <input
           class="input-box"
           type="number"
