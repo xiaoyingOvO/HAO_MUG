@@ -38,7 +38,7 @@ exports.main = async (event, context) => {
     },
     fail: console.error
   })
-  if (machine_record.data[0].max_player === 0){
+  if (machine_record.data[0].is_disabled){
     return {
       success: false,
       errMsg: "机器不可用"
@@ -75,15 +75,15 @@ exports.main = async (event, context) => {
     }
   }
   // 跨区排卡拉黑：机台所属区域必须和用户当前入店区域一致。
-  //   桌游区的人只能排日麻（machine.area = 'board'），音游区的人只能排音游机台。
-  // ⚠️ 依赖 machine 集合的 area 字段（日麻 = 'board'，其余 'arcade'）；
+  //   桌游区的人只能排日麻（machine.area = 'mahjong'），音游区的人只能排音游机台。
+  // ⚠️ 依赖 machine 集合的 area 字段（日麻 = 'mahjong'，其余 'arcade'）；
   //    老数据没有该字段时按音游区处理，即改版前的行为。
-  const my_area = user_info.data[0].area === 'board' ? 'board' : 'arcade'
-  const machine_area = machine_record.data[0] && machine_record.data[0].area === 'board' ? 'board' : 'arcade'
+  const my_area = user_info.data[0].area === 'mahjong' ? 'mahjong' : 'arcade'
+  const machine_area = machine_record.data[0] && machine_record.data[0].area === 'mahjong' ? 'mahjong' : 'arcade'
   if (my_area !== machine_area) {
     return {
       success: false,
-      errMsg: my_area === 'board'
+      errMsg: my_area === 'mahjong'
         ? "桌游区无法排音游机台，请先离店后重新选择音游区入店"
         : "日麻属于桌游区，请先离店后重新选择「桌游/日麻」入店",
     }
