@@ -1,6 +1,7 @@
 // components/card/card.js
 // 等候区的玩家卡：只负责「长按 300ms 进入拖拽」并把触摸事件透给父页面，
 // 排序 / 上机 / 下机等业务动作全部由 queue-info 页面处理。
+// 「我」的标识由 player.isMe 决定（是不是当前用户），不依赖列表下标。
 Component({
 
   properties: {
@@ -17,10 +18,6 @@ Component({
     playerIndex: {
       type: Number,
       value: 0
-    },
-    myIndex: {
-      type: Number,
-      value: -1
     },
   },
 
