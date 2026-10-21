@@ -28,9 +28,7 @@ function buildDeviceGroups(machines) {
   const groups = [];
   const byGroup = new Map();
   Array.from(machines || []).forEach((m) => {
-    const rawGid = m.group_id || m._id;
-    // 历史数据里可能残留 'mahjong'，统一归一到 'board'
-    const gid = rawGid === 'mahjong' ? 'board' : rawGid;
+    const gid = m.group_id || m._id;
     if (!byGroup.has(gid)) {
       const g = {
         groupId: gid,

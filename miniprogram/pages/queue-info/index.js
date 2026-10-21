@@ -71,8 +71,6 @@ const retryPromise = async function({ promise=async()=>{}, retries=0, fail=()=>{
 }
 
 Page({
-  // 空函数
-  noop() {},
   /**
    * 页面的初始数据
    */
@@ -112,7 +110,6 @@ Page({
     isLoading: true,
     overdraft: false,        // 是否处于透支状态 → 页面常驻红字
     overdraftShortage: 0,    // 透支了多少点
-    scrollEnabled: true,     // 等候区是否可滚动（拖拽时禁用）
   },
 
   // 切换机台（点击左侧列表里的某一项）
@@ -395,25 +392,34 @@ Page({
     const touch = detail.changedTouches && detail.changedTouches[0]
     if (!touch) return
 
-    const i = e.currentTarget.dataset.index   // waitingList 的下标
+    // ⚠️ dataset 取出来可能是字符串。不转成数字的话模板里的
+    //    `dragIndex === index` 恒为 false → 原卡不会被隐藏，
+    //    屏幕上就会同时出现「原卡 + 跟手的克隆卡」两张一样的卡。
+    const i = Number(e.currentTarget.dataset.index)
     const player = this.data.waitingList[i]
     if (!player) return
 
     this._dragPlayer = player
 
-    // 先切 DOM（scroll-view → view），再在 nextTick 拿 rect
+    // 拖拽会话号：resetDragState 会让它 +1，用来作废上一次拖拽遗留的异步回调
+    const seq = ++this._dragSeq
+    this._lastMoveTs = 0
+
+    // 先把 showDragClone 打开（模板里 scroll-y 会跟着关掉、原卡也会隐藏），
+    // 等这轮渲染落地后再量尺寸，否则量到的是滚动中的旧位置
     this.setData({
-      scrollEnabled: false,
       dragIndex: i,
       clonePlayer: { ...player },
       showDragClone: true,
     })
 
     wx.nextTick(() => {
+      if (seq !== this._dragSeq) return
       this.createSelectorQuery()
         .select('.waiting-list > .real-card').boundingClientRect()
         .select('.waiting-list').boundingClientRect()
         .exec(([cardRect, listRect]) => {
+          if (seq !== this._dragSeq) return
           if (!listRect) return
           const height = cardRect ? cardRect.height : 140
           const top = touch.clientY - listRect.top - height / 2
@@ -441,6 +447,11 @@ Page({
     const touch = detail.touches && detail.touches[0]
     if (!touch) return
     if (this._listTop == null) return
+    // touchmove 一帧内可能来好几次，而每次 setData 都是「逻辑层 → 渲染层」的跨线程通信。
+    // 不节流的话实机上每帧要发好几次，直接掉帧，手指和卡片就会脱节。这里每帧最多发一次。
+    const now = Date.now()
+    if (now - this._lastMoveTs < 16) return
+    this._lastMoveTs = now
     const { height } = this.data.cloneRect
     const top = touch.clientY - this._listTop - height / 2
     this.setData({ 'cloneRect.top': top })
@@ -491,8 +502,9 @@ Page({
   resetDragState() {
     this._dragPlayer = null
     this._listTop = null
+    this._lastMoveTs = 0
+    this._dragSeq++          // 让上一次拖拽还在途的回调作废
     this.setData({
-      scrollEnabled: true,
       showDragClone: false,
       dragIndex: -1,
       clonePlayer: {},
@@ -833,6 +845,8 @@ Page({
    */
   onLoad(options) {
     // this.checkLoginState();
+    this._dragSeq = 0      // 拖拽会话号，见 dragStart / resetDragState
+    this._lastMoveTs = 0   // dragMove 的节流时间戳
   },
 
   /**
@@ -857,14 +871,16 @@ Page({
    * 生命周期函数--监听页面隐藏
    */
   onHide() {
-
+    // 拖到一半切后台 / 息屏时 touchend 可能不触发，克隆卡和「被隐藏的原卡」会留在页面上，
+    // 看起来就像卡片变成了两张。这里补一次收尾。
+    if (this.data.showDragClone) this.resetDragState()
   },
 
   /**
    * 生命周期函数--监听页面卸载
    */
   onUnload() {
-
+    if (this.data.showDragClone) this.resetDragState()
   },
 
   /**

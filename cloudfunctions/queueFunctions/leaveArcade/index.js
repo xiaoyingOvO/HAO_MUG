@@ -5,6 +5,7 @@ cloud.init({
 });
 
 const db = cloud.database();
+const db_cmd = db.command
 const db_user = "user"
 const db_arcade_log = "arcade_log"
 
@@ -112,7 +113,9 @@ exports.main = async (event, context) => {
       enter_time: null,
       real_point: afterRealPoint,
       extra_point: afterExtraPoint,
-      exp: exp
+      exp: exp,
+      // 离店后不再保留入店区域：否则下次入店前的状态读取会拿到上次的区域
+      area: db_cmd.remove()
     }
   })
   .then(res => {

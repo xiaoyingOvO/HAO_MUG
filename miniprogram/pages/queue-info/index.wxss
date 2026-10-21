@@ -325,11 +325,10 @@ button {
   flex: 1;
   height: 100%;
 }
-.drag-mask {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 998;
+/* 隐藏滚动条（原先靠 scroll-view 的 show-scrollbar，那是增强模式专属属性，
+   拖拽需要动态切 scroll-y 所以不能开增强模式，改在样式里隐藏） */
+.queue-area::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }

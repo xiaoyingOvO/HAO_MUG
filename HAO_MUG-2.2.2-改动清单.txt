@@ -1,0 +1,160 @@
+HAO_MUG-2.2.0 改动清单
+================================================================
+基线：Downloads/HAO_MUG-2.2.0.zip（2025-10-15 14:59 原始包，368 个文件）
+产出：E:\WORKBUDDY\2026-10-13-12-16-06\HAO_MUG-2.2.0.zip
+      （489 条目，与原包同结构；testzip() 通过）
+校验：逐文件 md5 → 355 个文件未改动 / 12 个内容改动 / 1 新增 / 1 删除
+      node --check 语法校验全部通过
+
+================================================================
+第一部分  小影 10-15 指令（离店清 area + 命名收尾）
+================================================================
+
+【1】离店时清除 area 信息（3 处）
+
+  a) cloudfunctions/queueFunctions/leaveArcade/index.js       ← 云端
+     · 第 8 行新增：const db_cmd = db.command
+     · update 的 data 中新增：
+           // 离店后不再保留入店区域：否则下次入店前的状态读取会拿到上次的区域
+           area: db_cmd.remove()
+
+  b) miniprogram/mock/cloudMock.js  leaveArcade（约 L1295）   ← 离线模拟层
+     · 新增：delete s.me.area;
+
+  c) miniprogram/mock/cloudMock.js  leaveArcadeForce（约 L1312）
+     · 新增：delete u.area;
+
+【2】删除 home.js 的历史数据兼容归一（小影：「第二个可以删掉」）
+
+  miniprogram/pages/home/home.js  buildDeviceGroups()
+     删除前：
+         const rawGid = m.group_id || m._id;
+         // 历史数据里可能残留 'mahjong'，统一归一到 'board'
+         const gid = rawGid === 'mahjong' ? 'board' : rawGid;
+     删除后：
+         const gid = m.group_id || m._id;
+
+【3】保留项（小影：「第三个不用删」）
+     cloudMock.js 中 BOARD_NIGHT_RATE = null 保留，未删除。
+
+================================================================
+第二部分  mahjong → board 命名归一（上一轮，本轮未再触碰）
+================================================================
+
+9 个 js 文件共 96 处：
+  cloudfunctions/queueFunctions/Enqueue/index.js
+  cloudfunctions/queueFunctions/enterArcade/index.js
+  cloudfunctions/queueFunctions/getConsumePoint/index.js
+  cloudfunctions/queueFunctions/getEnterInfo/index.js
+  cloudfunctions/queueFunctions/leaveArcade/index.js（本轮另有【1a】改动）
+  cloudfunctions/scheduledTask/index.js
+  miniprogram/cloudFcn.js
+  miniprogram/mock/cloudMock.js（本轮另有【1b】【1c】改动）
+  miniprogram/pages/home/home.js（本轮另有【2】改动）
+  miniprogram/pages/queue-info/index.js（本轮另有第三部分改动）
+标识符：AREA_MAHJONG→AREA_BOARD、MAHJONG_NIGHT_RATE→BOARD_NIGHT_RATE、
+        RATE_MAHJONG→RATE_BOARD、mahjongBillingMinutes→boardBillingMinutes、
+        字面量 'mahjong'→'board'
+
+图片：删 miniprogram/images/machines/mahjong.jpg
+      增 miniprogram/images/machines/board.jpg（同一张图，仅改名）
+
+cloudMock.js：DB_VERSION 20 → 21（改了 seed 必须升版本，否则本地缓存不重建）
+
+================================================================
+第三部分  排卡版长按拖拽修复（本轮新增）
+================================================================
+
+涉及 3 个文件，改动前请先看「根因」一栏，都是实机可见的 bug。
+
+--- 问题 A：长按拖动人员时列表会跟着滚（安卓 / iOS 都出现） ---
+
+根因（3 个叠加）：
+  1. data 里有 scrollEnabled（拖拽时置 false），但 index.wxml 里 scroll-view 写的是
+     静态 `scroll-y`，**根本没绑定这个变量** → 拖拽时列表照常能滚。
+  2. 那个「拖动时透明遮罩 catch:touchmove="noop"」是无效代码：小程序触摸事件在
+     touchstart 那一刻就锁定了目标节点，手指移动阶段的 touchmove 只会派发给最初
+     命中的那张卡，不会改派给之后才出现的遮罩 → 遮罩拦不住滚动。
+  3. card 用的是 bind:touchmove（不是 catch:），事件还会冒泡到 scroll-view。
+
+修法（index.wxml）：
+  · <scroll-view class="queue-area" scroll-y="{{!showDragClone}}">
+      —— 拖拽一开始就把 scroll-view 的滚动锁掉，这是官方推荐做法
+      （`scroll-y="{{!dragging}}"`），且不会重置列表的滚动位置。
+  · 去掉该 scroll-view 的 `enhanced` 和 `show-scrollbar`：
+      增强模式下滚动由原生接管，`scroll-y` 的动态切换不可靠。
+      `show-scrollbar` 是增强模式专属属性，所以一并去掉。
+  · 删掉那个无效的 drag-mask（顺带消除一个隐患：showDragClone 一旦卡在 true，
+      遮罩会永久盖住等候区、让整个区域点不动）。
+  · 位置改用 transform 而不是 top（见问题 B）。
+
+修法（index.wxss）：
+  · 删掉 .drag-mask 规则
+  · .queue-area::-webkit-scrollbar { width:0; height:0; display:none }
+      —— 补上之前靠 show-scrollbar 实现的「不显示滚动条」
+
+修法（index.js）：
+  · 删掉已无用的 noop() 和 data.scrollEnabled（死变量）
+
+--- 问题 B：实机卡顿，连续长按会出现「分身」（同一张卡出现两份） ---
+
+根因（4 条，按可能性排序）：
+  1. **原卡没被隐藏**（最可能）：
+       index.wxml: style="{{showDragClone && dragIndex === index ? 'visibility: hidden;' : ''}}"
+       index.js  : const i = e.currentTarget.dataset.index
+     dataset 取出来的值可能是**字符串**，'2' === 2 恒为 false → 被拖的那张原卡
+     一直是可见的，于是「原卡 + 跟手的克隆卡」同屏 → 就是分身。
+     （同文件里 switchMachine 已经写了 Number(...)，说明这个坑之前踩过）
+  2. **每帧多次 setData**：dragMove 每个 touchmove 都发一次 setData。一次 touchmove
+     要经过「渲染层 → 逻辑层 → setData → 渲染层」两次跨线程通信；高刷屏一帧内可能
+     来好几次，渲染线程持续忙 → 卡顿，手指和卡片脱节。
+  3. **迟到的异步回调覆盖新状态**：dragStart 里的 wx.nextTick + createSelectorQuery
+     回调是异步的。卡顿时会晚于 resetDragState 才执行，把新一次拖拽的 cloneRect
+     写成上一次的旧坐标（克隆卡先出现在错误位置再跳到手指处）。
+  4. **拖到一半切后台/息屏**：touchend / touchcancel 不触发 → showDragClone 卡在
+     true → 克隆卡和被隐藏的原卡永久留在页面上，看起来就是分身，且不重启页面不恢复。
+
+修法（index.js）：
+  · const i = Number(e.currentTarget.dataset.index)   —— 修根因 1
+  · dragMove 加节流：同一帧内最多发一次 setData（now - this._lastMoveTs < 16 则跳过）
+       —— 修根因 2。位置仍然只写 cloneRect.top 一个路径，不整表重刷。
+  · 新增拖拽会话号 this._dragSeq：
+      dragStart 里 const seq = ++this._dragSeq；
+      nextTick 回调和 exec 回调开头都加 if (seq !== this._dragSeq) return；
+      resetDragState 里 this._dragSeq++ 作废在途回调   —— 修根因 3
+  · onHide / onUnload 里补一次 resetDragState()（仅在 showDragClone 为 true 时）
+       —— 修根因 4
+  · onLoad 里初始化 this._dragSeq = 0 和 this._lastMoveTs = 0
+
+修法（index.wxml）：
+  · 克隆卡的位置从 top 改成 transform: translate3d(0, Npx, 0)
+       —— 走合成层，不触发重排，配合节流进一步降开销
+  · 克隆卡的 player-index 从 {{myIndex}} 改成 {{dragIndex}}
+       —— 原来传 myIndex 会让克隆卡显示的序号是「我的位置」，
+          跟被拖的那张卡的序号对不上
+
+================================================================
+未改动确认
+================================================================
+· 368 个文件中 355 个 md5 完全一致，无预期外改动。
+· card 组件（components/card/card.js / card.wxml）本轮**未改**。
+· 未新增任何文件到项目目录；包内条目数保持 489（原 489 − 删 1 + 增 1）。
+· 云端无需数据迁移（小影已确认无 mahjong 残留）。
+
+================================================================
+部署提示
+================================================================
+1. cloudfunctions/queueFunctions/leaveArcade/index.js 属云端代码，
+   需在微信开发者工具中右键该云函数目录 → 「上传并部署：云端安装依赖」。
+   只上传小程序主包，这个改动不会生效。
+2. miniprogram/ 下改动随主包发布，需重新上传体验版 / 正式版。
+3. mock（cloudMock.js）只在测试号离线模式生效，线上不加载。
+
+================================================================
+如果拖拽仍然会滚（备选第二层方案）
+================================================================
+在 card 组件上做事件级拦截，与 scroll-view 实现无关：
+  1. card.wxml 的根 view 绑定：catch:touchmove="{{dragging ? 'onTouchMove' : 'bubbleTouchMove'}}"
+  2. card 增加 property dragging（页面用 dragging="{{showDragClone}}" 传进来）
+  3. onTouchMove 里若 !this._isDragging，直接 clearTimeout（取消长按）并 return
+  注意：不能无条件写成 catch:touchmove，否则平时在卡上滑动就没法滚列表了。

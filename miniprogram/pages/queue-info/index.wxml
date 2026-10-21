@@ -1,6 +1,4 @@
 <!--pages/queue-info/index.wxml-->
-<page-meta page-style="{{scrollEnabled ? '' : 'overflow: hidden;'}}"></page-meta>
-
 <view class="login-overlay" wx:if="{{showLoginOverlay}}">
     <view class="overlay-content">
       <text>登录入店才可以参与排卡噢~</text>
@@ -48,11 +46,12 @@
       bind:dragstart="dragStart"
       bind:dragmove="dragMove"
       bind:dragend="dragEnd" />
+    <!-- 跟手的克隆卡。位置用 transform 走合成层，不用 top，避免每帧触发重排 -->
     <card wx:if="{{showDragClone}}"
       id="clone-player"
-      style="position: absolute; top: {{cloneRect.top}}px; width: {{cloneRect.width}}px; left: 0; z-index: 999; pointer-events: none;"
+      style="position: absolute; top: 0; left: 0; width: {{cloneRect.width}}px; z-index: 999; pointer-events: none; transform: translate3d(0, {{cloneRect.top}}px, 0);"
       player="{{clonePlayer}}"
-      player-index="{{myIndex}}"
+      player-index="{{dragIndex}}"
       my-index="{{myIndex}}"
     />
   </view>
@@ -79,15 +78,11 @@
 
     <!-- 右：游玩区 + 等候区 -->
     <view class="queue-area-wrap">
-      <scroll-view class="queue-area" scroll-y enhanced show-scrollbar="{{false}}">
+      <!-- 拖拽中把 scroll-y 关掉，否则长按拖动时列表会跟着手指滚（安卓/iOS 都这样）。
+           ⚠️ 不要加 enhanced：增强模式下由原生接管滚动，scroll-y 的动态切换不生效 -->
+      <scroll-view class="queue-area" scroll-y="{{!showDragClone}}">
         <template is="queueContent" data="{{playingList, waitingList, myIndex, showDragClone, clonePlayer, cloneRect, dragIndex, canSwitchMulti}}" />
       </scroll-view>
-      <!-- 拖动时透明遮罩，catch 掉 touchmove，阻止滚动 -->
-      <view
-        wx:if="{{showDragClone}}"
-        class="drag-mask"
-        catch:touchmove="noop"
-      />
     </view>
   </view>
   <view wx:else class="queue-error">{{queueErrorText}}</view>
