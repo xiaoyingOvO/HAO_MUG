@@ -19,6 +19,18 @@ exports.main = async (event, context) => {
   const machine_id = event.params.machine_id;
   const is_multi = event.params.is_multi;
   console.log('openid:', openid, 'machine_id:', machine_id, 'is_multi:', is_multi);
+
+  // 查询用户昵称（用于日志）
+  let nickname = openid.substring(0, 8)
+  try {
+    const userRecord = await db.collection(db_user).where({ openid }).field({ nickname: true }).get()
+    if (userRecord.data && userRecord.data.length > 0 && userRecord.data[0].nickname) {
+      nickname = userRecord.data[0].nickname
+    }
+  } catch (e) {
+    console.warn('查询用户昵称失败，使用 openid 前缀:', e)
+  }
+
   // 修改用户单双刷状态
   var db_queue = 'queue_' + machine_id;
   await db.collection(db_queue)
@@ -35,6 +47,19 @@ exports.main = async (event, context) => {
       console.log(res);
     })
 
+  // 写队列日志：切换单双刷
+  var db_log = "queue_log_" + machine_id
+  var now = new Date();
+  var timeStr = pad2(now.getHours()) + ":" + pad2(now.getMinutes()) + ":" + pad2(now.getSeconds());
+  var content = "[" + timeStr + "] " + nickname + (is_multi ? "切换为拼机" : "切换为单刷")
+  await db.collection(db_log).add({
+    data: {
+      timestamp: new Date(),
+      openid: openid,
+      log_info: content
+    }
+  }).catch(console.error)
+
   return {
     success: true,
     data: {
@@ -43,4 +68,8 @@ exports.main = async (event, context) => {
       is_multi: is_multi
     }
   };
-};
+}
+
+function pad2(n) {
+  return String(n).padStart(2, '0');
+}

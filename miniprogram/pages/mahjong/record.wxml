@@ -1,0 +1,67 @@
+<!-- pages/mahjong/record.wxml —— 管理员录入一局 -->
+<view class="rec-page">
+
+  <!-- 无权限 -->
+  <view wx:if="{{checkDone && !isAdmin}}" class="rec-card no-auth">
+    <view class="no-auth-icon">🔒</view>
+    <view>仅管理员可录入对局</view>
+  </view>
+
+  <block wx:if="{{checkDone && isAdmin}}">
+    <!-- 对局日期 -->
+    <view class="rec-card">
+      <view class="rec-label">对局日期</view>
+      <picker mode="date" value="{{game_date}}" end="{{today}}" bindchange="onDateChange">
+        <view class="date-picker">📅 {{game_date}}</view>
+      </picker>
+    </view>
+
+    <!-- 4 个玩家位 -->
+    <view class="rec-card">
+      <view class="rec-label">玩家与点数</view>
+      <view class="slot" wx:for="{{slots}}" wx:key="index" wx:for-index="index" wx:for-item="slot">
+        <view class="slot-no">{{index + 1}}号位</view>
+
+        <!-- 已选 -->
+        <view wx:if="{{slot}}" class="slot-picked">
+          <image class="slot-avatar" src="{{slot.avatar || '/images/default-avatar.png'}}" mode="aspectFill" />
+          <text class="slot-name">{{slot.nickname}}</text>
+          <input class="slot-points" type="digit" placeholder="点数"
+                 value="{{slot.points}}" data-index="{{index}}" bindinput="onPointsInput" />
+          <view class="slot-remove" data-index="{{index}}" bindtap="removePlayer">✕</view>
+        </view>
+
+        <!-- 未选 -->
+        <view wx:else class="slot-empty" data-index="{{index}}" bindtap="startSearch">
+          ＋ 点击选择玩家
+        </view>
+      </view>
+    </view>
+
+    <view class="rec-tip">顺位按点数自动计算：点数相同者并列同名次</view>
+
+    <view class="rec-submit {{submitting ? 'disabled' : ''}}" bindtap="submit">
+      {{submitting ? '提交中…' : '录入本局'}}
+    </view>
+  </block>
+
+  <!-- 玩家搜索弹层 -->
+  <view wx:if="{{searchIndex >= 0}}" class="search-mask" bindtap="cancelSearch">
+    <view class="search-panel" catchtap="">
+      <view class="search-title">选择 {{searchIndex + 1}} 号位玩家</view>
+      <input class="search-input" placeholder="输入昵称搜索" focus
+             value="{{keyword}}" bindinput="onKeywordInput" />
+      <view class="search-list">
+        <view class="search-item" wx:for="{{suggestions}}" wx:key="openid" wx:for-item="u"
+              data-user="{{u}}" bindtap="pickPlayer">
+          <image class="si-avatar" src="{{u.avatar || '/images/default-avatar.png'}}" mode="aspectFill" />
+          <text class="si-name">{{u.nickname}}</text>
+        </view>
+        <view wx:if="{{!suggestions.length}}" class="search-empty">
+          {{keyword ? (searching ? '搜索中…' : '没有找到该用户') : '输入昵称开始搜索'}}
+        </view>
+      </view>
+      <view class="search-cancel" bindtap="cancelSearch">取消</view>
+    </view>
+  </view>
+</view>

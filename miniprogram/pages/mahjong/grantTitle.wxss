@@ -1,0 +1,138 @@
+/* pages/mahjong/grantTitle.wxss —— 管理员发称号（淡蓝主题） */
+.gt-page {
+  padding: 24rpx 24rpx 80rpx;
+  flex-shrink: 0;
+}
+.gt-card {
+  background: #fff;
+  border-radius: 24rpx;
+  padding: 28rpx;
+  margin-bottom: 24rpx;
+  box-shadow: 0 4rpx 16rpx rgba(147, 197, 253, 0.14);
+  flex-shrink: 0;
+}
+.gt-noauth {
+  text-align: center;
+  color: #8aa7c2;
+  padding: 80rpx 28rpx;
+}
+.gt-label {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #3d5871;
+  margin-bottom: 20rpx;
+}
+
+/* 玩家选择 */
+.gt-player {
+  display: flex;
+  align-items: center;
+  background: #f2f8fd;
+  border-radius: 16rpx;
+  padding: 16rpx 20rpx;
+}
+.gt-avatar {
+  width: 60rpx;
+  height: 60rpx;
+  border-radius: 50%;
+  margin-right: 16rpx;
+  background: #e8f1fa;
+}
+.gt-name {
+  flex: 1;
+  font-size: 30rpx;
+  color: #3d5871;
+}
+.gt-clear { color: #7fb4e0; font-size: 30rpx; padding: 8rpx; }
+
+/* 已拥有称号（可撤销） */
+.gt-owned { margin-top: 20rpx; }
+.gt-owned-head {
+  font-size: 24rpx;
+  color: #8aa7c2;
+  margin-bottom: 12rpx;
+}
+.gt-owned-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12rpx;
+}
+.gt-owned-item {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+}
+.gt-owned-badge {
+  width: 280rpx;
+  border-radius: 10rpx;
+  display: block;
+}
+.gt-owned-count {
+  font-size: 26rpx;
+  color: #6fb0e6;
+  font-weight: 600;
+}
+.gt-owned-revoke {
+  margin-left: auto;
+  font-size: 24rpx;
+  color: #e06c6c;
+  padding: 6rpx 20rpx;
+  border: 1rpx solid #f0b8b8;
+  border-radius: 24rpx;
+}
+
+.gt-input {
+  background: #eef5fb;
+  border-radius: 16rpx;
+  padding: 20rpx 28rpx;
+  font-size: 28rpx;
+}
+.gt-suggest { margin-top: 16rpx; }
+.gt-item {
+  display: flex;
+  align-items: center;
+  padding: 16rpx 8rpx;
+  border-bottom: 1rpx solid #edf3f9;
+}
+.gt-empty {
+  text-align: center;
+  color: #aabfd2;
+  font-size: 26rpx;
+  padding: 32rpx 0;
+}
+
+/* 称号选择 */
+.gt-title-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12rpx;
+}
+.gt-title {
+  width: calc(33.33% - 8rpx);
+  box-sizing: border-box;
+  border: 3rpx solid transparent;
+  border-radius: 12rpx;
+  padding: 4rpx;
+}
+.gt-title-active {
+  border-color: #6fb0e6;
+  background: #f2f8fd;
+}
+.gt-badge {
+  width: 100%;
+  border-radius: 8rpx;
+  display: block;
+}
+
+.gt-submit {
+  background: linear-gradient(90deg, #8fc4ef, #6fb0e6);
+  color: #fff;
+  text-align: center;
+  font-size: 32rpx;
+  font-weight: 600;
+  border-radius: 48rpx;
+  padding: 24rpx 0;
+  box-shadow: 0 8rpx 20rpx rgba(111, 176, 230, 0.35);
+}
+.gt-submit.disabled { opacity: 0.6; }

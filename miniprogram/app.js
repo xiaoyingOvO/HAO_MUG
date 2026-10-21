@@ -49,6 +49,9 @@ App({
     // 登录完成后，后台预取「排卡」「预约」两个 tab 的重数据，
     // 这样用户切换页面时不用再干等网络请求
     this.prefetchTabData();
+
+    // 强制更新：检测到新版本立即重启，无取消选项
+    this.checkUpdate();
   },
 
   /**
@@ -196,6 +199,25 @@ App({
         index: tabPageIndex,
       });
     }
+  },
+
+  /**
+   * 强制更新：检测到新版本立即重启，无取消选项。
+   * 微信机制：onUpdateReady 说明新版本已下载完成，applyUpdate() 会立即重启小程序。
+   */
+  checkUpdate() {
+    if (!wx.getUpdateManager) return
+
+    const updateManager = wx.getUpdateManager()
+
+    updateManager.onUpdateReady(() => {
+      console.log('[App] 新版本已就绪，强制重启')
+      updateManager.applyUpdate()
+    })
+
+    updateManager.onUpdateFailed(() => {
+      console.warn('[App] 新版本下载失败')
+    })
   },
 
   /**

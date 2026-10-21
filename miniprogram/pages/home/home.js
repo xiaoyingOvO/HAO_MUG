@@ -9,6 +9,9 @@ const checkConsumePointTimeout = 1  // 已消费金额轮询时间
 var checkConsumePointCount = 0
 var remainPoint = 114514    // 用户余额
 
+const ENTER_INFO_CACHE_MS = 3000 // getEnterInfo 本地缓存时间（毫秒），避免 onShow 频繁请求
+let _enterInfoCache = null // { data, ts }
+
 /* ============================================================
  * 模块级工具函数（不依赖 Page 实例）
  *   buildDeviceGroups —— 云端 machine 列表 → 入店弹层两级结构
@@ -241,31 +244,44 @@ Page({
    * ============================================================ */
 
   // 查询店内状态
-  async getEnterInfo() {
+  //   forceRefresh=true 时跳过本地缓存（下拉刷新、入店/离店等需要最新数据的场景用）
+  async getEnterInfo(forceRefresh) {
+    // 命中缓存（3 秒内）→ 直接套用，不再打云函数
+    if (!forceRefresh && _enterInfoCache &&
+        Date.now() - _enterInfoCache.ts < ENTER_INFO_CACHE_MS) {
+      this.applyEnterInfo(_enterInfoCache.data)
+      return Promise.resolve()
+    }
     return cloudFcn.getEnterInfo().then(res => {
       if (!res.result.success) return Promise.reject(res)
-      
+
       var data = res.result.data
-      remainPoint = (data.real_point ?? 0) + (data.extra_point ?? 0)
-      var businessStatus = data.business_status ?? true
-      var relaxNum = data.relax_num ?? 0
-      var enterState = data.enter_state ?? 0
-      // 入店区域：老数据没有 area 字段时按音游区处理
-      var area = data.area === 'board' ? 'board' : 'arcade'
-      var time = new Date(data.enter_time).getTime()
-      this.setData({
-        ['woStatus.businessStatus']: businessStatus,
-        ['woStatus.enterState']: enterState,
-        ['woStatus.relaxNum']: relaxNum,
-        ['woStatus.arcadeNum']: data.arcade_num ?? 0,
-        ['woStatus.boardNum']: data.board_num ?? 0,
-        ['woStatus.area']: area,
-        ['woStatus.areaName']: area === 'board' ? '桌游区' : '音游区',
-        ['woStatus.enterTime.time']: time,
-        ['woStatus.enterTime.show']: calcEnterTime(time) // 在店时长（正计时，每秒由 setEnterTimer 刷新）
-      })
-      this.setEnterTimer()
+      _enterInfoCache = { data, ts: Date.now() }   // 写缓存
+      this.applyEnterInfo(data)
     }).catch(console.error)
+  },
+
+  // 把入店状态数据套用到页面（getEnterInfo 缓存命中/网络返回都走这里）
+  applyEnterInfo(data) {
+    remainPoint = (data.real_point ?? 0) + (data.extra_point ?? 0)
+    var businessStatus = data.business_status ?? true
+    var relaxNum = data.relax_num ?? 0
+    var enterState = data.enter_state ?? 0
+    // 入店区域：老数据没有 area 字段时按音游区处理
+    var area = data.area === 'board' ? 'board' : 'arcade'
+    var time = new Date(data.enter_time).getTime()
+    this.setData({
+      ['woStatus.businessStatus']: businessStatus,
+      ['woStatus.enterState']: enterState,
+      ['woStatus.relaxNum']: relaxNum,
+      ['woStatus.arcadeNum']: data.arcade_num ?? 0,
+      ['woStatus.boardNum']: data.board_num ?? 0,
+      ['woStatus.area']: area,
+      ['woStatus.areaName']: area === 'board' ? '桌游区' : '音游区',
+      ['woStatus.enterTime.time']: time,
+      ['woStatus.enterTime.show']: calcEnterTime(time) // 在店时长（正计时，每秒由 setEnterTimer 刷新）
+    })
+    this.setEnterTimer()
   },
   // 判断是否可入店
   async checkAccess() {

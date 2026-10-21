@@ -1,0 +1,57 @@
+<!-- pages/mahjong/grantTitle.wxml —— 管理员发称号 -->
+<view class="gt-page">
+
+  <view wx:if="{{checkDone && !isAdmin}}" class="gt-card gt-noauth">
+    <text>🔒 仅管理员可发放称号</text>
+  </view>
+
+  <block wx:if="{{checkDone && isAdmin}}">
+    <!-- 选择玩家 -->
+    <view class="gt-card">
+      <view class="gt-label">选择玩家</view>
+      <block wx:if="{{player}}">
+        <view class="gt-player">
+          <image class="gt-avatar" src="{{player.avatar || '/images/default-avatar.png'}}" mode="aspectFill" />
+          <text class="gt-name">{{player.nickname}}</text>
+          <text class="gt-clear" bindtap="clearPlayer">✕</text>
+        </view>
+        <!-- 该玩家已有称号（可撤销） -->
+        <view class="gt-owned" wx:if="{{playerTitles.length}}">
+          <view class="gt-owned-head">已拥有称号（点击撤销）</view>
+          <view class="gt-owned-list">
+            <view class="gt-owned-item" wx:for="{{playerTitles}}" wx:key="key">
+              <image class="gt-owned-badge" src="{{item.img}}" mode="widthFix" />
+              <text class="gt-owned-count">×{{item.count}}</text>
+              <text class="gt-owned-revoke" data-key="{{item.key}}" data-name="{{item.name}}" data-count="{{item.count}}" bindtap="revokeTitle">撤销</text>
+            </view>
+          </view>
+        </view>
+      </block>
+      <block wx:else>
+        <input class="gt-input" placeholder="输入昵称搜索玩家" value="{{keyword}}" bindinput="onKeywordInput" />
+        <view class="gt-suggest" wx:if="{{keyword}}">
+          <view class="gt-item" wx:for="{{suggestions}}" wx:key="openid" wx:for-item="u" data-user="{{u}}" bindtap="pickPlayer">
+            <image class="gt-avatar" src="{{u.avatar || '/images/default-avatar.png'}}" mode="aspectFill" />
+            <text class="gt-name">{{u.nickname}}</text>
+          </view>
+          <view wx:if="{{!suggestions.length}}" class="gt-empty">{{searching ? '搜索中…' : '没有找到该用户'}}</view>
+        </view>
+      </block>
+    </view>
+
+    <!-- 选择称号 -->
+    <view class="gt-card">
+      <view class="gt-label">选择称号</view>
+      <view class="gt-title-grid">
+        <view class="gt-title {{selectedTitle === t.key ? 'gt-title-active' : ''}}"
+              wx:for="{{titles}}" wx:key="key" wx:for-item="t" data-key="{{t.key}}" bindtap="pickTitle">
+          <image class="gt-badge" src="{{t.img}}" mode="widthFix" />
+        </view>
+      </view>
+    </view>
+
+    <view class="gt-submit {{submitting ? 'disabled' : ''}}" bindtap="submit">
+      {{submitting ? '发放中…' : '发放称号'}}
+    </view>
+  </block>
+</view>

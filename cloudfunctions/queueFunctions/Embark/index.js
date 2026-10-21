@@ -304,29 +304,26 @@ exports.main = async (event, context) => {
     fail: console.error
   })
   var cur_user = ""
-  // 添加用户信息
-  for (var i = 0 ; i  < queue_record.data.length ; i++){
-    let user_record = await db.collection(db_user)
-    .where({
-      openid: queue_record.data[i].openid
-    })
-    .field({
-      openid: true,
-      avatar: true,
-      nickname: true,
-    })
-    .get({
-      success: function (res) {
-        console.log('success!!!')
-        return res
-      },
-      fail: console.error
-    })
-    if (user_record.data[0].openid === openid){
-      cur_user = user_record.data[0]
+  // 添加用户信息（批量查询，避免 N+1）
+  const qOpenids = queue_record.data.map(q => q.openid).filter(Boolean)
+  const qUserMap = {}
+  if (qOpenids.length > 0) {
+    const chunks = []
+    for (let ci = 0; ci < qOpenids.length; ci += 100) chunks.push(qOpenids.slice(ci, ci + 100))
+    for (const chunk of chunks) {
+      const ur = await db.collection(db_user).where({
+        openid: db.command.in(chunk)
+      }).field({ openid: true, avatar: true, nickname: true }).get()
+      ur.data.forEach(u => { qUserMap[u.openid] = u })
     }
-    queue_record.data[i].user_info = user_record.data[0]
   }
+  queue_record.data.forEach(q => {
+    const u = qUserMap[q.openid]
+    if (u) {
+      if (u.openid === openid) cur_user = u
+      q.user_info = u
+    }
+  })
   // 单链表排序
   const nodeMap = new Map()
   let headNode = null

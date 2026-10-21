@@ -7,6 +7,8 @@
     "pages/reserve/index",
     "pages/queue-info/index",
     "pages/mahjong/index",
+    "pages/mahjong/record",
+    "pages/mahjong/grantTitle",
     "pages/play-log/log",
     "pages/user-center/other-page/card",
     "pages/user-center/other-page/membership",

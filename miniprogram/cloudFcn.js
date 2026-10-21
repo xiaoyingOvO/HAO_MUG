@@ -50,6 +50,17 @@ const modifyBusinessStatus = async function(business_status) {
   })
 }
 
+// 修改用户信息（设置展示称号等）
+const modifyUsrInfo = async function(params) {
+  return wx.cloud.callFunction({
+    name: 'baseFunctions',
+    data: {
+      type: 'modifyUsrInfo',
+      params
+    }
+  })
+}
+
 // 获取所有机器信息
 const getMachineInfo = async function() {
   return wx.cloud.callFunction({
@@ -309,8 +320,98 @@ const queueLog = async function(id) {
   })
 }
 
+/**
+ * 麻将对局战绩（baseFunctions / mahjongStats）
+ */
+// 录入一局对局（仅管理员）
+const mahjongAddGame = async function(params) {
+  return wx.cloud.callFunction({
+    name: 'baseFunctions',
+    data: {
+      type: 'mahjongAddGame',
+      params
+    }
+  })
+}
+
+// 我的战绩聚合
+const mahjongGetMyStats = async function() {
+  return wx.cloud.callFunction({
+    name: 'baseFunctions',
+    data: {
+      type: 'mahjongGetMyStats'
+    }
+  })
+}
+
+// 排行榜
+const mahjongGetRanking = async function() {
+  return wx.cloud.callFunction({
+    name: 'baseFunctions',
+    data: {
+      type: 'mahjongGetRanking'
+    }
+  })
+}
+
+// 全部对局（分页）
+const mahjongGetGames = async function(params) {
+  return wx.cloud.callFunction({
+    name: 'baseFunctions',
+    data: {
+      type: 'mahjongGetGames',
+      params
+    }
+  })
+}
+
+// 管理员发称号
+const mahjongGrantTitle = async function(params) {
+  return wx.cloud.callFunction({
+    name: 'baseFunctions',
+    data: {
+      type: 'mahjongGrantTitle',
+      params
+    }
+  })
+}
+
+// 管理员撤销/减少称号次数
+const mahjongRevokeTitle = async function(params) {
+  return wx.cloud.callFunction({
+    name: 'baseFunctions',
+    data: {
+      type: 'mahjongRevokeTitle',
+      params
+    }
+  })
+}
+
+// 管理员查询某玩家称号列表
+const mahjongGetPlayerTitles = async function(params) {
+  return wx.cloud.callFunction({
+    name: 'baseFunctions',
+    data: {
+      type: 'mahjongGetPlayerTitles',
+      params
+    }
+  })
+}
+
+// 管理员删除对局记录
+const mahjongDeleteGame = async function(params) {
+  return wx.cloud.callFunction({
+    name: 'baseFunctions',
+    data: {
+      type: 'mahjongDeleteGame',
+      params
+    }
+  })
+}
+
 export default {
   modifyBusinessStatus,
+  modifyUsrInfo,
   getUsrInfo,
   getUsrInfoByName,
   getEnterInfo,
@@ -334,5 +435,13 @@ export default {
   report,
   getReport,
   delay,
-  queueLog
+  queueLog,
+  mahjongAddGame,
+  mahjongGetMyStats,
+  mahjongGetRanking,
+  mahjongGetGames,
+  mahjongGrantTitle,
+  mahjongRevokeTitle,
+  mahjongGetPlayerTitles,
+  mahjongDeleteGame
 }

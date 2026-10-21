@@ -1,12 +1,10 @@
 <!--pages/queue-info/index.wxml-->
 <view class="login-overlay" wx:if="{{showLoginOverlay}}">
-    <view class="overlay-content">
-      <text>登录入店才可以参与排卡噢~</text>
-      <button bindtap="redirectToLogin">前往登录</button>
-    </view>
+  <view class="overlay-content">
+    <text>登录入店才可以参与排卡噢~</text>
+    <button bindtap="redirectToLogin">前往登录</button>
+  </view>
 </view>
-
-<custom-navi id="custom-navi" title="排卡板"></custom-navi>
 
 <!-- 右侧内容模板（复用：拖拽时 / 平时） -->
 <template name="queueContent">
