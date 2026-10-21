@@ -1,8 +1,8 @@
 {
   "miniVersion": "v2",
   "name": "%name%",
-  "version": "3.1.1",
-  "versionCode": 30101,
+  "version": "3.1.2",
+  "versionCode": 30102,
   "i18nFilePath": "i18n",
   "mini-android": {
     "resourcePath": "miniapp/android/nativeResources",
