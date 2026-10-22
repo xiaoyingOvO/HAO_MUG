@@ -1,0 +1,22 @@
+<!--pages/play-log/log.wxml-->
+
+<view class="logs_container">
+  <view wx:if="{{!selectedMachine}}" class="empty-message">未选择机台</view>
+  <view wx:elif="{{logLists.machineLogs.length == 0}}" class="empty-message">暂无记录</view>
+  <block wx:for="{{logLists.machineLogs}}" wx:key="time" wx:for-item="log">
+    <!-- 机台操作日志 -->
+    <view wx:if="{{activeLogList == 'machineLogs'}}" class="machine_log">
+      <view>{{log.timeShow}}</view>
+      <view>
+        <!-- 操作者（蓝色） -->
+        <text class="log-name">{{log.operatorName}}</text>
+        <!-- 前缀动词（默认黑色） -->
+        <text class="log-pre">{{log.pre}}</text>
+        <!-- 被操作者/自身（蓝色） -->
+        <text wx:if="{{log.target}}" class="log-name">{{log.target}}</text>
+        <!-- 后缀（默认黑色） -->
+        <text class="log-post">{{log.post}}</text>
+      </view>
+    </view>
+  </block>
+</view>

@@ -1,0 +1,48 @@
+<!--pages/notice/index.wxml-->
+<view class="notice-page">
+  <!-- 联系方式 -->
+  <view class="card contact-card">
+    <view class="card-title-bar">
+      <image class="contact__icon" src="/images/icons/contact.png" mode="aspectFit" />
+      联系方式
+    </view>
+    <view class="card-content">
+      <view class="contact">
+        <!-- 第一行：群聊 -->
+        <view>
+          <image class="qq__icon" src="/images/icons/qq.png" mode="aspectFit" />
+          <text>群聊：</text>
+          <text class="contact-detail">舞萌机台中间有二维码</text>
+        </view>
+        <!-- 第二行：管理员联系方式 -->
+        <view>
+          <image class="telephone__icon" src="/images/icons/telephone.png" mode="aspectFit" />
+          <text>管理员联系方式：QQ：</text>
+          <text class="contact-detail tappable" bindtap="copyContact" data-text="3825778824">3825778824</text>
+        </view>
+      </view>
+    </view>
+  </view>
+
+  <!-- 常见问题 -->
+  <view class="card faq-card">
+    <view class="card-title-bar">
+      <image class="FAQ__icon" src="/images/icons/FAQ.png" mode="aspectFit" />
+      <text class="highlight strong">常见问题</text>
+    </view>
+    <view class="card-content">
+      <block wx:for="{{faq}}" wx:key="index" class="faq-item">
+        <view bind:tap="extendFaq" data-index="{{index}}" class="faq-q {{showFaq[index] ? 'faq-q-extended' : 'faq-q-unextended'}}">
+          <image src="/images/arrow.svg" mode="aspectFit"></image>
+          <text>{{item.q}}</text>
+        </view>
+        <view class="faq-a {{showFaq[index] ? 'faq-a-show' : 'faq-a-hidden'}}">
+          <view>
+            <text>{{item.a}}</text>
+            <image wx:if="{{item.p}}" src="{{item.p}}" mode="widthFix"></image>
+          </view>
+        </view>
+      </block>
+    </view>
+  </view>
+</view>

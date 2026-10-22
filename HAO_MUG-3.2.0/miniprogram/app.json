@@ -1,0 +1,62 @@
+{
+  "pages": [
+    "pages/home/home",
+    "pages/login/index",
+    "pages/user-center/index",
+    "pages/user-center/other-page/recharge",
+    "pages/reserve/index",
+    "pages/queue-info/index",
+    "pages/mahjong/index",
+    "pages/mahjong/record",
+    "pages/mahjong/grantTitle",
+    "pages/play-log/log",
+    "pages/notice/index",
+    "pages/user-center/other-page/card",
+    "pages/user-center/other-page/membership",
+    "pages/admin/index",
+    "pages/admin/manage/manage",
+    "pages/user-center/other-page/mailbox",
+    "pages/user-center/other-page/transferPoint"
+  ],
+  "window": {
+    "backgroundColor": "#F6F6F6",
+    "backgroundTextStyle": "light",
+    "navigationBarBackgroundColor": "#F6F6F6",
+    "navigationBarTitleText": "萌动报名计时",
+    "navigationBarTextStyle": "black"
+  },
+  "sitemapLocation": "sitemap.json",
+  "style": "v2",
+  "lazyCodeLoading": "requiredComponents",
+  "tabBar": {
+    "color": "#A2A9B0",
+    "selectedColor": "#07C160",
+    "backgroundColor": "#ffffff",
+    "list": [
+      {
+        "pagePath": "pages/home/home",
+        "text": "首页",
+        "iconPath": "images/icons/home.png",
+        "selectedIconPath": "images/icons/home-active.png"
+      },
+      {
+        "pagePath": "pages/queue-info/index",
+        "text": "排卡",
+        "iconPath": "images/icons/examples.png",
+        "selectedIconPath": "images/icons/examples-active.png"
+      },
+      {
+        "pagePath": "pages/mahjong/index",
+        "text": "麻将",
+        "iconPath": "images/icons/card1.png",
+        "selectedIconPath": "images/icons/card1-active.png"
+      },
+      {
+        "pagePath": "pages/user-center/index",
+        "text": "我的",
+        "iconPath": "images/icons/usercenter.png",
+        "selectedIconPath": "images/icons/usercenter-active.png"
+      }
+    ]
+  }
+}

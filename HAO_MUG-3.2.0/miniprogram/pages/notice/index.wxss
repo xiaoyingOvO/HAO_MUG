@@ -1,0 +1,183 @@
+/* pages/notice/index.wxss */
+@import "../../style/fonts.wxss";
+
+page {
+  --pretty-font-family: 'FZMiaoWuS-R-GB';
+  font-size: 16px;
+  background-color: #f4f7f9;
+}
+
+/* --- 卡片样式（与首页保持一致） --- */
+.card {
+  width: 95%;
+  background-color: #ffffff;
+  border-radius: 20rpx;
+  margin-bottom: 30rpx;
+  box-shadow: 0 6rpx 18rpx rgba(0, 0, 0, 0.07);
+  overflow: hidden;
+  animation: card-slide-up 0.6s ease-out forwards;
+}
+.card-title-bar {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #2c3e50;
+  padding: 25rpx 30rpx;
+  border-bottom: 1rpx solid #e9edf0;
+  display: flex;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+}
+.card-title-bar::after {
+  content: '';
+  position: absolute;
+  bottom: -2rpx;
+  left: 0;
+  width: 210rpx;
+  height: 6rpx;
+  background-color: #007aff;
+  border-radius: 3rpx;
+  transition: width 0.3s ease-in-out;
+}
+.card-content {
+  padding: 30rpx;
+}
+/* --- 卡片样式结束 --- */
+
+@keyframes card-slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.notice-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-top: 20rpx;
+}
+
+/* 小图标 */
+.contact__icon, .FAQ__icon {
+  width: 48rpx;
+  height: 48rpx;
+  margin-right: 12rpx;
+}
+.qq__icon, .telephone__icon {
+  width: 42rpx;
+  height: 42rpx;
+  transition: transform 0.2s ease-out;
+  margin-right: 12rpx;
+  vertical-align: middle;
+}
+.contact-card .contact view:active .qq__icon,
+.contact-card .contact view:active .telephone__icon {
+  transform: scale(1.2) rotate(5deg);
+}
+
+/* --- 联系方式 --- */
+.contact-card .card-content .contact view {
+  font-size: 28rpx;
+  color: #444;
+  line-height: 1.7;
+  margin-bottom: 10rpx;
+  display: flex;
+  align-items: center;
+}
+.contact-label {
+  color: #777;
+  margin-right: 10rpx;
+}
+.contact-detail {
+  color: #444;
+}
+.contact-detail.tappable {
+  color: #007aff;
+  text-decoration: underline;
+  text-decoration-color: rgba(43, 134, 197, 0.4);
+}
+.contact-detail.tappable:active {
+  opacity: 0.7;
+}
+
+/* 强调样式 */
+.card .highlight {
+  color: #d97706;
+}
+.card .highlight.strong {
+  color: #e54d42;
+}
+
+/* --- FAQ --- */
+.faq-item {
+  border-bottom: 1rpx solid #f0f2f5;
+  padding: 25rpx 0;
+}
+.faq-item:last-child {
+  border-bottom: none;
+}
+.faq-q {
+  display: flex;
+  align-items: center;
+  font-size: 28rpx;
+  color: #333;
+  font-weight: 500;
+  cursor: pointer;
+  padding: 15rpx 0;
+  transition: color 0.3s ease-in-out, background-color 0.2s ease-out;
+}
+.faq-q:active {
+  background-color: #f7f8fa;
+}
+.faq-q > image {
+  width: 28rpx;
+  height: 28rpx;
+  margin-right: 15rpx;
+  transition: transform 0.3s cubic-bezier(0.25, 0.1, 0.25, 0.1);
+  opacity: 0.6;
+}
+.faq-q-extended > image {
+  transform: rotate(90deg);
+  opacity: 1;
+}
+.faq-q-extended {
+  color: #007aff;
+  padding-left: 15rpx;
+  border-radius: 8rpx;
+  background: linear-gradient(90deg, rgba(0, 122, 255, 0.05) 0%, rgba(0, 122, 255, 0) 100%);
+}
+.faq-a {
+  font-size: 28rpx;
+  color: #555;
+  line-height: 1.7;
+  display: grid;
+  overflow: hidden;
+  max-height: 0;
+  opacity: 0;
+  transition: max-height 0.4s ease-out, opacity 0.3s ease-in-out, padding 0.3s ease-out;
+}
+.faq-a > view {
+  padding: 20rpx 12rpx 10rpx;
+  background-color: #f8f9fa;
+  border-radius: 0 8rpx 8rpx 0;
+}
+.faq-a-show {
+  max-height: 4000rpx;
+  opacity: 1;
+}
+.faq-a image {
+  max-width: 100%;
+  border-radius: 8rpx;
+  margin-top: 15rpx;
+}
+.faq-a-hidden {
+  grid-template-rows: 0fr;
+}
+.faq-a-show {
+  grid-template-rows: 1fr;
+}

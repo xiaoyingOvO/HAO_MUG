@@ -1,0 +1,76 @@
+<!--pages/user-center/other-page/card.wxml-->
+<view class="container">
+  <!-- 用户点数 -->
+  <view class="points-card card stylized-style">
+    <view class="stylized-bg"></view>
+    <view class="points-label">
+      <text>点数余额</text>
+    </view>
+    <view class="points-value-wrapper">
+      <text wx:if="{{isLoadingPoints}}" class="points-value loading">···</text>
+      <text wx:elif="{{userPointsIsNumber}}" class="points-value">{{userPoints}}</text>
+      <text wx:else class="points-value error">{{userPoints}}</text>
+      <text wx:if="{{userPointsIsNumber}}" class="points-unit">点</text>
+    </view>
+  </view>
+  <!-- 加载状态 -->
+  <view wx:if="{{isLoading && isLoadingPoints}}" class="loading-container">
+    <text>加载优惠卡列表中...</text>
+  </view>
+
+  <!-- 卡片列表 -->
+  <block wx:if="{{!isLoading && cardList.length > 0}}">
+    <view class="card-list">
+      <view class="card-item theme-{{item.theme || 'default'}}" wx:for="{{cardList}}" wx:key="_id">
+        <view class="card-content">
+          <view class="card-header">
+            <text class="card-name">{{item.card_name}}</text>
+            <text class="card-cost">{{item.cost || 0}}点</text>
+          </view>
+          <text class="card-desc">{{item.desc || '暂无描述'}}</text>
+
+          <!-- <text class="card-duration">有效期：{{ formatDuration(item.duration) }}</text> -->
+
+          <view class="card-footer">
+            <text class="card-remain" wx:if="{{item.remain !== undefined && item.remain > -100}}">
+              剩余：{{item.remain > 0 ? item.remain : '已售罄'}}
+            </text>
+            <text class="card-remain" wx:elif="{{item.remain <= -100}}">
+              库存充足
+            </text>
+
+            <!-- 购买按钮或状态显示 -->
+
+          </view>
+
+          <!-- 独立按钮容器 -->
+          <view class="card-action-area">
+            <block wx:if="{{item.own && !item.isExpired}}">
+              <button class="card-button owned" disabled>有效期内</button>
+            </block>
+            <block wx:elif="{{item.remain !== undefined && item.remain === 0}}">
+              <button class="card-button sold-out" disabled>已售罄</button>
+            </block>
+            <block wx:elif="{{item.notStarted}}">
+              <button class="card-button time-expired" disabled style="position: relative; left: 0rpx; top: 25rpx">未处于购买时段</button>
+            </block>
+            <block wx:elif="{{item.timeEnded}}">
+              <button class="card-button time-expired" disabled style="position: relative; left: 0rpx; top: 25rpx">未处于购买时段</button>
+            </block>
+            <block wx:else>
+              <button class="card-button buy" bindtap="handleBuyCard" data-card-id="{{item._id}}" data-card-name="{{item.card_name}}" disabled="{{item.isPurchasing || !userPointsIsNumber || (userPointsIsNumber && userPoints < item.cost)}}" loading="{{item.isPurchasing}}" style="position: relative; left: 0rpx; top: 25rpx">
+                {{item.isPurchasing ? '' : (!userPointsIsNumber ? '点数未知' : (userPoints < item.cost ? '点数不足' : '立即购买'))}}
+              </button>
+            </block>
+          </view>
+
+        </view>
+      </view>
+    </view>
+  </block>
+
+  <!-- 空状态 -->
+  <view wx:if="{{!isLoading && cardList.length === 0}}" class="empty-container">
+    <text>暂无可用的优惠卡</text>
+  </view>
+</view>
