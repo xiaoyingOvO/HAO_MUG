@@ -49,7 +49,16 @@ button {
 /* 主要内容 */
 .container {
   padding: 12rpx 24rpx;
+  /* 底部固定按钮（.enqueue-button）是 position:fixed，不占文档流，
+     这里补出它的高度：按钮 100rpx + 底距 36rpx，再加安全区。
+     以前是让 .queue-layout 用 calc(100vh - 160rpx - 136rpx) 去减，
+     多减出来的那 160rpx 让板子底部空了一大截。 */
+  padding-bottom: 136rpx;
+  padding-bottom: calc(136rpx + env(safe-area-inset-bottom));
   align-items: stretch;
+  /* 撑满 page 剩余高度，让子级用 flex:1 分配，不再依赖 100vh 计算 */
+  flex: 1;
+  min-height: 0;
 }
 /* 等候区 */
 .waiting-list {
@@ -226,7 +235,11 @@ button {
   flex-direction: row;
   gap: 20rpx;
   margin-top: 12rpx;
-  height: calc(100vh - 160rpx - 136rpx - env(safe-area-inset-bottom));
+  /* 高度不再用 100vh 硬算：页面顶部有没有内容、env() 支不支持、
+     100vh 含不含导航栏，各机型算出来的值都不一样。
+     改成 flex:1 吃掉 .container 的剩余空间，高度自然就是对的。 */
+  flex: 1;
+  min-height: 0;
   box-sizing: border-box;
 }
 
@@ -340,7 +353,9 @@ button {
   flex-direction: row;
   gap: 20rpx;
   margin-top: 12rpx;
-  height: calc(100vh - 160rpx - 136rpx - env(safe-area-inset-bottom));
+  /* 与 .queue-layout 保持一致：flex:1 撑满，避免骨架和真实内容高度不一致导致跳动 */
+  flex: 1;
+  min-height: 0;
   box-sizing: border-box;
 }
 .sk-col-left {
