@@ -1242,9 +1242,12 @@ const baseFunctions = {
       return { success: false, errMsg: '该优惠卡已售罄', data: { remain: card.remain } };
     }
     const cost = Number(card.cost) || 0;
-    if (totalPoints(s.me) < cost) return { success: false, errMsg: `点数不足，需要 ${cost}, 当前 ${totalPoints(s.me)}` };
+    // Lv6 免单：与云端 buyCard 一致（exp >= 114514 买卡不扣点）。
+    // Lv6 平时消费全免、余额通常很低，不判断的话会直接报「点数不足」买不了。
+    const effectiveCost = (s.me.exp || 0) >= 114514 ? 0 : cost;
+    if (totalPoints(s.me) < effectiveCost) return { success: false, errMsg: `点数不足，需要 ${effectiveCost}, 当前 ${totalPoints(s.me)}` };
 
-    let left = cost;
+    let left = effectiveCost;
     const useExtra = Math.min(s.me.extra_point || 0, left);
     s.me.extra_point = Number(((s.me.extra_point || 0) - useExtra).toFixed(2));
     left -= useExtra;

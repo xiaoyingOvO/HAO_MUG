@@ -16,6 +16,10 @@ const max_retry_time = 5;
 const retry_wait_seconds = 0.5;
 const max_card_lock_seconds = 2;
 
+// Lv6 阈值：exp >= 114514 免单。
+// 与 buyReserve / getConsumePoint / enterArcade 用的是同一个边界，改这里要同步改那边。
+const MAX_LEVEL_EXP = 114514;
+
 // 购买优惠卡云函数入口
 exports.main = async (event, context) => {
   // 获取openid
@@ -52,7 +56,12 @@ exports.main = async (event, context) => {
 
 
   // 如果有余量限制，需分布式锁阶段
+  // needLock 单独记标志：后面 res 会被 recordBuyInfo 的返回值覆盖，
+  // 原来用 res.data.remain 判断「要不要释放锁」，一旦购买失败（res.data 为空）
+  // 就会在这里抛 Cannot read properties of undefined。
+  let needLock = false;
   if (res.data.remain > 0) {
+    needLock = true;
     // 尝试获取分布式锁
     let lockRes = await acquireCardLock({
       openid: openid,
@@ -76,9 +85,10 @@ exports.main = async (event, context) => {
       card_name: card_name
     });
     if (res.success == false) {
+        // 这里原来写的是 cardCost: card_id，参数名不对，锁实际没释放掉
         await releaseCardLock({
             openid: openid,
-            cardCost: card_id
+            card_id: card_id
         });
         return res;
     }
@@ -97,8 +107,10 @@ exports.main = async (event, context) => {
     cost: cardCost
   });
 
-  // 如果获取过锁，更新完释放锁
-  if (res.data.remain > 0) {
+  // 加过锁就释放，成功失败都要放。
+  // 原来只在成功且 res.data.remain > 0 时释放，失败时锁要等 2 秒超时才失效，
+  // 这段时间别人买这张限量卡会一直看到「购买人数太多」。
+  if (needLock) {
     await releaseCardLock({
       openid: openid,
       card_id: card_id
@@ -449,11 +461,11 @@ async function recordBuyInfo(params) {
   const remain = params.remain;
   const cost = params.cost;
 
-  let currentUserPoints = { real_point: 0, extra_point: 0 };
+  let currentUserPoints = { real_point: 0, extra_point: 0, exp: 0 };
   try {
       const userPointsRecord = await db.collection(db_user)
         .where({ openid: openid })
-        .field({ real_point: true, extra_point: true })
+        .field({ real_point: true, extra_point: true, exp: true })
         .limit(1)
         .get();
 
@@ -461,6 +473,7 @@ async function recordBuyInfo(params) {
             currentUserPoints = userPointsRecord.data[0];
             currentUserPoints.real_point = Number(currentUserPoints.real_point) || 0;
             currentUserPoints.extra_point = Number(currentUserPoints.extra_point) || 0;
+            currentUserPoints.exp = Number(currentUserPoints.exp) || 0;
         } else {
             return {
                 success: false,
@@ -474,17 +487,23 @@ async function recordBuyInfo(params) {
       };
   }
 
+  // Lv6 免单：买优惠卡不消耗点数。
+  // 边界与 buyReserve / getConsumePoint / enterArcade 一致，统一用 exp >= 114514。
+  // 原先这里没有判断，Lv6 因为平时消费全免、余额很低，买卡会直接报「点数不足」买不了。
+  const isLv6 = currentUserPoints.exp >= MAX_LEVEL_EXP;
+  const effectiveCost = isLv6 ? 0 : cost;
+
   const totalPoints = currentUserPoints.real_point + currentUserPoints.extra_point;
-  if (totalPoints < cost) {
+  if (totalPoints < effectiveCost) {
       return {
           success: false,
-          errMsg: `点数不足，需要 ${cost}, 当前 ${totalPoints}`
+          errMsg: `点数不足，需要 ${effectiveCost}, 当前 ${totalPoints}`
       };
   }
 
   let after_extra_point = currentUserPoints.extra_point;
   let after_real_point = currentUserPoints.real_point;
-  let remaining_cost = cost;
+  let remaining_cost = effectiveCost;
 
   if (after_extra_point >= remaining_cost) {
     after_extra_point -= remaining_cost;

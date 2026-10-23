@@ -1,5 +1,9 @@
 import { add } from '../../../decimal.js';
 
+// Lv6 阈值：exp >= 114514 免单（买卡不消耗点数）。
+// 与云端 buyCard / buyReserve / getConsumePoint 保持同一边界。
+const LV6_EXP = 114514;
+
 Page({
     data: {
       cardList: [], // 卡片列表
@@ -7,8 +11,9 @@ Page({
       userPoints: null, // 用户点数
       isLoadingPoints: true, // 是否正在加载点数
       userPointsIsNumber: false,
+      isLv6: false, // Lv6 免单：不看余额、不显示价格
     },
-  
+
     onLoad(options) {
         const eventChannel = this.getOpenerEventChannel();
         let hasReceivedUserInfo = false;
@@ -25,6 +30,7 @@ Page({
                         userPoints: totalPoints,
                         userPointsIsNumber: true,
                         isLoadingPoints: false, 
+                        isLv6: (Number(userInfo.exp) || 0) >= LV6_EXP,
                         // receivedUserInfoViaEvent: true
                     });
                     hasReceivedUserInfo = true;
@@ -55,6 +61,7 @@ Page({
         this.setData({ isLoadingPoints: true });
         let pointsValue = null;
         let isNumber = false;
+        let lv6 = false;
         try {
           const res = await wx.cloud.callFunction({
             name: 'baseFunctions',
@@ -68,6 +75,7 @@ Page({
             const extra_point = Number(res.result.data.extra_point) || 0;
             pointsValue = add(real_point, extra_point);
             isNumber = true;
+            lv6 = (Number(res.result.data.exp) || 0) >= LV6_EXP;
           } else {
             console.error('Failed to get user points:', res.result?.errMsg);
             pointsValue = '获取失败';
@@ -81,7 +89,8 @@ Page({
             this.setData({ 
                 userPoints: pointsValue,
                 userPointsIsNumber: isNumber,
-                isLoadingPoints: false
+                isLoadingPoints: false,
+                isLv6: lv6,
             });
         }
       },
@@ -195,9 +204,12 @@ Page({
       }
   
       // 弹窗确认
+      const costText = this.data.isLv6
+        ? '免费（Lv6 免单）'
+        : `${this.data.cardList[cardIndex].cost || 0} 点`;
       wx.showModal({
         title: '确认购买',
-        content: `确定要购买 "${cardName || '此优惠卡'}" 吗？ \n（消耗点数：${this.data.cardList[cardIndex].cost || 0}）`,
+        content: `确定要购买 "${cardName || '此优惠卡'}" 吗？ \n（消耗点数：${costText}）`,
         success: async (res) => {
           if (res.confirm) {
             // 设置特定卡片的购买状态为 true
