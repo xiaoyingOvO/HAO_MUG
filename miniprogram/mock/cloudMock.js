@@ -934,6 +934,26 @@ function consumedPoints(s, u) {
 /* ============================================================
  *  baseFunctions 模拟实现
  * ============================================================ */
+// Lv6 阈值，与 cloudfunctions/baseFunctions/buyPoint、xpay/pointService 保持一致
+const MAX_LEVEL_EXP = 114514;
+
+/**
+ * 充值赠送点数。
+ * 规则严格对齐 cloudfunctions/baseFunctions/xpay/pointService.js 的 calcBonus：
+ * 按 exp 分档（0/5%/10%/20%/30%），Lv6 不赠送也不允许充值。
+ */
+function calcRechargeExtra(amount, exp) {
+  const e = Number(exp) || 0;
+  let bonus = 0;
+  if (e <= 2000) bonus = 0;
+  else if (e <= 8000) bonus = 0.05;
+  else if (e <= 18000) bonus = 0.1;
+  else if (e <= 30000) bonus = 0.2;
+  else if (e < MAX_LEVEL_EXP) bonus = 0.3;
+  else return 0;
+  return Math.round(Number(amount) * bonus * 100) / 100;
+}
+
 const baseFunctions = {
   // 已注册用户直接返回用户文档 → app.js 视为登录成功
   getUsrInfo(p, s) {
@@ -1315,6 +1335,76 @@ const baseFunctions = {
     s.me.real_point = Number((s.me.real_point - Number((p && p.real_point_add) || 0)).toFixed(2));
     s.me.extra_point = Number((s.me.extra_point - Number((p && p.extra_point_add) || 0)).toFixed(2));
     return { success: true };
+  },
+
+  // 自助充值可用性：mock 下恒为可用（真实环境读虚拟支付环境变量）
+  pointPayStatus() {
+    return { success: true, data: { enabled: true, missing: [], env: 0 } };
+  },
+
+  // ---- 虚拟支付（点数充值）----
+  // 对齐 cloudfunctions/baseFunctions/createPointOrder：金额必须是 1-1000 的整数，
+  // Lv6 直接拒绝下单。真实环境这里会返回 signData/paySig/signature 拉起微信虚拟支付，
+  // mock 下没有支付界面，标记 mock:true，由前端直接进入「确认到账」。
+  createPointOrder(p, s) {
+    const amount = Number((p && p.amount) || 0);
+    if (!Number.isInteger(amount) || amount < 1) return { success: false, errMsg: '请输入整数金额' };
+    if (amount > 1000) return { success: false, errMsg: '单笔最高 1000 元，可分多笔充值' };
+    const exp = s.me.exp || 0;
+    if (exp >= MAX_LEVEL_EXP) return { success: false, errMsg: '最高等级用户无需充值' };
+
+    const outTradeNo = 'MOCK' + nowTs() + String(Math.floor(Math.random() * 1000));
+    s.mockPointOrders = s.mockPointOrders || {};
+    s.mockPointOrders[outTradeNo] = { amount, delivered: false };
+    save(s);
+
+    return {
+      success: true,
+      data: {
+        mock: true,
+        outTradeNo,
+        amount,
+        mode: 'short_series_goods',
+        signData: '',
+        paySig: '',
+        signature: '',
+        extraPoint: calcRechargeExtra(amount, exp),
+      },
+    };
+  },
+
+  // 对齐 queryPointOrder：state 1 已到账 / 0 支付中 / 2 失败。
+  // 首次查询时模拟「发货回调」把点数加上，保证 mock 下走完整链路。
+  queryPointOrder(p, s) {
+    const outTradeNo = p && p.outTradeNo;
+    const rec = (s.mockPointOrders || {})[outTradeNo];
+    if (!rec) return { success: false, errMsg: '订单不存在' };
+
+    if (!rec.delivered) {
+      const exp = s.me.exp || 0;
+      if (exp >= MAX_LEVEL_EXP) return { success: false, errMsg: '最高等级用户无需充值' };
+      const extra = calcRechargeExtra(rec.amount, exp);
+      s.me.real_point = Number(((s.me.real_point || 0) + rec.amount).toFixed(2));
+      s.me.extra_point = Number(((s.me.extra_point || 0) + extra).toFixed(2));
+      // 充值同时加经验，规则对齐 applyPendingRecharge
+      s.me.exp += Math.round(rec.amount);
+      s.orders.unshift({
+        _id: nextId(s, 'order'),
+        openid: ME_OPENID,
+        state: 1,
+        time_order: nowTs(),
+        time_expire: nowTs() + 30 * DAY,
+        point: rec.amount,
+        extra_point: extra,
+        out_trade_no: outTradeNo,
+        channel: 'virtual_pay',
+      });
+      rec.delivered = true;
+      save(s);
+      return { success: true, data: { state: 1, point: rec.amount, extraPoint: extra, delivered: true } };
+    }
+
+    return { success: true, data: { state: 1, point: rec.amount, extraPoint: 0, delivered: true } };
   },
 
   transferPoint(p, s) {

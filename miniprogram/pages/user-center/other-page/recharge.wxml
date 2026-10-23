@@ -9,10 +9,10 @@
       <view class="amount-input-group">
           <input
             class="amount-input"
-            type="digit"
+            type="number"
             value="{{rechargeAmountInput}}"
             bindinput="handleAmountInput"
-            placeholder="0.00"
+            placeholder="请输入整数金额"
             placeholder-class="input-placeholder"
           />
           <text class="currency-unit">点</text> <!-- 添加单位 -->
@@ -27,15 +27,15 @@
     <button
       class="recharge-btn primary-button animation-pulse"
       bindtap="handleRecharge"
-      disabled="{{!rechargeAmount || rechargeAmount <= 0 || isRecharging}}"
+      disabled="{{!payEnabled || !rechargeAmount || rechargeAmount <= 0 || isRecharging}}"
       loading="{{isRecharging}}"
     >
-      {{isRecharging ? '' : (rechargeAmount && rechargeAmount > 0 ? '立即充值 ' : '请输入金额')}}
+      {{!payEnabled ? '自助充值暂未开放' : (isRecharging ? '' : (rechargeAmount && rechargeAmount > 0 ? '立即充值 ' : '请输入金额'))}}
     </button>
 
      <!-- 提示信息 (可选) -->
      <view class="footer-tip">
-         <text>温馨提示：1元 = 1点</text>
+         <text>温馨提示：1元 = 1点，单笔 1-1000 元，仅支持整数金额</text>
      </view>
   </view>
 
