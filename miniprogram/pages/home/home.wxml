@@ -130,7 +130,7 @@
           data-group-index="{{gi}}"
           data-child-index="{{ci}}">
           <text class="device-child-name">{{child.label}}</text>
-          <text class="device-child-tag">{{child.is_disabled ? '机台不可用' : child.tag}}</text>
+          <text class="device-child-tag">{{child.is_disabled ? (child.disabledText || '机台不可用') : child.tag}}</text>
           <!-- 子项人数：该机台自己的排队人数（游玩中 + 排队中） -->
           <text class="device-child-count">{{child.totalCount || 0}} 人</text>
         </view>

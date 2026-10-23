@@ -18,6 +18,9 @@ exports.main = async (event, context) => {
     openid = event.params.openid
   }
   console.log('openid: ' + openid)
+  // lite = true：调用方只要本人的入店状态，不需要三个区的人数统计。
+  //   排卡页就走这条 —— 能把「2 次串行数据库往返」压成 1 次，首屏少等一次网络。
+  const lite = !!(event.params && event.params.lite)
 
   // 并行查营业状态和用户信息
   const [meta_record, user_record] = await Promise.all([
@@ -40,11 +43,17 @@ exports.main = async (event, context) => {
 
   // 人数统计：用轻量级 count 查询（不 aggregate 全表扫描）
   // 互斥分区：休息区(state=1) / 桌游区(area=board, state>1) / 音游区(area≠board, state>1)
-  const [relaxR, boardR, arcadeR] = await Promise.all([
-    db.collection(db_user).where({ enter_state: 1 }).count(),
-    db.collection(db_user).where({ area: 'board', enter_state: db.command.gt(1) }).count(),
-    db.collection(db_user).where({ area: db.command.neq('board'), enter_state: db.command.gt(1) }).count(),
-  ])
+  let relaxR = { total: 0 }, boardR = { total: 0 }, arcadeR = { total: 0 }
+  if (!lite) {
+    const counted = await Promise.all([
+      db.collection(db_user).where({ enter_state: 1 }).count(),
+      db.collection(db_user).where({ area: 'board', enter_state: db.command.gt(1) }).count(),
+      db.collection(db_user).where({ area: db.command.neq('board'), enter_state: db.command.gt(1) }).count(),
+    ])
+    relaxR = counted[0]
+    boardR = counted[1]
+    arcadeR = counted[2]
+  }
   res.relax_num = relaxR.total || 0
   res.board_num = boardR.total || 0
   res.arcade_num = arcadeR.total || 0

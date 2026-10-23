@@ -28,6 +28,8 @@ Page({
     _reserveWatchClosed: false,  // 是否已主动关闭监听（防止异步 onError 踩状态）
     _reserveWatchFailed: false,  // 监听是否已确认失败
     _reserveWatchIniting: false, // 监听是否正在建立中（防重入）
+    _reserveWatchReady: false,   // 首帧是否已到达（= 监听真正建立成功）
+    _reserveWatchSeq: 0,         // 监听世代号，作废在途回调
 
     onLoad() {
       this.checkLoginState();
@@ -666,8 +668,11 @@ redirectToLogin() {
     startReserveRealtime() {
       // 已在监听中，或正在建立中，直接跳过（防止重复建立）
       if (this._reserveWatcher || this._reserveWatchIniting) return;
+      const mySeq = (this._reserveWatchSeq || 0) + 1;
+      this._reserveWatchSeq = mySeq;
       this._reserveWatchIniting = true;
       this._reserveWatchClosed = false;
+      this._reserveWatchReady = false;
       // 先起轮询兜底：监听是异步的，万一失败或很慢，预约也不会卡着不刷新
       this.startReservePolling();
 
@@ -681,12 +686,17 @@ redirectToLogin() {
       try {
         const watcher = cloudDb.collection('reserve').watch({
           onChange: (snapshot) => {
+            // 这一代已作废（已离开页面）→ 不再处理，收尾交给 stopReserveRealtime
+            if (this._reserveWatchSeq !== mySeq) return;
             this._reserveWatchIniting = false;
+            this._reserveWatchReady = true;   // 收到首帧 = 监听真正建立成功，此后才能安全 close
             // 预约数据有任何变更（新增/修改/删除）都立即静默刷新
             this.pollReserveData();
           },
           onError: (err) => {
+            if (this._reserveWatchSeq !== mySeq) return;
             this._reserveWatchIniting = false;
+            this._reserveWatchReady = false;
             // 已主动关闭/切换页面，忽略后续异步错误
             if (this._reserveWatchClosed) return;
             this._reserveWatchClosed = true;
@@ -712,13 +722,27 @@ redirectToLogin() {
       // 先标记已关闭，防止异步回调再触发逻辑
       this._reserveWatchClosed = true;
       this._reserveWatchIniting = false;
-      if (this._reserveWatcher) {
-        try {
-          this._reserveWatcher.close();
-        } catch (e) {
-          // close() 时 watcher 还没完全建立，SDK 会抛异常，安全忽略
+      this._reserveWatchSeq = (this._reserveWatchSeq || 0) + 1;   // 作废所有在途回调
+      const watcher = this._reserveWatcher;
+      const ready = this._reserveWatchReady;
+      this._reserveWatcher = null;
+      this._reserveWatchReady = false;
+      if (watcher) {
+        if (ready) {
+          try {
+            watcher.close();
+          } catch (e) {
+            // close() 时 watcher 还没完全建立，SDK 会抛异常，安全忽略
+          }
+        } else {
+          // 监听还在建立中：立刻 close 会把 SDK 内部状态置成 CLOSED，
+          // 迟到的 initWatchFail 会让 SDK 抛
+          //   "current state (CLOSED) does not accept initWatchFail"
+          // 等它自己落定（成功→onChange 首帧 / 失败→onError）再关。
+          setTimeout(() => {
+            try { watcher.close(); } catch (e) { /* 同上，忽略 */ }
+          }, 2000);
         }
-        this._reserveWatcher = null;
       }
       this.stopReservePolling();
     },

@@ -14,7 +14,10 @@ const QUEUE_POLL_INTERVAL_MS = 5000;
 // 排队数据本地缓存时间（毫秒），轮询模式下减少重复云函数请求。
 //   比轮询间隔短，确保缓存失效时下一轮能拿到最新数据。
 const QUEUE_DATA_CACHE_MS = 2000;
-let _queueCache = null // { machineId, data, ts }
+// 按机台分别缓存：Map<machineId, { data, ts }>
+//   原来只有一个变量、只记最后看的那台 —— 从「我正在排的机台」切到别的机台再切回来，
+//   缓存早被覆盖了，又得等一次网络。改成按机台存之后，来回切都是先出旧内容再静默刷新。
+const _queueCacheMap = new Map()
 // 将后端传来的排队信息处理成前端显示的格式
 const handleQueueInfo = function(queueInfo) {
   var myOpenid = wx.getStorageSync('userInfo')?.openid || app.globalData?.userInfo?.openid
@@ -94,7 +97,14 @@ Page({
       // ID, 机器名, 最大上机人数
       // {machineId: 't', machineName: '乌蒙1号', maxPlayer: 2},
     ],
+    // 首屏默认就按「加载中」渲染骨架，避免先闪一帧空列表再跳成文字。
+    // 机台列表一到（machines.length > 0）就切到真正的排卡板，不再等入店状态校验完成。
+    checkQueueError: true,
+    queueErrorText: 'loading',
+    enqueueButtonText: '加载中...',
     selectedMachine: {},
+    // 左侧机台列表滚动定位：选中机台变化时滚到它（id 见 wxml 的 machine-{{item.machineId}}）
+    machineScrollIntoView: '',
     enterInfo: {},  //存储用户排队状态
     playlist: [
       // {
@@ -154,11 +164,25 @@ Page({
     this.setData({
       selectedMachine,
       // 只有可拼机的机台（舞萌·官机）才在游玩区显示「点击座位可切换 拼机 / 单刷」
-      canSwitchMulti: MULTI_PLAY_MACHINE_IDS.indexOf(selectedMachine.machineId) !== -1
+      canSwitchMulti: MULTI_PLAY_MACHINE_IDS.indexOf(selectedMachine.machineId) !== -1,
+      // 左侧机台多起来之后，正在排的那台可能在可视区外看不到 —— 选中就滚过去
+      machineScrollIntoView: 'machine-' + selectedMachine.machineId,
     })
 
+    const machineId = selectedMachine.machineId
+    // 这台机台之前看过 → 先把旧队列铺上，点击立刻有反馈（不用干等网络）。
+    // 紧接着的 forceRefresh 会拿最新数据盖掉它；失败时用户至少还看得到上一次的内容。
+    const cached = _queueCacheMap.get(machineId)
+    if (cached) {
+      try {
+        this.applyQueueData(cached.data)
+      } catch (e) {
+        console.warn('套用缓存的队列数据失败，忽略', e)
+      }
+    }
+
     // 获取切换到机台的排队情况
-    return this.getMachineQueueInfo(selectedMachine.machineId, true).then(playlist => {
+    return this.getMachineQueueInfo(machineId, true).then(playlist => {
       let enterState = this.data.enterInfo.enterState
       let myIndex = this.data.myIndex
       if (myIndex != -1 || enterState == 1) this.setData({
@@ -178,8 +202,33 @@ Page({
     })
   },
   /**
+   * 决定「进页面该打开哪一台机台的队列」。
+   *   ① 用户正在排队 / 游玩（enter_state 2 / 3）→ 就是他所在的那台。
+   *      这是排卡页最重要的信息，必须第一个加载、直接选中。
+   *   ② 没在排队 → 按入店区域挑第一台可用机台（桌游区 → 日麻，音游区 → 第一台音游机台）。
+   * 返回机台下标，-1 表示没找到可用的。
+   */
+  pickTargetMachineIndex(enterInfo) {
+    const list = this.data.machines || []
+    if (!list.length) return -1
+    const state = enterInfo && enterInfo.enterState
+    const myMachineId = enterInfo && enterInfo.machineId
+    // ① 在排队/在游玩：优先定位到自己那一队
+    if ((state == 2 || state == 3) && myMachineId) {
+      const i = list.findIndex(m => m.machineId === myMachineId)
+      // 机台被删/被停用时退回第 ② 步，否则会卡在「机台不可用」上
+      if (i >= 0 && !list[i].is_disabled) return i
+    }
+    // ② 按区域兜底
+    const want = (enterInfo && enterInfo.area === 'board') ? 'board' : 'arcade'
+    return list.findIndex(m => (m.area === 'board' ? 'board' : 'arcade') === want && !m.is_disabled)
+  },
+
+  /**
    * 按当前入店区域自动选中机台：桌游区 → 日麻；音游区 → 第一台可用音游机台。
    * 已经手动选了同区域的机台就不覆盖（保留用户选择）。
+   * ⚠️ 首屏不走这里 —— 首屏要用 pickTargetMachineIndex 优先认「正在排的队伍」，
+   *    这个函数只作为「没在排队时的默认选择」和手动切换的补充。
    */
   async ensureMachineForArea(area) {
     const list = this.data.machines || []
@@ -198,7 +247,11 @@ Page({
     }
   },
   // 获取机台列表
-  async getMachineInfo() {
+  //   options.skipAutoSelect = true：只把机台列表铺到页面上，不自动选机台。
+  //     首屏走这条 —— 「该打开哪一台的队列」要由「用户在排哪一队」来定
+  //     （见 pickTargetMachineIndex），先按区域选一台再切过去会白打一次 getQueueInfo。
+  async getMachineInfo(options) {
+    const skipAutoSelect = !!(options && options.skipAutoSelect)
     // 优先读全局预取缓存：app 启动时已预取，命中则秒出机台框架，不用等网络
     const cached = app.globalData && app.globalData.pageCache && app.globalData.pageCache.machines
     const applyAndReturn = (rawData) => {
@@ -216,13 +269,21 @@ Page({
         }
       )
       this.setData({ machines })
+      if (skipAutoSelect) return machines
       // 机台列表到位后，按当前入店区域自动选中一个（桌游区自动切到日麻）
       const area = this.data.enterInfo && this.data.enterInfo.area === 'board' ? 'board' : 'arcade'
       return this.ensureMachineForArea(area)
     }
 
-    if (cached) {
+    if (cached && cached.length) {
       return applyAndReturn(cached)
+    }
+
+    // 复用 App 那一次在途请求。App 启动时已经在拉了，这里再发一次的话，
+    // 冷启动下两个请求会互相排队，首屏反而更慢。
+    if (app && typeof app.fetchMachines === 'function') {
+      const data = await app.fetchMachines()
+      if (data && data.length) return applyAndReturn(data)
     }
 
     return cloudFcn.getMachineInfo().then(res => {
@@ -240,16 +301,17 @@ Page({
   async getMachineQueueInfo(machineId, forceRefresh) {
     this.syncQueueRealtime(machineId)   // 机台变了就换实时监听的集合
 
-    // 命中缓存（2 秒内且同一机台）→ 直接用，不再打云函数
-    if (!forceRefresh && _queueCache &&
-        _queueCache.machineId === machineId &&
-        Date.now() - _queueCache.ts < QUEUE_DATA_CACHE_MS) {
-      return Promise.resolve(this.applyQueueData(_queueCache.data))
+    const cached = _queueCacheMap.get(machineId)
+    const fresh = cached && Date.now() - cached.ts < QUEUE_DATA_CACHE_MS
+
+    // 新鲜缓存 → 直接用，不再打云函数
+    if (!forceRefresh && fresh) {
+      return Promise.resolve(this.applyQueueData(cached.data))
     }
 
     return cloudFcn.getQueueInfo(machineId).then(res => {
       if (!res.result.success) return Promise.reject(res)
-      _queueCache = { machineId, data: res.result.data, ts: Date.now() }
+      _queueCacheMap.set(machineId, { data: res.result.data, ts: Date.now() })
       return this.applyQueueData(res.result.data)
     })
   },
@@ -413,7 +475,7 @@ Page({
   },
   // 退队
   async dequeue() {
-    return cloudFcn.getEnterInfo().then(res => {
+    return cloudFcn.getEnterInfo({ lite: true }).then(res => {
       if (!res.result.success) return Promise.reject(res)
       var enterInfo = res.result.data
       var machineId = enterInfo.machine_id
@@ -733,75 +795,116 @@ Page({
    * ============================================================ */
 
   // 进入页面时检查用户当前入队情况
+  //
+  // 首屏的加载顺序（本轮优化的重点）：
+  //   1. 机台列表 与 入店状态 并行发出 —— 两个都要，谁先回都行
+  //   2. 拿到入店状态后先看「我在哪一队」（user.machine_id），直接打开那一队
+  //      → 只打一次 getQueueInfo，而且选中的就是正在排的队伍
+  //   3. 其余机台的队列按需加载（点哪台拉哪台，内存里按机台缓存，切回来秒出）
+  //
+  // 旧实现的两处浪费：
+  //   · getMachineInfo 内部先按区域选一台（音游区 = 第一台）并拉一次队列，
+  //     紧接着又切到真正在排的那台再拉一次 —— 串行两次 getQueueInfo，首屏多等一个来回
+  //   · 期间左侧高亮从第一台跳到自己那台，看起来像「自动点错了」
   async checkQueueInfo() {
     this.setData({
       checkQueueError: true,
       queueErrorText: 'loading',
       enqueueButtonText: '加载中...',
     })
-    // 预热机台列表（与入店状态并行），后面 ensureMachineForArea / 切机台能直接命中缓存，
-    // 省掉一次串行等待。getMachineInfo 内部已带缓存与写回，这里失败也不影响主流程。
-    const machineInfoPromise = this.getMachineInfo().catch((e) => {
+
+    // ① 并行：机台列表（不自动选机台）+ 入店状态
+    const machineInfoPromise = this.getMachineInfo({ skipAutoSelect: true }).catch((e) => {
       console.warn('预热机台列表失败', e)
     })
-    this.refreshEnterInfo().then(async enterInfo => {
-      // 等机台列表预热完成（通常它和 getEnterInfo 同时返回，几乎不增加等待）
+
+    let enterInfo
+    try {
+      enterInfo = await this.refreshEnterInfo()
+    } catch (e) {
+      console.error('读取入店状态失败', e)
       await machineInfoPromise
-      // 先把机台切到「本区域」的（桌游区 → 日麻），再做下面的校验，
-      // 否则桌游区用户会因为 selectedMachine 还是音游机台而被误判为跨区排卡
-      await this.ensureMachineForArea(enterInfo.area)
-      var enterState = enterInfo.enterState
-      var machineId = enterInfo.machineId
+      return this.setData({
+        checkQueueError: true,
+        queueErrorText: (this.data.machines || []).length ? '读取入店状态失败，请下拉重试' : '加载失败，请稍后重试',
+        enqueueButtonText: '请重试',
+      })
+    }
+    await machineInfoPromise   // 两个请求本来就同时发出，这一步几乎不增加等待
 
-      // 报错信息
-      if (enterState == 0) { // 未入店
-        return this.setData({
-          checkQueueError: true,
-          queueErrorText: '请先入店',
-          enqueueButtonText: '请入店',
-        })
-      }
-      // 跨区排卡拉黑：机台所属区域必须和入店区域一致
-      //   桌游区（board）的人只能排日麻，音游区的人只能排音游机台
-      else if (
-        (enterInfo.area === 'board' ? 'board' : 'arcade') !==
-        (this.data.selectedMachine && this.data.selectedMachine.area === 'board' ? 'board' : 'arcade')
-      ) {
-        const inBoard = enterInfo.area === 'board'
-        return this.setData({
-          checkQueueError: true,
-          queueErrorText: inBoard
-            ? '您当前在桌游区，只能排「日麻」。如需游玩音游机台，请先离店后重新选择音游设备入店'
-            : '「日麻」属于桌游区，请先离店后重新选择「桌游/日麻」入店',
-          enqueueButtonText: inBoard ? '桌游区只能排日麻' : '音游区无法排日麻',
-        })
-      }
+    const machines = this.data.machines || []
+    if (!machines.length) {
+      return this.setData({
+        checkQueueError: true,
+        queueErrorText: '机台列表加载失败，请稍后重试',
+        enqueueButtonText: '加载失败',
+      })
+    }
 
-      // 余额透支判断：从关键路径里拆出来异步做，不阻塞排卡板主体内容先显示。
-      //   拿到入店状态后立刻放行渲染机台+队列，透支红字随后算好再补上。
-      this.updateOverdraft(enterInfo)
+    const enterState = enterInfo.enterState
 
-      if (enterState == 1) {  // 用户休息中
-        return this.getMachineInfo().then(res => {
-          // 显示默认机器
-          var defaultMachineIndex = 0
-          var e = {currentTarget: {dataset: {machineIndex: defaultMachineIndex}}}
-          return this.switchMachine(e)
-        })
-      }
-      else if (enterState == 2 || enterState == 3) {  // 候队中or游玩中
-        return this.getMachineInfo().then(res => {
-          // 显示用户排队所在机器的排队情况
-          var machineIndex = this.data.machines.findIndex(m => m.machineId == machineId)
-          var e = {currentTarget: {dataset: {machineIndex: machineIndex}}}
-          return this.switchMachine(e).then(res => {
-            var isMulti = this.data.playlist[this.data.myIndex].isMulti
-            this.setData({isMulti})
-          })
-        })
-      }
-      else return Promise.reject(res)
-    }).catch(console.error)
+    // ② 定目标机台：在排队/游玩 → 自己那一队；否则按区域选第一台
+    const targetIndex = this.pickTargetMachineIndex(enterInfo)
+
+    // 未入店：机台列表照常展示（让用户看到店里有哪几台），只把底部按钮禁掉
+    if (enterState == 0) {
+      this.setData({
+        checkQueueError: true,
+        queueErrorText: '请先入店',
+        enqueueButtonText: '请入店',
+      })
+      if (targetIndex >= 0) await this.doSwitchMachine(targetIndex).catch(console.error)
+      return
+    }
+
+    if (targetIndex < 0) {
+      return this.setData({
+        checkQueueError: true,
+        queueErrorText: enterInfo.area === 'board'
+          ? '桌游区暂无可排的机台，请联系店员'
+          : '音游区暂无可排的机台，请联系店员',
+        enqueueButtonText: '暂无可排机台',
+      })
+    }
+
+    // ③ 一次到位：选中目标机台 + 拉它的队列（首屏只有这一次 getQueueInfo）
+    try {
+      await this.doSwitchMachine(targetIndex)
+    } catch (e) {
+      console.error('打开目标机台队列失败', e)
+      return this.setData({
+        checkQueueError: true,
+        queueErrorText: '队列加载失败，请下拉重试',
+        enqueueButtonText: '请重试',
+      })
+    }
+
+    // ④ 跨区排卡拉黑：机台所属区域必须和入店区域一致
+    //    （必须在选定机台之后判断，否则 selectedMachine 还是空/别的区，会误判）
+    const inBoard = enterInfo.area === 'board'
+    const mBoard = this.data.selectedMachine && this.data.selectedMachine.area === 'board'
+    if (inBoard !== mBoard) {
+      return this.setData({
+        checkQueueError: true,
+        queueErrorText: inBoard
+          ? '您当前在桌游区，只能排「日麻」。如需游玩音游机台，请先离店后重新选择音游设备入店'
+          : '「日麻」属于桌游区，请先离店后重新选择「桌游/日麻」入店',
+        enqueueButtonText: inBoard ? '桌游区只能排日麻' : '音游区无法排日麻',
+      })
+    }
+
+    // ⑤ 队列和入店状态都到位，放行底部按钮
+    this.setData({ checkQueueError: false })
+
+    // 余额透支判断：异步做，不阻塞排卡板主体内容
+    this.updateOverdraft(enterInfo)
+
+    // 排队中/游玩中：把「拼机 / 单刷」状态同步过来
+    if (enterState == 2 || enterState == 3) {
+      const me = this.data.playlist[this.data.myIndex]
+      // myIndex 为 -1 说明云端说我在排队、但这个队列里没我（数据刚变），交给轮询去追
+      if (me) this.setData({ isMulti: me.isMulti })
+    }
   },
 
   // 异步计算透支状态（余额 vs 当前应扣点数），不阻塞主流程
@@ -832,7 +935,7 @@ Page({
 
   // 刷新用户排队状态
   async refreshEnterInfo() {
-    return cloudFcn.getEnterInfo().then(res => {
+    return cloudFcn.getEnterInfo({ lite: true }).then(res => {
       if (!res.result.success) return Promise.reject(res)
 
       // 用户排队状态信息
@@ -956,14 +1059,19 @@ Page({
     this._queueWatchFailedMachineId = null // 哪台机台确认建立不起监听（退回轮询）
     this._queueWatchClosed = false  // 是否已主动关闭监听（防止异步 onError 踩状态）
     this._queueWatchIniting = false // 是否正在建立监听（防重入）
+    this._queueWatchReady = false   // 首帧是否已到达（= 监听真正建立成功）
+    this._queueWatchSeq = 0         // 监听世代号，作废在途回调
   },
 
   /**
    * 生命周期函数--监听页面初次渲染完成
    */
   onReady() {
-    // 获取所有机器信息
-    this.getMachineInfo().catch(console.error)
+    // 获取所有机器信息。
+    // ⚠️ skipAutoSelect：这里只做预热，不能顺手「按区域选一台并拉一次队列」——
+    //    checkQueueInfo 紧接着会按「我在排哪一队」选目标机台，
+    //    两边各选一次的话，首屏会多打一次 getQueueInfo，还会看到高亮先跳一下。
+    this.getMachineInfo({ skipAutoSelect: true }).catch(console.error)
   },
 
   /**
@@ -1035,19 +1143,27 @@ Page({
     let watchEstablished = true
     // 已在监听中，或正在建立中，直接跳过（防止重复建立）
     if (this._queueWatcher || this._queueWatchIniting) return;
+    const mySeq = (this._queueWatchSeq || 0) + 1
+    this._queueWatchSeq = mySeq
     this._queueWatchIniting = true;
     this._queueWatchClosed = false;
+    this._queueWatchReady = false;
     try {
       const watcher = cloudDb.collection('queue_' + machineId).watch({
         // 首帧（init）也会回调，正好当作进页面后的第一次刷新
         onChange: (snapshot) => {
+          // 这一代已作废（切了机台或已离开页面）→ 不再处理，收尾交给 stopQueueRefresh
+          if (this._queueWatchSeq !== mySeq) return
           this._queueWatchIniting = false;
+          this._queueWatchReady = true   // 收到首帧 = 监听真正建立成功，此后才能安全 close
           console.log('队列变动触发刷新：', snapshot && snapshot.type,
             snapshot && snapshot.docChanges ? snapshot.docChanges.length : 0)
           this.pollQueueInfo()
         },
         onError: (err) => {
+          if (this._queueWatchSeq !== mySeq) return
           this._queueWatchIniting = false;
+          this._queueWatchReady = false;
           // 已主动关闭/切换页面，忽略后续异步错误
           if (this._queueWatchClosed) return;
           this._queueWatchClosed = true;
@@ -1080,15 +1196,30 @@ Page({
     // 先标记已关闭，防止异步回调再触发逻辑
     this._queueWatchClosed = true;
     this._queueWatchIniting = false;
-    if (this._queueWatcher) {
-      try {
-        this._queueWatcher.close()
-      } catch (e) {
-        // close() 时 watcher 还没完全建立，SDK 会抛异常，安全忽略
-      }
-      this._queueWatcher = null
-    }
+    this._queueWatchSeq = (this._queueWatchSeq || 0) + 1   // 作废所有在途回调
     this._queueWatchMachineId = null
+    const watcher = this._queueWatcher
+    const ready = this._queueWatchReady
+    this._queueWatcher = null
+    this._queueWatchReady = false
+    if (watcher) {
+      if (ready) {
+        try {
+          watcher.close()
+        } catch (e) {
+          // close() 时 watcher 还没完全建立，SDK 会抛异常，安全忽略
+        }
+      } else {
+        // 监听还在建立中：此刻 close 会把 SDK 内部状态置成 CLOSED，
+        // 等会儿 initWatch 的失败回调迟到，SDK 试图 transition('initWatchFail') 就会抛
+        //   "current state (CLOSED) does not accept initWatchFail"
+        // （堆栈在 Fa.initWatch → Wo.transition，是 SDK 内部抛的，外层的 try/catch 抓不到）
+        // 所以先不动它，等它自己落定（成功→onChange 首帧 / 失败→onError）再关。
+        setTimeout(() => {
+          try { watcher.close() } catch (e) { /* 同上，忽略 */ }
+        }, 2000)
+      }
+    }
     this.stopQueuePolling()
   },
 
@@ -1122,7 +1253,11 @@ Page({
 
     this._pollInFlight = true
     try {
-      await this.getMachineQueueInfo(machine.machineId)
+      // ⚠️ 必须绕过本地缓存：这里是「云端告诉我队列变了」之后的刷新。
+      //   而 2 秒缓存只服务「同一台机台来回切换」这种场景 —— 如果这次刷新命中缓存，
+      //   相当于把这条变更通知丢掉。监听生效后轮询已停，丢掉的这一条就再也没人补，
+      //   页面会一直停在旧队列上（直到用户手动切机台或退出重进）。
+      await this.getMachineQueueInfo(machine.machineId, true)
     } catch (e) {
       // 自动刷新失败不弹提示：网络抖一下不该打断用户，下一轮会自己重试
       // （用户主动操作触发的刷新仍然走原来的报错逻辑）

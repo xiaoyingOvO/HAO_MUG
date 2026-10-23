@@ -800,6 +800,30 @@ function hasFreeTimeCard(s, openid, now = nowDate()) {
   return freeRanges.some((r) => hourInRange(curHour, r.start, r.end));
 }
 
+/**
+ * 夜场音游区通行证（与云端 queueFunctions/enterArcade 的 hasNightArcadePass 一致）
+ *   · 夜场（23:00 ~ 次日 09:59）只有「夜场畅玩卡（预约包夜）」和「早八畅玩套餐(08-10)」能打音游
+ *   · 「桌游麻将票·夜场」只覆盖桌游区，不能进音游区
+ *   · 白天（10:00 ~ 22:59）不限制
+ */
+function nightArcadePass(s, openid) {
+  const h = nowDate().getHours();
+  const isNight = h >= 23 || h < 10;
+  if (!isNight) return true;
+
+  const u = allUsers(s).find((x) => x.openid === openid) || s.me;
+  const now = nowTs();
+  const isMorning = h >= 8 && h < 10;
+  return (u.cards || []).some((c) => {
+    const start = new Date(c.start_time).getTime();
+    const end = new Date(c.end_time).getTime();
+    if (!(now >= start && now <= end)) return false;
+    if (c.card_id === NIGHT_CARD_ID) return true;
+    if (MORNING_CARD_ID && c.card_id === MORNING_CARD_ID && isMorning) return true;
+    return false;
+  });
+}
+
 function nextId(s, prefix) {
   s.seq = (s.seq || 100) + 1;
   return `${prefix}-${s.seq}`;
@@ -1568,13 +1592,18 @@ const queueFunctions = {
    */
   enterArcade(p, s) {
     if (s.me.enter_state !== 0) return { success: false, errMsg: '用户已入店，请刷新重试' };
+    const area = normalizeArea(p && p.area);
+    // 夜场音游区只对「预约包夜」开放（与云端 enterArcade 一致）：
+    //   「桌游麻将票·夜场」能进店，但进不了音游区；白天不受此限，桌游日场票可正常进音游区并计费。
+    if (area === 'arcade' && !nightArcadePass(s, ME_OPENID)) {
+      return { success: false, errMsg: '夜场音游区仅限预约包夜（或早八票），请先预约' };
+    }
     const remain = totalPoints(s.me);
     const freeCard = hasFreeTimeCard(s, ME_OPENID);
     if (remain < 0 || (remain === 0 && (s.me.exp || 0) < 114514 && !freeCard)) {
       return { success: false, errMsg: '余额不足' };
     }
     if ((s.me.credit || 0) < 60) return { success: false, errMsg: '您的信用太差了，本店拒绝您访问' };
-    const area = normalizeArea(p && p.area);
     // 两个区统一为「休息中」，随后由 Enqueue 置为「候机中」（日麻也要排队）
     s.me.enter_state = 1;
     s.me.enter_time = nowTs();
@@ -1736,14 +1765,26 @@ const queueFunctions = {
     // 且当前时间在有效期内。与云端 queueFunctions/ifNight 一致。
     // 早八票仅在早八时段（08:00-10:00）内放行。
     // 其他卡（日间/全天畅玩、日场桌游麻将票等）不构成夜场入店资格。
-    const hasCard = (s.me.cards || []).some((c) => {
+    let hasCard = false;
+    // 夜间能打音游的只有「夜场票（预约包夜）」和「早八票」；
+    // 「桌游麻将票·夜场」只覆盖桌游区，hasArcadePass 保持 false。
+    let hasArcadePass = false;
+    (s.me.cards || []).forEach((c) => {
       const start = new Date(c.start_time).getTime();
       const end = new Date(c.end_time).getTime();
+      if (!(now >= start && now <= end)) return;
       const isNightCard = c.card_id === NIGHT_CARD_ID || (BOARD_NIGHT_CARD_ID && c.card_id === BOARD_NIGHT_CARD_ID);
+      if (isNightCard) {
+        hasCard = true;
+        if (c.card_id === NIGHT_CARD_ID) hasArcadePass = true;
+      }
       const isMorningCard = (MORNING_CARD_ID && c.card_id === MORNING_CARD_ID);
-      return (isNightCard || (isMorningCard && isMorning)) && now >= start && now <= end;
+      if (isMorningCard && isMorning) {
+        hasCard = true;
+        hasArcadePass = true;
+      }
     });
-    return { success: true, data: { ifNight: night, hasCard } };
+    return { success: true, data: { ifNight: night, hasCard, hasArcadePass } };
   },
 
   switchMulti(p, s) {

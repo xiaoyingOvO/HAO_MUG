@@ -15,6 +15,11 @@ const { toBJHour, nowBJMinutes } = require('../timeUtil');
 const AREA_ARCADE = 'arcade'   // 音游区：0.2 点/分 = 12 点/小时
 const AREA_BOARD = 'board'     // 桌游区：0.1 点/分 =  6 点/小时
 
+// 夜场音游区通行证（与 queueFunctions/ifNight 的常量保持一致）
+//   注意：「桌游麻将票·夜场」(df40db4d6ad4af26010239057dae6a3c) 不在白名单内 —— 它只覆盖桌游区。
+const NIGHT_CARD_ID = 'e33be08d678e255a0189586d3b0d8a79';       // 夜场畅玩卡（预约包夜）
+const MORNING_CARD_ID = 'ab52283f6783807201221ba02db6611e';      // 早八畅玩套餐（08:00-10:00）
+
 // 入店云函数入口
 exports.main = async (event, context) => {
   // 获取openid
@@ -85,6 +90,20 @@ exports.main = async (event, context) => {
     return {
       success: false,
       errMsg: "您的信用太差了，本店拒绝您访问",
+    }
+  }
+  // 夜场音游区只对「预约包夜」开放。
+  //   夜间（23:00-次日09:59）能进音游区的只有：夜场畅玩卡（预约包夜）、早八畅玩套餐（08:00-10:00）。
+  //   桌游麻将票·夜场虽然能让用户夜间进店，但只覆盖桌游区 —— 拿它进音游区要拦下来。
+  //   白天（10:00-22:59）不做此限制：持桌游日场票可以进音游区，按音游区费率正常计费。
+  if (area === AREA_ARCADE) {
+    const arcadePass = await hasNightArcadePass(user_remain_record.data[0].cards, new Date())
+    console.log('夜场音游区通行证:', arcadePass)
+    if (!arcadePass) {
+      return {
+        success: false,
+        errMsg: "夜场音游区仅限预约包夜（或早八票），请先预约",
+      }
     }
   }
   // 余额充足
@@ -201,6 +220,46 @@ async function hasFreeTimeCard(userCards, currentTime, userArea) {
       : (curHour >= startHour || curHour < endHour)
 
     if (inRange) return true
+  }
+  return false
+}
+
+/**
+ * 判断用户此刻能否进入「音游区」，只针对夜场时段做限制。
+ *
+ * 规则（来自店主）：
+ *   · 夜场（北京时间 23:00 ~ 次日 09:59）音游区是包夜预约场，只有
+ *       ① 夜场畅玩卡（预约包夜，NIGHT_CARD_ID）
+ *       ② 早八畅玩套餐（08:00-10:00，MORNING_CARD_ID）
+ *     可以打。「桌游麻将票·夜场」只覆盖桌游区，拿它进音游区要被拦。
+ *   · 白天（10:00 ~ 22:59）不限制：持桌游日场票可以正常进音游区，按音游区费率计费。
+ *
+ * @param {Array} userCards   用户 cards 字段，形如 [{card_id, start_time, end_time}]
+ * @param {Date}  currentTime 当前时间
+ * @returns {boolean} true = 允许进音游区
+ */
+function hasNightArcadePass(userCards, currentTime) {
+  const now = currentTime.getTime()
+  const curHour = Math.floor(nowBJMinutes(currentTime) / 60)
+  const isNight = curHour >= 23 || curHour < 10
+  // 白天不限区域，直接放行
+  if (!isNight) return true
+
+  const cards = userCards ?? []
+  if (!Array.isArray(cards) || cards.length == 0) return false
+
+  // 早八票只在 08:00-09:59 这个窗口内算作音游通行证
+  const isMorning = curHour >= 8 && curHour < 10
+
+  for (let i = 0; i < cards.length; i++) {
+    const hold = cards[i]
+    if (!hold || !hold.card_id) continue
+    const start = new Date(hold.start_time).getTime()
+    const end = new Date(hold.end_time).getTime()
+    if (!(start <= now && now <= end)) continue
+
+    if (hold.card_id === NIGHT_CARD_ID) return true
+    if (hold.card_id === MORNING_CARD_ID && isMorning) return true
   }
   return false
 }

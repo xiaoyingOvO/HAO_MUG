@@ -84,11 +84,14 @@ const getQueueInfo = async function(id) {
 }
 
 // 获取用户入店信息
-const getEnterInfo = async function() {
+//   params.lite = true 时不返回三个区的人数统计（省掉云函数里一次串行的 count 查询）。
+//   排卡页只关心本人的入店状态，走 lite；首页要显示三个区人数，不能传。
+const getEnterInfo = async function(params) {
   return wx.cloud.callFunction({
     name: 'queueFunctions',
     data: {
-      type: 'getEnterInfo'
+      type: 'getEnterInfo',
+      params: params || {}
     }
   })
 }

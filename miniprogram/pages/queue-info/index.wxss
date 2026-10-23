@@ -332,3 +332,57 @@ button {
   height: 0;
   display: none;
 }
+/* ===== 首屏骨架 =====
+   机台列表还没回来时占位。布局尺寸与 .queue-layout 保持一致，
+   数据到了直接顶替，不会发生跳动。 */
+.queue-skeleton {
+  display: flex;
+  flex-direction: row;
+  gap: 20rpx;
+  margin-top: 12rpx;
+  height: calc(100vh - 160rpx - 136rpx - env(safe-area-inset-bottom));
+  box-sizing: border-box;
+}
+.sk-col-left {
+  flex: none;
+  width: 200rpx;
+  height: 100%;
+  background: #ffffff;
+  border-radius: 20rpx;
+  padding: 12rpx 8rpx;
+  box-sizing: border-box;
+}
+.sk-col-right {
+  flex: 1;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 16rpx;
+}
+.sk-block {
+  background: linear-gradient(90deg, #eceef1 25%, #f5f6f8 37%, #eceef1 63%);
+  background-size: 400% 100%;
+  animation: sk-shimmer 1.2s ease infinite;
+  border-radius: 14rpx;
+}
+.sk-machine {
+  height: 76rpx;
+  margin-bottom: 12rpx;
+}
+.sk-seat-row {
+  display: flex;
+  gap: 12rpx;
+}
+.sk-seat {
+  flex: 1;
+  height: 120rpx;
+  border-radius: 20rpx;
+}
+.sk-card {
+  height: 110rpx;
+  border-radius: 20rpx;
+}
+@keyframes sk-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}

@@ -1,0 +1,10 @@
+{
+  "timeout": 20,
+  "triggers": [
+    {
+      "name": "keepWarm",
+      "type": "timer",
+      "config": "0 */5 * * * * *"
+    }
+  ]
+}

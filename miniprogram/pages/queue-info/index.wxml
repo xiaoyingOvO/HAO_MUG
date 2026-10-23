@@ -59,13 +59,19 @@
     余额已透支{{overdraftShortage > 0 ? ' ' + overdraftShortage + ' 点' : ''}}，请及时充值。队列位置已保留，可随时退队。
   </view>
 
-  <view wx:if="{{!checkQueueError}}" class="queue-layout">
+  <!-- 机台列表一到就先渲染排卡板，不再等「入店状态校验」全部完成。
+       入店校验只决定底部按钮文字，没必要挡住整块内容。 -->
+  <view wx:if="{{machines.length > 0}}" class="queue-layout">
     <!-- 左：机台列表 -->
     <!-- 左侧机台列表：bounces 关掉，避免下拉时出现「像在刷新」的回弹 -->
-    <scroll-view class="machine-list" scroll-y enhanced show-scrollbar="{{false}}" bounces="{{false}}">
+    <!-- scroll-into-view：进页面自动选中「我正在排的那一队」时，若它在列表下方，
+         列表会自动滚过去，不用手动找 -->
+    <scroll-view class="machine-list" scroll-y enhanced show-scrollbar="{{false}}" bounces="{{false}}"
+      scroll-into-view="{{machineScrollIntoView}}" scroll-with-animation>
       <view
         wx:for="{{machines}}"
         wx:key="machineId"
+        id="machine-{{item.machineId}}"
         class="machine-item {{selectedMachine.machineId === item.machineId ? 'machine-item-active' : ''}}"
         bind:tap="switchMachine"
         data-machine-index="{{index}}">
@@ -81,6 +87,18 @@
       <scroll-view class="queue-area" scroll-y="{{!showDragClone}}" bounces="{{false}}">
         <template is="queueContent" data="{{playingList, waitingList, showDragClone, clonePlayer, cloneRect, dragIndex, canSwitchMulti}}" />
       </scroll-view>
+    </view>
+  </view>
+  <!-- 骨架：比一行「loading」体感快得多，也是审核员进页面第一眼看到的东西 -->
+  <view wx:elif="{{queueErrorText === 'loading'}}" class="queue-skeleton">
+    <view class="sk-col-left">
+      <view class="sk-block sk-machine" wx:for="{{[1,2,3,4,5]}}" wx:key="*this"></view>
+    </view>
+    <view class="sk-col-right">
+      <view class="sk-seat-row">
+        <view class="sk-block sk-seat" wx:for="{{[1,2,3]}}" wx:key="*this"></view>
+      </view>
+      <view class="sk-block sk-card" wx:for="{{[1,2]}}" wx:key="*this"></view>
     </view>
   </view>
   <view wx:else class="queue-error">{{queueErrorText}}</view>

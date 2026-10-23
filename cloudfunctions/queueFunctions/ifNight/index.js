@@ -33,6 +33,9 @@ exports.main = async (event, context) => {
 
   var night = false
   var hasCard = false
+  // 是否持有「音游区夜间通行证」：只有「夜场票（预约包夜）」和「早八票」算数。
+  // 「桌游麻将票·夜场」虽然能让用户夜间进店，但只覆盖桌游区，不能打音游。
+  var hasArcadePass = false
   // 是否处于早八时段（北京时间 08:00 ~ 09:59）
   var isMorning = (bjHour >= 8 && bjHour < 10)
   // 夜场时段（北京时间）：23:00 ~ 次日 09:59
@@ -65,12 +68,15 @@ exports.main = async (event, context) => {
       const isNightCard = (card_id === NIGHT_CARD_ID) || (BOARD_NIGHT_CARD_ID && card_id === BOARD_NIGHT_CARD_ID)
       if (isNightCard && current_time >= start_time && current_time <= end_time){
         hasCard = true
-        break
+        // 夜间能进音游区的只有「夜场票（预约包夜）」；桌游夜场票只给桌游区
+        if (card_id === NIGHT_CARD_ID) hasArcadePass = true
+        if (hasArcadePass) break
       }
       // 早八票：仅在早八时段（08:00-10:00）内，且卡在有效期内 → 视为可入店（与夜场票同等放行）
       const isMorningCard = (MORNING_CARD_ID && card_id === MORNING_CARD_ID)
       if (isMorningCard && isMorning && current_time >= start_time && current_time <= end_time){
         hasCard = true
+        hasArcadePass = true
         break
       }
   }
@@ -78,7 +84,8 @@ exports.main = async (event, context) => {
     success: true,
     data: {
       ifNight : night,
-      hasCard : hasCard
+      hasCard : hasCard,
+      hasArcadePass : hasArcadePass
     }
   }
 };

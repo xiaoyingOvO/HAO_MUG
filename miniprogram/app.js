@@ -42,6 +42,7 @@ App({
         reserve: null,    // 预约数据（预约页）
       },
       prefetchPromise: null,  // 预取任务（防止重复触发）
+      machinesInflight: null, // 机台列表的在途请求（App 与页面共用一条，防止重复打云函数）
     }
 
     this.globalData.loginPromise = this.silentLogin();
@@ -61,17 +62,18 @@ App({
   prefetchTabData() {
     if (this.globalData.prefetchPromise) return this.globalData.prefetchPromise
 
+    // 机台列表不依赖登录态 —— 立刻发，和 silentLogin 并行。
+    // 原来它排在 ensureLoggedIn() 之后，等于白等一次 baseFunctions 冷启动，
+    // 排卡页首屏干等 2 秒就是被这一下拖的。
+    const machinesTask = this.fetchMachines()
+
     this.globalData.prefetchPromise = this.ensureLoggedIn()
       .then(userInfo => {
         // 未注册新用户没有完整数据，跳过预取（页面会引导登录）
         if (!userInfo || userInfo.isNewUser) return
         return Promise.allSettled([
-          // 机台列表：排卡页框架数据
-          cloudFcn.getMachineInfo().then(res => {
-            if (res && res.result && res.result.success) {
-              this.globalData.pageCache.machines = res.result.data
-            }
-          }),
+          // 机台列表：排卡页框架数据（已在上方发起）
+          machinesTask,
           // 预约数据：预约页列表（整月日历）
           wx.cloud.callFunction({
             name: 'baseFunctions',
@@ -88,6 +90,40 @@ App({
       })
 
     return this.globalData.prefetchPromise
+  },
+
+  /**
+   * 拉机台列表。全局只有一条在途请求：
+   *   App 预取和排卡页 onShow 可能同时需要它，不复用就会同时打两次云函数，
+   *   冷启动下这两次会互相排队，首屏反而更慢。
+   * @returns {Promise<Array|null>} 机台原始数据；失败返回 null（调用方自行兜底）
+   */
+  fetchMachines() {
+    const cache = this.globalData.pageCache
+    if (cache.machines && cache.machines.length) {
+      return Promise.resolve(cache.machines)
+    }
+    if (this.globalData.machinesInflight) return this.globalData.machinesInflight
+
+    const task = cloudFcn.getMachineInfo()
+      .then(res => {
+        if (res && res.result && res.result.success) {
+          cache.machines = res.result.data
+          return res.result.data
+        }
+        return null
+      })
+      .catch(err => {
+        console.warn('[App] 拉取机台列表失败（页面会兜底）：', err)
+        return null
+      })
+      .then(data => {
+        this.globalData.machinesInflight = null
+        return data
+      })
+
+    this.globalData.machinesInflight = task
+    return task
   },
 
   onShow: function() {

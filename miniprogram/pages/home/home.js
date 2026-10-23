@@ -199,6 +199,9 @@ Page({
     },
     woClosed: false,  // 无法入店
     woClosedText: '', // 停止入店的按钮文字
+    // 夜场音游区锁：夜场时段 + 只持桌游夜场票（无夜场票/早八票）时为 true，
+    // 入店弹层里音游区机台置灰，桌游区照常可选。由 checkAccess 刷新。
+    nightArcadeLock: false,
     consumptionAmount: 0, // 消费金额
 
     // 入店设备选择弹层（点「入店」后弹出，选中设备即入店并直接排队）
@@ -269,7 +272,9 @@ Page({
     var enterState = data.enter_state ?? 0
     // 入店区域：老数据没有 area 字段时按音游区处理
     var area = data.area === 'board' ? 'board' : 'arcade'
-    var time = new Date(data.enter_time).getTime()
+    // enter_time 为 null / 非法时置 0，下面据此判断要不要起计时器
+    var time = data.enter_time ? new Date(data.enter_time).getTime() : 0
+    if (isNaN(time)) time = 0
     this.setData({
       ['woStatus.businessStatus']: businessStatus,
       ['woStatus.enterState']: enterState,
@@ -283,23 +288,44 @@ Page({
     })
     // 先清旧定时器，再起新的（避免重复计时）
     this.stopEnterTimer()
-    if (enterState !== 0) {
+    // 只有在店 + 基准时间有效才起表；否则会和残留的旧基准打架，出现两个时钟
+    if (enterState !== 0 && time > 0) {
       this.startEnterTimer()
     }
   },
 
   // 启用在店计时器
+  //   ⚠️ 这里不再用「已在运行就 return」的标记来防重。
+  //   那个标记一旦和实际状态不同步（比如离店时没走到 stop、或 applyEnterInfo 被并发调用），
+  //   就会留下一个没人管的旧定时器，界面上表现为「两个时钟交替跳」（旧基准 + 新基准）。
+  //   改成：每次启动前先把所有可能的旧定时器清干净，保证同一时刻最多只有一个在跑。
   startEnterTimer() {
-    if (this._enterTimerRunning) return // 已在运行，不重复起
-    this._enterTimerRunning = true
+    this.stopEnterTimer()
     let that = this
-    enterTimer = setInterval((function i() {
+    // 世代号（generation）：每次起表都 +1，旧的那一代在下一拍发现号对不上就自杀。
+    // 这是对「clearInterval 清不掉」的最后兜底 —— 句柄丢失（模块被重新执行、
+    // 开发者工具热重载、页面实例复用）时，光靠句柄是永远清不掉的，
+    // 但世代号存在页面实例上，旧闭包读的就是当前值，一比就知道自己过期了。
+    let gen = (this._enterGen || 0) + 1
+    this._enterGen = gen
+    let id = setInterval(function i() {
+      // 不是最新一代 → 立刻停掉自己，绝不和现存的那个抢着写同一个字段
+      if (that._enterGen !== gen) {
+        clearInterval(id)
+        console.warn('[enterTimer] 已自动清理一个过期的在店计时器（世代号不匹配），通常来自热重载残留')
+        return
+      }
       let enterState = that.data.woStatus.enterState
-      // 未入店 || 未获取到信息
-      if (enterState === 0 || !enterState) return i
+      // 未入店 / 未获取到信息 → 自己停下来，避免变成一个「空转但随时会被唤醒」的僵尸定时器
+      if (enterState === 0 || !enterState) {
+        that.stopEnterTimer()
+        return
+      }
 
       let time = that.data.woStatus.enterTime.time
       let nowTime = new Date().getTime()
+      // 基准时间无效（0 / NaN）说明数据还没到，跳过这一拍，别显示成 00:00 或乱码
+      if (!time || isNaN(time)) return
 
       // 在店时长正计时（每秒 +1 秒）
       let show = calcEnterTime(time, nowTime)
@@ -309,28 +335,40 @@ Page({
 
       checkBalance.call(that, nowTime, time, checkBalanceTimeout)
       checkConsumePoint.call(that, nowTime, time, checkConsumePointTimeout)
-
-      return i
-    })(), 1000)
+    }, 1000)
+    this._enterTimer = id
+    enterTimer = id
   },
 
-  // 停止在店计时器
+  // 停止在店计时器（页面实例上的 + 模块级的都清一遍，防止漏掉任何一个）
+  //   ① 世代号 +1：即使某个 interval 的句柄已经丢了（清不掉），它在下一拍也会因号不匹配自杀
+  //   ② 句柄判断用 != null：setInterval 的返回值理论上可以是 0，`if (id)` 会把 0 当没句柄而漏清
   stopEnterTimer() {
-    clearInterval(enterTimer)
-    this._enterTimerRunning = false
+    this._enterGen = (this._enterGen || 0) + 1
+    if (this._enterTimer != null) {
+      clearInterval(this._enterTimer)
+      this._enterTimer = null
+    }
+    if (enterTimer != null) {
+      clearInterval(enterTimer)
+      enterTimer = null
+    }
   },
   // 判断是否可入店
-  async checkAccess() {
+  //   forceRefresh=true 时跳过 getEnterInfo 的 3 秒缓存（入店/离店后必须拿真实状态）
+  async checkAccess(forceRefresh) {
     // ⚠️ 必须先用 getEnterInfo 拿到真实的 businessStatus 再判断，
     //    否则这里会读到初始值 true/false，把「营业中」误判成「已打烊」。
     //    getEnterInfo 内部已 catch，不会因失败中断本函数。
-    await this.getEnterInfo();
+    await this.getEnterInfo(forceRefresh);
 
     return cloudFcn.ifNight().then(res => {
       if (!res.result.success) return Promise.reject(res)
 
       let businessStatus = this.data.woStatus.businessStatus    // 店铺是否营业
-      let {ifNight, hasCard} = res.result.data  //是否夜场以及是否持有夜场卡
+      // ifNight：是否夜场；hasCard：是否持任意夜间入店凭证（含桌游夜场票）；
+      // hasArcadePass：是否持「夜场票（预约包夜）」或早八票 —— 只有这两个能打夜场音游
+      let {ifNight, hasCard, hasArcadePass} = res.result.data
 
       if (!businessStatus) {
         this.setData({
@@ -349,6 +387,11 @@ Page({
           woClosed: false
         })
       }
+
+      // 夜场音游区锁：能进店但只有桌游夜场票的，音游区不给进（桌游区照常）
+      this.setData({
+        nightArcadeLock: !!(ifNight && hasCard && !hasArcadePass)
+      })
     }).catch(err => {
       console.error(err)
     })
@@ -430,6 +473,18 @@ Page({
       if (!res.result.success) return Promise.reject(res.result);
       const machines = res.result.data || [];
       const groups = buildDeviceGroups(machines);
+      // 夜场音游区锁：只持桌游夜场票的人，音游区机台一律置灰（桌游区照常可选）。
+      // 真正的拦截在云端 enterArcade，这里只是不让用户白点。
+      if (this.data.nightArcadeLock) {
+        groups.forEach((g) => {
+          (g.children || []).forEach((c) => {
+            if (c.area !== 'board') {
+              c.is_disabled = true;
+              c.disabledText = '夜场需预约包夜';
+            }
+          });
+        });
+      }
       this.setData({ deviceGroups: groups });
 
       // 逐台拉「游玩中 + 排队中」的人数：
@@ -493,7 +548,7 @@ Page({
     if (children.length <= 1) {
       const device = children[0];
       if (device && device.is_disabled) {
-        wx.showToast({ title: '机台不可用', icon: 'none' });
+        wx.showToast({ title: device.disabledText || '机台不可用', icon: 'none' });
         return;
       }
       // 再点同一个 = 取消选中
@@ -572,7 +627,7 @@ Page({
     }
     // 不可用机台不能被选中
     if (device.is_disabled) {
-      wx.showToast({ title: '机台不可用', icon: 'none' });
+      wx.showToast({ title: device.disabledText || '机台不可用', icon: 'none' });
       return;
     }
     if (this.data.isEntering) return;
@@ -615,6 +670,9 @@ Page({
     try {
       const res = await cloudFcn.enterArcade(area);
       if (!res.result.success) throw res.result;
+      // 入店成功：作废旧缓存，保证 finally 里的 onShow 拿到**这次**的 enter_time，
+      // 而不是入店前缓存里的旧值（否则计时基准和实际入店时刻对不上）
+      _enterInfoCache = null
 
       // 音游设备：入店后紧接着排进该机台的队尾
       //（Enqueue 内部会把 enter_state 从 1「休息中」置为 2「候机中」）
@@ -653,22 +711,48 @@ Page({
       this.onShow();
     }
   },
+  // 清空本地「在店」状态：停表 + 状态归零 + 作废 getEnterInfo 缓存。
+  //   ⚠️ 凡是「云端已确认用户不在店内」的分支都必须调用它，不能只靠 finally 里的 onShow 兜底：
+  //   getEnterInfo 有 3 秒缓存，一旦命中「离店前」的旧数据（enter_state>0 + 旧的 enter_time），
+  //   applyEnterInfo 就会按旧基准把计时器重新起回来 —— 这就是「离店后两个时钟交替跳」的根因。
+  _clearLocalEnterState() {
+    _enterInfoCache = null
+    this.stopEnterTimer()
+    this.setData({
+      ['woStatus.enterState']: 0,
+      ['woStatus.enterTime.time']: 0,
+      ['woStatus.enterTime.show']: '',
+      consumptionAmount: 0,
+    })
+  },
+
   // 用户离店
   leaveArcade() {
     cloudFcn.leaveArcade().then(res => {
       if (!res.result.success) return Promise.reject(res.result)
+      // 离店成功：云端已把 enter_state 置 0
+      this._clearLocalEnterState()
       wx.showToast({
         title: '离店成功',
         icon: 'none'
       })
     }).catch(err => {
-      if (err.success === false) {
+      if (err && err.success === false) {
         var title = '离店失败'
-        if (err.errMsg.includes('退队')) {
+        if (err.errMsg && err.errMsg.includes('退队')) {
           title = '离店失败，请先退队'
         }
-        else if (err.errMsg.includes('余额')) {
+        else if (err.errMsg && err.errMsg.includes('余额')) {
+          // 「余额不足」并不是离店失败：云函数在返回失败之前**已经**把 enter_state 置 0、
+          // enter_time 清空、余额扣成负数（见 leaveArcade 末尾那段 if）。
+          // 也就是人已经离店了，只是钱包欠费。本地必须同步归零，否则时钟会继续按旧基准走。
           title = '余额不足，自动离店'
+          this._clearLocalEnterState()
+        }
+        else if (err.errMsg && err.errMsg.includes('未入店')) {
+          // 云端认为用户本来就不在店里（例如已被定时任务清出），本地同样归零
+          title = '已不在店内'
+          this._clearLocalEnterState()
         }
         wx.showToast({
           title,
@@ -677,7 +761,7 @@ Page({
       }
       else console.error(err)
     }).finally(() => {
-      // 刷新页面
+      // 刷新页面（缓存已在上面清空，这里必然拉真实数据）
       this.onShow()
     })
 
@@ -823,10 +907,9 @@ Page({
           this.setData({
             userInfo: null,
             isLoggedIn: false,
-            ['woStatus.enterState']: 0,
-            ['woStatus.enterTime.show']: '',
-            consumptionAmount: 0,
           });
+          // 未登录状态下不该有「在店时钟」：统一走收口方法（停表 + 归零 + 作废缓存）
+          this._clearLocalEnterState();
           this.loadPageData();
         } 
       }).catch(err => {
@@ -847,7 +930,10 @@ Page({
    * 生命周期函数--监听页面卸载
    */
   onUnload() {
-
+    // 页面销毁时必须停表：定时器句柄挂在模块级变量 enterTimer 上，
+    // 页面没了它还会每秒 setData 一次（控制台报「setData 不能在页面已销毁时调用」），
+    // 下一次进入首页又会新起一个，句柄互相覆盖 → 旧的那个再也停不掉。
+    this.stopEnterTimer()
   },
 
   /**

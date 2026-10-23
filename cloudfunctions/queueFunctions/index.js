@@ -28,6 +28,13 @@ const dealReport = require("./dealReport/index")
 const modifyBusinessStatus = require("./modifyBusinessStatus/index")
 
 exports.main = async (event, context, callback) => {
+  // 定时预热触发（config.json 里的 keepWarm，每 5 分钟一次）：
+  //   只为了让这个云函数的实例保持温热，不做任何业务逻辑。
+  //   没有它的话，审核员/用户第一次打开排卡页会撞上 1~3 秒的冷启动，
+  //   而排卡页首屏是两次串行调用，冷启动会被放大到 3~6 秒。
+  if (event && (event.Type === 'Timer' || event.Type === 'timer')) {
+    return { success: true, warmup: true, ts: Date.now() }
+  }
   switch (event.type) {
     case "getEnterInfo":
       return await getEnterInfo.main(event,context)
