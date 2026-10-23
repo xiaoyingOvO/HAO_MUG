@@ -24,20 +24,9 @@ const getMail = require('./getMail/index');
 const readMail = require('./readMail/index');
 const getUnreadMessageCount = require('./getUnreadMessageCount/index');
 const mahjongStats = require('./mahjongStats/index');
-const createPointOrder = require('./createPointOrder/index');
-const queryPointOrder = require('./queryPointOrder/index');
-const pointPayStatus = require('./pointPayStatus/index');
-const xpayNotify = require('./xpayNotify/index');
 
 // 云函数入口函数
 exports.main = async (event, context) => {
-  // 虚拟支付的消息推送不走 type 分发：云开发「消息推送」把事件以扁平字段直接传进来，
-  // 只带 Event（如 xpay_goods_deliver_notify），没有 type 字段。
-  // 必须放在 switch 之前拦截，否则会掉到 undefined 分支，微信会重试 15 次。
-  if (event && typeof event.Event === 'string' && event.Event.indexOf('xpay_') === 0) {
-    return await xpayNotify.main(event, context);
-  }
-
   switch (event.type) {
     // 用户信息相关
     case 'addUsrInfo':
@@ -78,13 +67,6 @@ exports.main = async (event, context) => {
       return await transferPoint.main(event, context);
     case 'getOrderInfo':
       return await getOrderInfo.main(event, context);
-    // 虚拟支付（点数充值）
-    case 'createPointOrder':
-      return await createPointOrder.main(event, context);
-    case 'queryPointOrder':
-      return await queryPointOrder.main(event, context);
-    case 'pointPayStatus':
-      return await pointPayStatus.main(event, context);
     // 预约夜场相关
     case 'getReserveInfo':
       return await getReserveInfo.main(event, context);

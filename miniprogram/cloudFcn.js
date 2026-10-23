@@ -416,46 +416,6 @@ const mahjongDeleteGame = async function(params) {
   })
 }
 
-/**
- * 点数充值（小程序虚拟支付）
- */
-// 创建充值订单，拿到 wx.requestVirtualPayment 所需的 signData / paySig / signature
-const createPointOrder = async function(amount, code) {
-  return wx.cloud.callFunction({
-    name: 'baseFunctions',
-    data: {
-      type: 'createPointOrder',
-      params: {
-        amount,
-        code
-      }
-    }
-  })
-}
-
-// 查询自助充值是否可用（虚拟支付环境变量是否配齐）
-const getPointPayStatus = async function() {
-  return wx.cloud.callFunction({
-    name: 'baseFunctions',
-    data: {
-      type: 'pointPayStatus'
-    }
-  })
-}
-
-// 查询充值订单状态（支付后确认到账 / 兜底补发货）
-const queryPointOrder = async function(outTradeNo) {
-  return wx.cloud.callFunction({
-    name: 'baseFunctions',
-    data: {
-      type: 'queryPointOrder',
-      params: {
-        outTradeNo
-      }
-    }
-  })
-}
-
 export default {
   modifyBusinessStatus,
   modifyUsrInfo,
@@ -490,8 +450,5 @@ export default {
   mahjongGrantTitle,
   mahjongRevokeTitle,
   mahjongGetPlayerTitles,
-  mahjongDeleteGame,
-  createPointOrder,
-  queryPointOrder,
-  getPointPayStatus
+  mahjongDeleteGame
 }
