@@ -8,8 +8,11 @@ const app = getApp();
 // 虚拟支付的实付金额 = 道具单价 × 购买份数，份数必须是正整数，
 // 所以「能精确到几位小数」完全由道具单价决定（0.01 元道具 → 精确到分）。
 // 这里不写死，运行时从 pointPayStatus 读回来，见 payPrecision。
+//
+// 上限不能再往上放的原因：单价 1 分时，1 万元 = 100 万份，
+// buyQuantity 过大可能撞平台限制，且误输入一个 0 的代价太高。
 const MIN_RECHARGE = 1;
-const MAX_RECHARGE = 1000;
+const MAX_RECHARGE = 10000;
 
 Page({
   data: {
@@ -137,11 +140,12 @@ Page({
       decPart = raw.slice(dotIdx + 1).replace(/\./g, '');
     }
 
-    // 整数部分：去前导 0（保留单个 "0"），最多 4 位（上限 1000 元）
+    // 整数部分：去前导 0（保留单个 "0"）。
+    // 位数不设上限——上限由 MAX_RECHARGE 在数值层面统一收敛，
+    // 输入阶段硬截断会让用户输到一半突然跳数。
     if (intPart.length > 1) intPart = intPart.replace(/^0+/, '');
     // 清空输入时保持空（".5" 这种才补 0），否则输入框会被填成 "0" 删不掉
     if (intPart === '') intPart = hadDot ? '0' : '';
-    if (intPart.length > 4) intPart = intPart.slice(0, 4);
 
     // 小数部分按精度截断；精度为 0 时整个小数部分丢弃
     if (decPart.length > precision) decPart = decPart.slice(0, precision);

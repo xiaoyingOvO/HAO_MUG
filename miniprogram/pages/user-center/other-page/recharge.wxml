@@ -35,7 +35,7 @@
 
      <!-- 提示信息 (可选) -->
      <view class="footer-tip">
-         <text>温馨提示：1元=1点，单笔最高1000元</text>
+         <text>温馨提示：1元=1点。</text>
      </view>
   </view>
 

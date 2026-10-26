@@ -34,12 +34,12 @@ const { calcBonus } = require('../xpay/pointService');
 
 // 单笔金额限制（元）。上限用于挡住误输入，比如多打两个 0。
 const MIN_AMOUNT = 1;
-const MAX_AMOUNT = 1000;
+const MAX_AMOUNT = 10000;
 
 // 购买份数上限。份数 = 金额(分) / 道具单价(分)，单价越小份数越大，
-// 例如 0.01 元道具充 1000 元要买 10 万份。超过平台限制会报参数错误，
+// 例如 0.01 元道具充 1 万元要买 100 万份。超过平台限制会报参数错误，
 // 这里提前拦下来，给一句人话。
-const MAX_QUANTITY = 100000;
+const MAX_QUANTITY = 1000000;
 
 // 订单 30 天过期，沿用原充值订单的时间口径
 const ORDER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
