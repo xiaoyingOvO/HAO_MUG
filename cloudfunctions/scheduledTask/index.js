@@ -50,7 +50,7 @@ exports.main = async (event, context) => {
   
   // 遍历用户
   for(var i = 0 ; i < user_datas.length ; i++) {
-    var cards = user_datas[i].cards
+    var cards = user_datas[i].cards || []
     var updateCards = []
 
     var current_time = new Date()
@@ -93,6 +93,11 @@ exports.main = async (event, context) => {
           },
         })
         console.log('退店:', user_datas[i].openid)
+        // 同步内存快照：leaveArcade 无论扣费成功与否都会把 enter_state 置 0（余额不足也一样），
+        // 但 user_datas[i] 还是本轮循环开始时的旧值。不同步的话，下面的清卡逻辑
+        // 会因为 cardStillInUse 看到 enter_state=1 而把刚用完的卡多留一轮（余量延迟回收）。
+        user_datas[i].enter_state = 0
+        user_datas[i].enter_time = null
       }
       // 备注：原「10 点把音游区 enter_time 重置成当天 10:00」的分支已移除。
       //   那是旧计费「夜场一律免单」的实现手段；现在 getConsumePoint 按免单卡覆盖时段
@@ -104,8 +109,8 @@ exports.main = async (event, context) => {
       // --定时任务3--：过期卡清除
       current_time = new Date()
       var cardsID = cards[j].card_id
-      // 卡未被使用
-      if (current_time <= cards[j].end_time){
+      // 卡未过期 → 保留；卡已过期但「仍被本次消费使用中」→ 也保留（见 cardStillInUse 注释）
+      if (current_time <= cards[j].end_time || cardStillInUse(user_datas[i], cards[j], current_time)) {
         updateCards.push(cards[j])
         console.log("有效的卡",updateCards)
       } else {
@@ -185,4 +190,66 @@ function customTime(hours, minutes, seconds, milliseconds) {
   const bjNow = new Date(now.getTime() + 8 * 3600 * 1000)
   const bjMidnightUTC = Date.UTC(bjNow.getUTCFullYear(), bjNow.getUTCMonth(), bjNow.getUTCDate()) - 8 * 3600 * 1000
   return new Date(bjMidnightUTC + hours * 3600 * 1000 + minutes * 60 * 1000 + seconds * 1000 + milliseconds)
+}
+
+// 已过期的卡最多再保留多久（毫秒）。超过这个跨度还没结算就不再留着，避免限量卡余量被永久占用。
+// 取值理由：getConsumePoint 的 billingMinutes 最多按 7 天跨度累计，更早的时段本来就不参与抵扣。
+const STALE_HOLD_MS = 7 * 24 * 3600 * 1000
+
+// 把库里各种时间存法统一成毫秒时间戳（Date / 字符串 / 数字 / {$date}）
+function toMs(v) {
+  if (v === null || v === undefined) return null
+  if (v instanceof Date) {
+    const t = v.getTime()
+    return Number.isNaN(t) ? null : t
+  }
+  if (typeof v === 'object') {
+    if (v.$date !== undefined) return toMs(v.$date)
+    return null
+  }
+  if (typeof v === 'number') return Number.isNaN(v) ? null : v
+  if (typeof v === 'string') {
+    const t = new Date(v).getTime()
+    return Number.isNaN(t) ? null : t
+  }
+  return null
+}
+
+/**
+ * 这张「已过期」的卡是否还必须留着 —— 因为用户本次消费还在用它。
+ *
+ * 背景（这是一个真实的计费事故）：
+ *   各时段卡的 end_time 恰好落在定时任务的触发点上（早八 10:00、全天/桌游日场 23:00、
+ *   夜场次日 10:00），而定时任务 cron 是「每天 10:00 与 23:00」。
+ *   一旦用户「打超」（本来就超出卡内时段、还在玩），定时任务会把这张卡从 user.cards 里删掉，
+ *   等用户 10:30 / 23:30 去结算时，getConsumePoint 已经查不到这张卡 →
+ *   免单时段丢失 → 卡内那两小时被全额计费（早八 08:00-10:30 收 30 点而不是 6 点）。
+ *
+ * 判定口径与 getConsumePoint 保持一致：「本次入场时刻是否落在卡的有效期内」，
+ * 而不是「结算时刻是否还在有效期内」。只要入店发生在卡失效之前，这张卡就属于本次消费，
+ * 结算时要用它抵扣，必须先留着；等用户离店后的下一次定时任务再回收余量。
+ *
+ * @param {object} user 用户记录（需 enter_state / enter_time）
+ * @param {object} card 用户持有的卡 {card_id, start_time, end_time}
+ * @param {Date}   now  本次定时任务的当前时间
+ * @returns {boolean}
+ */
+function cardStillInUse(user, card, now) {
+  // 不在店内 → 没有正在进行的消费，照常清理
+  if (!(Number(user.enter_state) >= 1)) return false
+  const enterMs = toMs(user.enter_time)
+  const endMs = toMs(card && card.end_time)
+  if (enterMs === null || endMs === null) return false
+  // 本次入场发生在卡失效之前 → 这次消费买过这张卡，结算还要用它
+  if (enterMs > endMs) return false
+
+  // 兜底：卡失效已超过 7 天仍未结算（用户长期不离店 / 脏数据），不再保留，
+  // 否则限量卡的 remain 会被永久占用、库存只减不增。
+  // 7 天是 billingMinutes 的计费跨度上限，超过这个跨度的时段本来就不参与抵扣，回收不会造成误扣。
+  const nowMs = toMs(now)
+  if (nowMs !== null && nowMs - endMs > STALE_HOLD_MS) {
+    console.log('卡过期超过 7 天仍未结算，强制回收:', card && card.card_id, user.openid)
+    return false
+  }
+  return true
 }
