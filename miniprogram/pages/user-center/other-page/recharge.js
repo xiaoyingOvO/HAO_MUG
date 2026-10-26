@@ -9,10 +9,10 @@ const app = getApp();
 // 所以「能精确到几位小数」完全由道具单价决定（0.01 元道具 → 精确到分）。
 // 这里不写死，运行时从 pointPayStatus 读回来，见 payPrecision。
 //
-// 上限不能再往上放的原因：单价 1 分时，1 万元 = 100 万份，
-// buyQuantity 过大可能撞平台限制，且误输入一个 0 的代价太高。
+// 注意：超上限时**不要**把金额改小再显示，那样用户看到的数字和自己输入的不一样，
+// 会误以为付的就是原来那个数。保持原值，在提交时明确提示。
 const MIN_RECHARGE = 1;
-const MAX_RECHARGE = 10000;
+const MAX_RECHARGE = 100000;
 
 Page({
   data: {
@@ -170,10 +170,9 @@ Page({
     if (!Number.isFinite(numericValue) || numericValue < 0) {
       numericValue = 0;
     }
-    // 超过上限时按上限算，避免用户输 9999 后到支付时才被拒
-    if (numericValue > MAX_RECHARGE) {
-      numericValue = MAX_RECHARGE;
-    }
+    // 这里不再把超过上限的金额悄悄改成上限值。改数会让输入框显示的数字
+    // 和用户实际输入的不一致，用户以为付了 100000 结果收银台是 10000。
+    // 超限交给 handleRecharge 明确提示。
     // 消掉浮点尾巴（12.34 * 100 可能是 1233.9999）
     numericValue = Math.round(numericValue * 100) / 100;
 
