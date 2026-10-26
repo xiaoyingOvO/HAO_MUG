@@ -752,6 +752,48 @@ function hourInRange(hour, startHour, endHour) {
  * —— start_time 这个 key 存在但值为 null，用 `!== undefined` 判断会把 null 当成有值，
  * start_hour 永远读不到，免单时段直接丢失（早八票打超会把早八两小时也计费）。
  */
+// 把库里各种时间存法统一成毫秒时间戳（Date / 字符串 / 数字 / {$date}），无法识别返回 null。
+// 与云函数 queueFunctions/timeUtil.js 的 toMs 同义。
+function mockToMs(v) {
+  if (v === undefined || v === null) return null;
+  if (v instanceof Date) {
+    const t = v.getTime();
+    return Number.isNaN(t) ? null : t;
+  }
+  if (typeof v === 'object') {
+    if (v.$date !== undefined) return mockToMs(v.$date);
+    return null;
+  }
+  if (typeof v === 'number') return Number.isNaN(v) ? null : v;
+  if (typeof v === 'string') {
+    const t = new Date(v).getTime();
+    return Number.isNaN(t) ? null : t;
+  }
+  return null;
+}
+
+/**
+ * 离店清卡（对齐云端 leaveArcade.recycleExpiredCards）：
+ * 本次消费已结算，所有 end_time <= now 的卡都用完了 → 从持有列表删掉，限量卡归还库存。
+ * 未到期的卡原样保留（有效期覆盖的是以后的消费）。
+ */
+function recycleExpiredCardsMock(s, u, now) {
+  if (!u || !Array.isArray(u.cards) || u.cards.length === 0) return;
+  const nowMs = (now || nowDate()).getTime();
+  const keep = [];
+  u.cards.forEach((c) => {
+    const endMs = mockToMs(c && c.end_time);
+    if (endMs === null || endMs > nowMs) {
+      keep.push(c);
+      return;
+    }
+    const def = s.cards.find((x) => x._id === c.card_id);
+    // remain <= -100 表示不限量，不参与回收
+    if (def && typeof def.remain === 'number' && def.remain > -100) def.remain += 1;
+  });
+  if (keep.length !== u.cards.length) u.cards = keep;
+}
+
 function mockDurationHour(duration, which) {
   const dur = duration || {};
   const primary = which === 'start' ? dur.start_time : dur.end_time;
@@ -1802,6 +1844,7 @@ const queueFunctions = {
     s.me.enter_time = null;
     s.me.machine_id = '';
     delete s.me.area; // 离店后不再保留入店区域（对齐云端 leaveArcade 的 area remove）
+    recycleExpiredCardsMock(s, s.me); // 结算已完成 → 立刻清掉过期卡并归还库存
     addArcadeLog(s, ME_OPENID, totalPoints(s.me), s.me.exp, 1);
     return { success: true, errMsg: '退店成功' };
   },
@@ -1819,6 +1862,7 @@ const queueFunctions = {
     u.enter_time = null;
     u.machine_id = '';
     delete u.area; // 离店后不再保留入店区域
+    recycleExpiredCardsMock(s, u); // 人已离店 → 清掉过期卡
     addArcadeLog(s, target, totalPoints(u), u.exp, 1);
     return { success: true };
   },

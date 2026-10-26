@@ -113,10 +113,33 @@ function durationHour(duration, which) {
   return toBJHour(legacy);
 }
 
+/**
+ * 把库里各种时间存法统一成毫秒时间戳（Date / 字符串 / 数字 / {$date}）。
+ * 无法识别时返回 null —— 调用方必须自己决定「null 该保守保留还是丢弃」。
+ */
+function toMs(v) {
+  if (v === null || v === undefined) return null;
+  if (v instanceof Date) {
+    const t = v.getTime();
+    return Number.isNaN(t) ? null : t;
+  }
+  if (typeof v === 'object') {
+    if (v.$date !== undefined) return toMs(v.$date);
+    return null;
+  }
+  if (typeof v === 'number') return Number.isNaN(v) ? null : v;
+  if (typeof v === 'string') {
+    const t = new Date(v).getTime();
+    return Number.isNaN(t) ? null : t;
+  }
+  return null;
+}
+
 module.exports = {
   toBJHour,
   toBJMinutes,
   nowBJMinutes,
   durationMinutes,
   durationHour,
+  toMs,
 };

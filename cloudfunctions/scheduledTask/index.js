@@ -98,7 +98,25 @@ exports.main = async (event, context) => {
         // 会因为 cardStillInUse 看到 enter_state=1 而把刚用完的卡多留一轮（余量延迟回收）。
         user_datas[i].enter_state = 0
         user_datas[i].enter_time = null
+        // 重读卡片：leaveArcade 现在会在离店结算后立刻清掉过期卡并归还 remain。
+        // 必须换成最新快照，否则下面会拿本轮循环开始时的旧 cards 再清一遍，
+        // 同一张限量卡的 remain 被归还两次 → 库存凭空变多。
+        // 重读失败则退回旧快照：leaveArcade 没清成功的情况下，下面的逻辑仍能自己兜住。
+        try {
+          const fresh = await db.collection(db_user).where({
+            openid: user_datas[i].openid
+          }).field({
+            cards: true
+          }).get()
+          if (fresh && fresh.data && fresh.data.length) {
+            user_datas[i].cards = fresh.data[0].cards || []
+          }
+        } catch (e) {
+          console.error('重读用户卡片失败:', e)
+        }
       }
+      // 用（可能已被 leaveArcade 更新的）最新快照做后面的清卡判断
+      cards = user_datas[i].cards || []
       // 备注：原「10 点把音游区 enter_time 重置成当天 10:00」的分支已移除。
       //   那是旧计费「夜场一律免单」的实现手段；现在 getConsumePoint 按免单卡覆盖时段
       //   逐天累计计费，夜场畅玩卡/早八套餐自己就能抵扣 23:00-10:00，不需要改 enter_time。
