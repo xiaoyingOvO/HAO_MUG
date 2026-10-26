@@ -12,7 +12,7 @@
             type="{{payPrecision > 0 ? 'digit' : 'number'}}"
             value="{{rechargeAmountInput}}"
             bindinput="handleAmountInput"
-            placeholder="{{payPrecision > 0 ? '请输入金额，可精确到分' : '请输入整数金额'}}"
+            placeholder="{{payPrecision > 0 ? '请输入金额' : '请输入整数金额'}}"
             placeholder-class="input-placeholder"
           />
           <text class="currency-unit">点</text> <!-- 添加单位 -->
@@ -35,7 +35,7 @@
 
      <!-- 提示信息 (可选) -->
      <view class="footer-tip">
-         <text>温馨提示：1元 = 1点，单笔 1-1000 元，仅支持整数金额</text>
+         <text>温馨提示：1元=1点，单笔最高1000元</text>
      </view>
   </view>
 
