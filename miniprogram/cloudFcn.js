@@ -417,7 +417,14 @@ const mahjongDeleteGame = async function(params) {
 }
 
 /**
- * 点数充值（小程序虚拟支付）
+ * 点数充值
+ *
+ * ⚠️ 下面三个函数是「小程序虚拟支付」通道的封装，**当前已停用**。
+ * 充值改回普通微信支付后，前端走 wx.cloud.callFunction({ name: 'cloudbase_module' })
+ * 拉云端工作流下单（见 pages/user-center/other-page/recharge.js）。
+ * 云函数 createPointOrder / queryPointOrder / pointPayStatus 仍保留在 baseFunctions 里，
+ * 这三个封装一并留着，方便将来真要切回虚拟支付时少改一处。
+ * 新增代码不要调用它们 —— 现在没有任何页面在用。
  */
 // 创建充值订单，拿到 wx.requestVirtualPayment 所需的 signData / paySig / signature
 const createPointOrder = async function(amount, code) {

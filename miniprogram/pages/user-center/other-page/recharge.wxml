@@ -9,10 +9,10 @@
       <view class="amount-input-group">
           <input
             class="amount-input"
-            type="{{payPrecision > 0 ? 'digit' : 'number'}}"
+            type="digit"
             value="{{rechargeAmountInput}}"
             bindinput="handleAmountInput"
-            placeholder="{{payPrecision > 0 ? '请输入金额' : '请输入整数金额'}}"
+            placeholder="0.00"
             placeholder-class="input-placeholder"
           />
           <text class="currency-unit">点</text> <!-- 添加单位 -->
@@ -27,20 +27,15 @@
     <button
       class="recharge-btn primary-button animation-pulse"
       bindtap="handleRecharge"
-      disabled="{{!payEnabled || !rechargeAmount || rechargeAmount <= 0 || isRecharging}}"
+      disabled="{{!rechargeAmount || rechargeAmount <= 0 || isRecharging}}"
       loading="{{isRecharging}}"
     >
-      {{!payEnabled ? '自助充值暂未开放' : (isRecharging ? '' : (rechargeAmount && rechargeAmount > 0 ? '立即充值 ' : '请输入金额'))}}
+      {{isRecharging ? '' : (rechargeAmount && rechargeAmount > 0 ? '立即充值 ' : '请输入金额')}}
     </button>
 
      <!-- 提示信息 (可选) -->
      <view class="footer-tip">
          <text>温馨提示：1元=1点。单笔最高1万点</text>
-     </view>
-     <!-- 支付渠道声明：审核员往往只看这一张静态截图就判定「有没有接入虚拟支付」，
-          页面上没有渠道标识时容易被按「未接入虚拟支付」驳回。这行是静态证据。 -->
-     <view class="footer-tip">
-         <text>本充值通过「微信小程序虚拟支付」完成</text>
      </view>
   </view>
 

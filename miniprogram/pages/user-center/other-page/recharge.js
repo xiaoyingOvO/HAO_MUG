@@ -1,18 +1,21 @@
 // pages/user-center/other-page/recharge.js
-import { MOCK_ENABLED } from '../../../mock/cloudMock.js';
-import cloudFcn from '../../../cloudFcn.js';
-
 const app = getApp();
 
-// 单笔充值金额范围（元）。
-// 虚拟支付的实付金额 = 道具单价 × 购买份数，份数必须是正整数，
-// 所以「能精确到几位小数」完全由道具单价决定（0.01 元道具 → 精确到分）。
-// 这里不写死，运行时从 pointPayStatus 读回来，见 payPrecision。
+// 单笔充值金额范围（元）。普通微信支付按「分」结算，天然支持小数点后两位。
 //
 // 超过上限时直接锁到上限：输入框里显示的就是实际会被受理的金额，
 // 用户不会看到一个自己输的、但实际不会生效的数字。
 const MIN_RECHARGE = 1;
 const MAX_RECHARGE = 10000;
+
+// 金额允许的小数位数。普通支付按分计价（1 元 = 100 分），固定 2 位。
+const PAY_PRECISION = 2;
+
+// 云端「点数充值」工作流的 ID（云开发 → 工作流）。
+// 它负责调用微信支付下单接口，把 prepay 参数（timeStamp / nonceStr / package / paySign）
+// 返回给小程序；支付成功的回调由工作流触发 buyPoint 云函数加点，
+// 所以前端拿不到到账结果，只能刷新用户信息 —— 见 handleRecharge 的注释。
+const PAY_WORKFLOW_NAME = 'sywxzfapifqzf_73b1098';
 
 Page({
   data: {
@@ -28,9 +31,7 @@ Page({
     extraPointDisplay: 0.00,  //显示格式化赠送点数
     isReady: false,
     isRecharging: false, // 防止重复点击充值
-    payEnabled: true,   // 虚拟支付是否已配置可用（配置不全时置灰）
-    payPrecision: 2,    // 金额允许的小数位数，由道具单价决定（默认 2 = 精确到分）
-    payUnit: 0.01,      // 道具单价（元），用于校验金额是否为单价的整数倍
+    payPrecision: PAY_PRECISION, // 金额允许的小数位数，普通支付固定 2 位（精确到分）
     canvasContext: null, // 存储 canvas 上下文
     canvasNode: null,   // 存储 canvas 节点
     particles: [],      // 粒子数组
@@ -64,34 +65,6 @@ Page({
 
     // 初始化粒子效果
     this.initCanvas();
-
-    // 检查自助充值是否可用：虚拟支付环境变量没配齐时按钮要置灰，
-    // 而不是等用户点了才报「缺少 XPAY_OFFER_ID」。
-    this.checkPayReady();
-  },
-
-  // 查询虚拟支付配置是否就绪
-  async checkPayReady() {
-    if (MOCK_ENABLED) return; // mock 下恒可用
-    try {
-      const res = await cloudFcn.getPointPayStatus();
-      const d = res && res.result && res.result.data;
-      if (!d) return;
-      // 精度由后端按道具单价算，前端只跟着走，避免两边写死不一致
-      if (typeof d.precision === 'number' && d.precision >= 0) {
-        this.setData({
-          payPrecision: Math.min(d.precision, 2),
-          payUnit: Number(d.unit) > 0 ? Number(d.unit) : 1,
-        });
-      }
-      if (d.enabled === false) {
-        this.setData({ payEnabled: false });
-        console.warn('自助充值暂未开放，缺少配置：', d.missing);
-      }
-    } catch (err) {
-      // 检查失败不阻塞，真正的兜底在 createPointOrder 返回里
-      console.warn('检查充值可用性失败:', err);
-    }
   },
 
     // 处理无效用户状态
@@ -120,11 +93,11 @@ Page({
   },
 
   // --- 输入处理 ---
-  // 允许输入小数，位数由 payPrecision 决定（0.01 元道具 → 2 位，精确到分）。
+  // 允许输入小数，固定 2 位（精确到分）。
   // 历史上这里出过「12.5 被洗成 125」的 10 倍扣款事故，所以小数点处理必须严格：
   // 先切出整数部分和小数部分，再各自规整，最后拼回去，绝不直接删字符。
   handleAmountInput(e) {
-    const precision = Number(this.data.payPrecision) || 0;
+    const precision = PAY_PRECISION;
     let raw = String(e.detail.value || '');
 
     // 只保留数字和点
@@ -245,18 +218,17 @@ Page({
       });
     },
 
-  // 充值主函数（小程序虚拟支付）
-  //
-  // 为什么不能用 wx.requestPayment：
-  //   点数是虚拟商品，微信 2026-04-01 起要求虚拟商品在所有终端都必须走
-  //   「小程序虚拟支付」wx.requestVirtualPayment，普通支付卖虚拟商品属于违规，
-  //   会被审核驳回直到下架。
+  // 充值主函数（普通微信支付）
   //
   // 流程：
-  //   1. wx.login 拿 code（云函数要用它换 session_key 做用户态签名）
-  //   2. 云函数 createPointOrder 落单 + 算出 signData/paySig/signature
-  //   3. wx.requestVirtualPayment 拉起支付
-  //   4. 轮询 queryPointOrder 确认到账（发货回调可能比 success 回调晚）
+  //   1. 调云端「点数充值」工作流，拿微信支付下单参数
+  //      （timeStamp / nonceStr / package / paySign）
+  //   2. wx.requestPayment 拉起微信收银台
+  //   3. 支付成功的回调由工作流触发 buyPoint 云函数加点 —— 前端拿不到这个结果，
+  //      所以这里只能刷新用户信息并提示「点数可能稍有延迟到账」。
+  //
+  // 与虚拟支付的区别：虚拟支付前端手里有订单号（outTradeNo），可以轮询查单确认到账；
+  // 普通支付这条链路里订单号由工作流内部持有，前端查不到，因此不做轮询。
   async handleRecharge() {
     const openid = this.data.userInfo?.openid;
     if (!this.data.isReady || !openid) {
@@ -264,19 +236,7 @@ Page({
       return;
     }
 
-    // 配置没配齐（虚拟支付未开通）时不放行，避免用户点了看到技术性报错
-    if (!this.data.payEnabled) {
-      wx.showModal({
-        title: '自助充值暂未开放',
-        content: '请在店内联系店员充值，或稍后再试。',
-        showCancel: false,
-        confirmText: '知道了',
-      });
-      return;
-    }
-
-    // 金额校验：实付 = 道具单价 × 份数，所以金额必须是道具单价的整数倍。
-    // 单价 0.01 元时任何两位小数金额都合法；单价 1 元时只能整数。
+    // 金额校验
     const amount = Number(this.data.numericRechargeAmount);
     if (!Number.isFinite(amount) || amount <= 0) {
       wx.showToast({ title: '请输入充值金额', icon: 'none' });
@@ -290,15 +250,6 @@ Page({
       wx.showToast({ title: '单笔最高 ' + MAX_RECHARGE + ' 元', icon: 'none' });
       return;
     }
-    const amountCents = Math.round(amount * 100);
-    const unitCents = Math.round((Number(this.data.payUnit) || 1) * 100);
-    if (unitCents > 0 && amountCents % unitCents !== 0) {
-      wx.showToast({
-        title: '充值金额需精确到 ' + this.data.payUnit + ' 元',
-        icon: 'none',
-      });
-      return;
-    }
     // Lv6（exp >= 114514）后端会直接拒绝充值，必须在发起支付前拦住，
     // 否则会出现「钱付了、点数没到账」。
     if ((this.data.userInfo?.exp || 0) >= 114514) {
@@ -307,71 +258,69 @@ Page({
     }
     if (this.data.isRecharging) return;
 
-    // 基础库 2.19.2 起才有 wx.requestVirtualPayment
-    if (!this._supportVirtualPay()) {
-      wx.showModal({
-        title: '微信版本过低',
-        content: '当前微信版本不支持小程序内充值，请升级微信后重试。',
-        showCancel: false,
-        confirmText: '知道了',
-      });
-      return;
-    }
-
     this.setData({ isRecharging: true });
     wx.showLoading({ title: '正在发起支付...', mask: true });
 
     try {
-      // 1. 拿登录 code（session_key 会轮换，每次支付前换最新的，避免 -15007）
-      const code = await this._wxLogin();
+      // 1. 调云端工作流，生成微信支付下单参数
+      const payOrder = await wx.cloud.callFunction({
+        name: 'cloudbase_module',
+        data: {
+          name: PAY_WORKFLOW_NAME,
+          data: {
+            description: '点数充值',
+            openid: openid,
+            point: amount,
+          },
+        },
+      });
 
-      // 2. 云函数落单 + 签名
-      const orderRes = await cloudFcn.createPointOrder(amount, code);
-      const order = orderRes && orderRes.result;
-      if (!order || !order.success || !order.data) {
-        throw new Error((order && order.errMsg) || '创建订单失败，请重试');
+      // 2. 校验参数完整性。workflow 内部出错时 result.data 为空，
+      //    真正的错因在 errMsg 里，要原样抛给用户，别用一句兜底话盖掉。
+      const paymentData = payOrder.result && payOrder.result.data;
+      if (!paymentData || !paymentData.timeStamp || !paymentData.nonceStr
+          || !paymentData.packageVal || !paymentData.paySign) {
+        console.error('支付参数不完整:', paymentData);
+        throw new Error((payOrder.result && payOrder.result.errMsg) || '获取支付参数失败');
       }
-      const pay = order.data;
 
-      // 3. mock 环境没有虚拟支付，直接走到账确认
-      if (MOCK_ENABLED || pay.mock) {
-        wx.hideLoading();
-        await this._finishRecharge(pay.outTradeNo, amount);
-        return;
-      }
+      // 3. 拉起微信收银台
+      await wx.requestPayment({
+        timeStamp: paymentData.timeStamp,
+        nonceStr: paymentData.nonceStr,
+        package: paymentData.packageVal,
+        signType: paymentData.signType || 'RSA',
+        paySign: paymentData.paySign,
+      });
 
-      // 4. 拉起虚拟支付
-      await this._requestVirtualPayment(pay);
-
-      // 5. 确认到账（回调可能晚几百毫秒到几秒）
-      wx.showLoading({ title: '确认到账中...', mask: true });
-      const result = await this._pollDelivery(pay.outTradeNo);
+      // 4. 支付成功。加点由工作流的支付回调驱动 buyPoint 完成，
+      //    这个回调可能比前端 success 晚几秒，所以这里只刷新信息、不做「已到账」断言。
+      await this._refreshUserInfo();
       wx.hideLoading();
-
-      if (result.delivered) {
-        await this._finishRecharge(pay.outTradeNo, amount, result.data);
-      } else if (result.failed) {
-        throw new Error((result.data && result.data.errMsg) || '支付未完成');
-      } else {
-        // 支付已成功但回调还没到，提示稍后查看，避免用户重复付款
-        wx.showModal({
-          title: '支付成功',
-          content: '点数将于稍后到账，请勿重复支付。如 5 分钟后仍未到账，请联系店员。',
-          showCancel: false,
-          confirmText: '好的',
-        });
-        this._resetAmount();
-      }
+      wx.showModal({
+        title: '支付成功',
+        content: '充值成功！点数可能稍有延迟到账，请稍后查看。',
+        showCancel: false,
+        confirmText: '好的',
+      });
+      this._resetAmount();
     } catch (err) {
       wx.hideLoading();
       console.error('充值流程错误:', err);
       const errMsg = (err && err.errMsg) || '';
-      if (errMsg.indexOf('requestVirtualPayment:fail cancel') >= 0 || err.code === -2) {
+      if (errMsg.indexOf('requestPayment:fail cancel') >= 0) {
         wx.showToast({ title: '支付已取消', icon: 'none' });
       } else {
-        const text = err.virtualPayText || (err instanceof Error ? err.message : '充值失败，请稍后再试');
-        // toast 会被截断，而平台给的具体原因（如「小程序appid和虚拟支付商户号未绑定…」）
-        // 往往很长，恰恰是唯一能定位问题的信息，所以长文案改用弹窗完整展示。
+        // 微信支付失败时 errMsg 形如 "requestPayment:fail 签名错误"，
+        // 前缀本身有 18 个字符，既没有信息量、又会把短文案撑过弹窗阈值，
+        // 所以先剥掉前缀再判断用 toast 还是弹窗。
+        const detail = String(errMsg).replace(/^requestPayment:\s*fail\s*/i, '').trim();
+        const text = (err instanceof Error && err.message)
+          ? err.message
+          : (detail || '充值失败，请稍后再试');
+        // toast 会被截断，而工作流/支付返回的具体原因往往很长
+        // （如「商户号未绑定 AppID」「签名错误」），恰恰是唯一能定位问题的信息，
+        // 所以长文案改用弹窗完整展示。
         if (String(text).length > 12) {
           wx.showModal({
             title: '支付失败',
@@ -388,27 +337,23 @@ Page({
     }
   },
 
-  // 到账后的收尾：刷新用户信息 + 清空输入 + 提示
-  async _finishRecharge(outTradeNo, amount, delivered) {
-    const refreshRes = await wx.cloud.callFunction({
-      name: 'baseFunctions',
-      data: { type: 'getUsrInfo' },
-    });
-    if (refreshRes.result?.success && refreshRes.result.data) {
-      const latestUsrInfo = refreshRes.result.data;
-      app.globalData.userInfo = latestUsrInfo;
-      wx.setStorageSync('userInfo', latestUsrInfo);
-      this.setData({ userInfo: latestUsrInfo });
+  // 刷新用户信息（余额、等级、赠送比例都依赖它）
+  async _refreshUserInfo() {
+    try {
+      const refreshRes = await wx.cloud.callFunction({
+        name: 'baseFunctions',
+        data: { type: 'getUsrInfo' },
+      });
+      if (refreshRes.result?.success && refreshRes.result.data) {
+        const latestUsrInfo = refreshRes.result.data;
+        app.globalData.userInfo = latestUsrInfo;
+        wx.setStorageSync('userInfo', latestUsrInfo);
+        this.setData({ userInfo: latestUsrInfo });
+      }
+    } catch (err) {
+      // 刷新失败不影响已经完成的支付结果，下次进页面会重新拉
+      console.warn('刷新用户信息失败:', err);
     }
-
-    const extra = delivered && delivered.extraPoint ? delivered.extraPoint : this.calculateExtraPoint(amount);
-    wx.showModal({
-      title: '充值成功',
-      content: '已到账 ' + amount + ' 点' + (extra > 0 ? '，赠送 ' + extra + ' 点' : '') + '。',
-      showCancel: false,
-      confirmText: '好的',
-    });
-    this._resetAmount();
   },
 
   _resetAmount() {
@@ -422,114 +367,6 @@ Page({
       extraPointDisplay: zero.toFixed(2),
       lastExtraPoint: zero,
     });
-  },
-
-  // 基础库是否支持虚拟支付
-  _supportVirtualPay() {
-    if (typeof wx.canIUse !== 'function') return false;
-    return wx.canIUse('requestVirtualPayment');
-  },
-
-  // 包一层 Promise 的 wx.login
-  _wxLogin() {
-    return new Promise((resolve, reject) => {
-      wx.login({
-        success: (res) => {
-          if (res.code) resolve(res.code);
-          else reject(new Error('登录失败，请重试'));
-        },
-        fail: (err) => {
-          console.error('wx.login 失败:', err);
-          // 不要把 "login:fail xxx" 这种原始错误抛给用户看
-          reject(new Error('登录失败，请检查网络后重试'));
-        },
-      });
-    });
-  },
-
-  // 拉起虚拟支付（非 Promise 接口，手工包装）
-  _requestVirtualPayment(pay) {
-    return new Promise((resolve, reject) => {
-      wx.requestVirtualPayment({
-        signData: pay.signData,
-        paySig: pay.paySig,
-        signature: pay.signature,
-        mode: pay.mode || 'short_series_goods',
-        success: (res) => resolve(res),
-        fail: (err) => {
-          const code = err && err.errCode;
-          const text = this._virtualPayErrorText(code, err && err.errMsg);
-          const e = new Error(text);
-          e.code = code;
-          e.errMsg = (err && err.errMsg) || '';
-          e.virtualPayText = text;
-          reject(e);
-        },
-      });
-    });
-  },
-
-  // 轮询确认到账：回调通常 1-3 秒内到，给 6 次机会
-  async _pollDelivery(outTradeNo, times = 6) {
-    for (let i = 0; i < times; i++) {
-      try {
-        const res = await cloudFcn.queryPointOrder(outTradeNo);
-        const r = res && res.result;
-        const d = r && r.data;
-        if (r && r.success && d) {
-          if (d.state === 1) return { delivered: true, data: d };
-          if (d.state === 2) return { delivered: false, failed: true, data: d };
-        }
-      } catch (e) {
-        console.warn('查询订单失败（继续重试）:', e);
-      }
-      await this._sleep(1000);
-    }
-    return { delivered: false, pending: true };
-  },
-
-  _sleep(ms) {
-    return new Promise((resolve) => setTimeout(resolve, ms));
-  },
-
-  // 虚拟支付错误码 → 人话，方便店员/用户判断问题出在哪
-  _virtualPayErrorText(errCode, errMsg) {
-    // 平台原始信息形如 "requestVirtualPayment:fail 小程序appid和虚拟支付商户号未绑定,可在..."
-    // 前缀没有信息量，去掉只留具体原因。
-    const detail = String(errMsg || '')
-      .replace(/^requestVirtualPayment:\s*fail\s*/i, '')
-      .trim();
-    const map = {
-      '-1': '支付失败，请稍后重试',
-      '-2': '支付已取消',
-      '-4': '支付被风控拦截，请稍后重试',
-      '-5': '开通签约结果未知',
-      // -15001 官方定义就是「参数错误，具体原因见 err_msg」，
-      // 任何固定文案都会把唯一的诊断线索盖掉。这里必须原样透传，
-      // 否则只会看到「支付参数错误，请联系管理员」，等于什么都没说。
-      '-15002': '订单号重复，请重新发起',
-      '-15004': '币种参数错误',
-      '-15005': '用户态签名校验失败，请重试',
-      '-15006': '支付签名校验失败，请联系管理员检查 AppKey',
-      '-15007': '登录状态已过期，请重试',
-      '-15008': '商户进件未完成，请联系管理员',
-      '-15009': '代币未发布',
-      '-15010': '充值道具未发布，请稍后重试',
-      '-15011': '支付环境配置错误（现网版本不能用沙箱）',
-      '-15012': '下单失败，请重新发起',
-      '-15013': '道具价格与后台不一致，请联系管理员',
-      '-15014': '道具刚发布，约 10 分钟后生效，请稍后重试',
-      '-15016': '下单数据结构有误，请联系管理员',
-      '-15017': '商户收款功能被限制，请联系管理员',
-      '-15018': '道具审核未通过，请联系管理员',
-      '-15019': '商户受限，请联系管理员',
-      '-15020': '操作过快，请稍候再试',
-      '-15021': '交易过于频繁，请稍后再试',
-      '1001': '支付参数错误，请联系管理员',
-    };
-    // 映射表里没有的码，或者 -15001 这种平台给了具体原因的，
-    // 一律优先用平台原文，别让人看到一句没有信息量的兜底话。
-    return map[String(errCode)] || detail || '支付失败';
   },
 
   // --- 粒子效果相关函数 ---
