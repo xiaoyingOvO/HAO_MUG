@@ -370,7 +370,18 @@ Page({
         wx.showToast({ title: '支付已取消', icon: 'none' });
       } else {
         const text = err.virtualPayText || (err instanceof Error ? err.message : '充值失败，请稍后再试');
-        wx.showToast({ title: text, icon: 'none', duration: 2500 });
+        // toast 会被截断，而平台给的具体原因（如「小程序appid和虚拟支付商户号未绑定…」）
+        // 往往很长，恰恰是唯一能定位问题的信息，所以长文案改用弹窗完整展示。
+        if (String(text).length > 12) {
+          wx.showModal({
+            title: '支付失败',
+            content: text,
+            showCancel: false,
+            confirmText: '知道了',
+          });
+        } else {
+          wx.showToast({ title: text, icon: 'none', duration: 2500 });
+        }
       }
     } finally {
       this.setData({ isRecharging: false });
@@ -483,12 +494,19 @@ Page({
 
   // 虚拟支付错误码 → 人话，方便店员/用户判断问题出在哪
   _virtualPayErrorText(errCode, errMsg) {
+    // 平台原始信息形如 "requestVirtualPayment:fail 小程序appid和虚拟支付商户号未绑定,可在..."
+    // 前缀没有信息量，去掉只留具体原因。
+    const detail = String(errMsg || '')
+      .replace(/^requestVirtualPayment:\s*fail\s*/i, '')
+      .trim();
     const map = {
       '-1': '支付失败，请稍后重试',
       '-2': '支付已取消',
       '-4': '支付被风控拦截，请稍后重试',
       '-5': '开通签约结果未知',
-      '-15001': '支付参数错误，请联系管理员',
+      // -15001 官方定义就是「参数错误，具体原因见 err_msg」，
+      // 任何固定文案都会把唯一的诊断线索盖掉。这里必须原样透传，
+      // 否则只会看到「支付参数错误，请联系管理员」，等于什么都没说。
       '-15002': '订单号重复，请重新发起',
       '-15004': '币种参数错误',
       '-15005': '用户态签名校验失败，请重试',
@@ -501,13 +519,17 @@ Page({
       '-15012': '下单失败，请重新发起',
       '-15013': '道具价格与后台不一致，请联系管理员',
       '-15014': '道具刚发布，约 10 分钟后生效，请稍后重试',
+      '-15016': '下单数据结构有误，请联系管理员',
       '-15017': '商户收款功能被限制，请联系管理员',
       '-15018': '道具审核未通过，请联系管理员',
       '-15019': '商户受限，请联系管理员',
       '-15020': '操作过快，请稍候再试',
       '-15021': '交易过于频繁，请稍后再试',
+      '1001': '支付参数错误，请联系管理员',
     };
-    return map[String(errCode)] || errMsg || '支付失败';
+    // 映射表里没有的码，或者 -15001 这种平台给了具体原因的，
+    // 一律优先用平台原文，别让人看到一句没有信息量的兜底话。
+    return map[String(errCode)] || detail || '支付失败';
   },
 
   // --- 粒子效果相关函数 ---
