@@ -86,13 +86,14 @@ async function getConsumePointMain(event, context) {
     const enterMs = new Date(enter_time).getTime()
     const nowMs = current_time.getTime()
     if (enterMs <= holdEnd && nowMs >= holdStart) {
-      activeCardRefs.push(c)
+      // 带上持有有效期，供 billingMinutes 把免单时段夹在有效期内（防跨天多免）
+      activeCardRefs.push({ ref: c, holdStart, holdEnd })
     }
   })
   // 2. 批量查询卡详情
   const cardDetails = {}
   if (activeCardRefs.length > 0) {
-    const cardIds = activeCardRefs.map(c => c.card_id).filter(Boolean)
+    const cardIds = activeCardRefs.map(c => c.ref.card_id).filter(Boolean)
     const chunks = []
     for (let i = 0; i < cardIds.length; i += 100) chunks.push(cardIds.slice(i, i + 100))
     for (const chunk of chunks) {
@@ -103,14 +104,21 @@ async function getConsumePointMain(event, context) {
   // 3. 处理每张卡的折扣和免单时段
   let zhekou = 1
   const discountCards = []
-  for (const c of activeCardRefs) {
+  for (const { ref: c, holdStart, holdEnd } of activeCardRefs) {
     const cardInfo = cardDetails[c.card_id]
     if (!cardInfo) {
       console.warn('优惠卡不存在，跳过:', c.card_id)
       continue
     }
-    if (cardInfo.discount != 0) {
-      zhekou *= cardInfo.discount
+    // discount 语义：
+    //   0        → 免单卡，按其 duration 时段抵扣计费时长（早八/全天/桌游日场/桌游夜场/夜场畅玩卡）
+    //   0<d<1    → 折扣卡，zhekou *= d（高级会员卡 0.5）
+    //   d>1      → 加价卡，zhekou *= d（当前无此卡）
+    //   ⚠️ 夜场畅玩卡的 discount 必须是 0。填 1 会走「折扣卡」分支，zhekou *= 1 等于不打折，
+    //      也拿不到免单时段，持卡人整晚被全额计费 —— 云开发控制台 card 集合里已改为 0。
+    const discountNum = Number(cardInfo.discount)
+    if (!Number.isNaN(discountNum) && discountNum !== 0) {
+      zhekou *= discountNum
     } else {
       // 区域限制：card.area 存在且不等于用户当前区域 → 该卡不享受免单
       const cardArea = cardInfo.area
@@ -126,7 +134,9 @@ async function getConsumePointMain(event, context) {
       const sh = durationHour(dur, 'start')
       const eh = durationHour(dur, 'end')
       if (!Number.isNaN(sh) && sh !== null && !Number.isNaN(eh) && eh !== null) {
-        discountCards.push({ start: sh, end: eh })
+        // 带上持有有效期：billingMinutes 会把「每天重复的免单时段」夹在这段绝对时间之内，
+        // 否则入店后一直不离店时，第二天、第三天的同一时段会继续免单。
+        discountCards.push({ start: sh, end: eh, fromMs: holdStart, toMs: holdEnd })
       } else {
         console.warn('免单卡时段格式无法识别，跳过:', c.card_id, JSON.stringify(dur))
       }
@@ -195,6 +205,11 @@ function bjMinuteStamp(d) {
   return Math.floor((d.getTime() + BJ_OFFSET_MS) / 60000);
 }
 
+// 北京时间分钟序号 → 绝对毫秒时间戳（bjMinuteStamp 的逆运算）
+function bjStampToMs(stamp) {
+  return stamp * 60000 - BJ_OFFSET_MS;
+}
+
 /**
  * 计费时长（分钟）—— 音游区 / 桌游区共用。
  *
@@ -203,16 +218,21 @@ function bjMinuteStamp(d) {
  *   2. **没有「夜场一律免单」的兜底**：夜场免费只来自免单卡（discount == 0）覆盖的时段，
  *      卡的区域不符时在调用方已被剔除（card.area === 'board' 的票在音游区不生效）。
  *   3. 免单时段按天分别抵扣，跨天时段（23:00→次日10:00）拆成 [23:00,24:00] + [00:00,10:00]。
+ *   4. 抵扣范围还要与「卡的持有有效期」求交：免单时段本身是「每天重复」的，
+ *      若不做这一步，用户入店后一直不点离店，第 2 天、第 3 天的同一时段会继续免单
+ *      （例：全天畅玩套餐只买了 26 号 10:00-23:00，27 号 10:00-23:00 不该再免）。
  *
  * @param {Date}   playStart     入店时间
  * @param {Date}   playEnd       结算时间
- * @param {Array}  discountCards 免单时段 [{start: 小时, end: 小时}]（北京时间）
+ * @param {Array}  discountCards 免单时段，支持两种形态：
+ *                               ① {start, end}                 —— 不限持有有效期（历史调用/单测）
+ *                               ② {start, end, fromMs, toMs}   —— 只在 [fromMs, toMs] 内抵扣（真实卡）
  * @returns {number} 计费分钟数（>= 0）
  */
 function billingMinutes(playStart, playEnd, discountCards) {
   if (!playStart || !playEnd) return 0;
 
-  const merged = mergeDiscountCards(discountCards); // [{start,end}] 单位：当天分钟
+  const windows = normalizeFreeWindows(discountCards);
   const startStamp = bjMinuteStamp(playStart);
   const endStamp = bjMinuteStamp(playEnd);
   if (endStamp <= startStamp) return 0;
@@ -226,14 +246,24 @@ function billingMinutes(playStart, playEnd, discountCards) {
   while (cursor < endStamp && guard++ < 7) {
     const dayStart = Math.floor(cursor / 1440) * 1440;   // 当天 00:00 的分钟序号
     const segEnd = Math.min(dayStart + 1440, endStamp);  // 当天 24:00 或结算时刻
-    const sMin = cursor - dayStart;                      // 当天已过分钟 0~1439
-    const eMin = segEnd - dayStart;                      // 1~1440
 
-    total += eMin - sMin;
-    merged.forEach((card) => {
-      const overlapStart = Math.max(sMin, card.start);
-      const overlapEnd = Math.min(eMin, card.end);
-      if (overlapStart < overlapEnd) discounted += overlapEnd - overlapStart;
+    total += segEnd - cursor;
+
+    // 本段（当天这一段）的绝对毫秒区间，用来和时段、有效期求交
+    const segFromMs = bjStampToMs(cursor);
+    const segToMs = bjStampToMs(segEnd);
+
+    windows.forEach((w) => {
+      w.ranges.forEach((r) => {
+        // 把「当天分钟」还原成绝对毫秒，再依次夹到持有有效期、本段区间内
+        let fromMs = bjStampToMs(dayStart + r.start);
+        let toMs = bjStampToMs(dayStart + r.end);
+        if (w.fromMs !== null) fromMs = Math.max(fromMs, w.fromMs);
+        if (w.toMs !== null) toMs = Math.min(toMs, w.toMs);
+        fromMs = Math.max(fromMs, segFromMs);
+        toMs = Math.min(toMs, segToMs);
+        if (fromMs < toMs) discounted += Math.round((toMs - fromMs) / 60000);
+      });
     });
     cursor = segEnd;
   }
@@ -245,6 +275,27 @@ function billingMinutes(playStart, playEnd, discountCards) {
   const discountedSafe = Math.min(discounted, total);
   const billingTime = total - discountedSafe;
   return billingTime > 0 ? billingTime : 0;
+}
+
+/**
+ * 把免单时段按「持有有效期」分组，组内合并重叠区间。
+ * 不分组直接合并的话，两张有效期不同的卡会被并成一个不限期的时段，跨天就会多免。
+ */
+function normalizeFreeWindows(discountCards) {
+  const groups = new Map();
+  (discountCards || []).forEach((c) => {
+    if (!c) return;
+    const fromMs = (c.fromMs === undefined || c.fromMs === null) ? null : Number(c.fromMs);
+    const toMs = (c.toMs === undefined || c.toMs === null) ? null : Number(c.toMs);
+    const key = `${fromMs === null ? '-' : fromMs}|${toMs === null ? '-' : toMs}`;
+    if (!groups.has(key)) groups.set(key, { fromMs, toMs, list: [] });
+    groups.get(key).list.push({ start: c.start, end: c.end });
+  });
+  const out = [];
+  groups.forEach((g) => {
+    out.push({ fromMs: g.fromMs, toMs: g.toMs, ranges: mergeDiscountCards(g.list) });
+  });
+  return out;
 }
 
 // 合并优惠卡（并拆分跨天时段）

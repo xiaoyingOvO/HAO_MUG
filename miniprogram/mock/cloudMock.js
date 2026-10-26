@@ -362,12 +362,12 @@ function seed() {
   // duration.type === 0 表示「每日时段卡」，过了当天 end_hour 会显示「今日已过时」。
   // （原版 duration.end_time 存的是 Date 对象；mock 里用 end_hour 等效表达，见 getCardInfo。）
   //
-  // discount 语义（见 cloudfunctions/queueFunctions/getConsumePoint/index.js:80-84）：
+  // discount 语义（见 cloudfunctions/queueFunctions/getConsumePoint/index.js 的卡处理段）：
   //   discount == 0 → 「免费时段卡」：把该时段的游玩时长从计费时长里剔除 = 该时段不扣点数
   //   discount != 0 → 折扣系数（如 0.5 = 5 折），仍然扣费
-  // ⚠️ 「全天/日间畅玩套餐」按「畅玩」语义应为免单时段卡，故 discount 填 0。
-  //    这个值来自我的推断（原版截图只给了卡名/价格/描述，看不到 discount），
-  //    如果你云端 card 集合里实际不是 0，改这里 + 告诉我，免单入店逻辑才会正确生效。
+  // ⚠️ 所有「畅玩卡 / 套餐 / 票」按「畅玩」语义都是免单时段卡，discount 必须填 0。
+  //    曾有「夜场畅玩卡」填成 1 —— 那是「不打折」，会走折扣卡分支，zhekou *= 1 等于没效果，
+  //    又拿不到免单时段，持卡人整晚被全额计费（线上已改为 0）。新增卡时务必填 0。
   // ⚠️ 以下与云开发数据库 card 集合的真实数据保持一致（_id、卡名、价格、discount、时段）。
   // 卡的可见性字段（语义严格区分，见 cloudfunctions/baseFunctions/getCardInfo）：
   //   is_hidden  = true → 已下架：用户端不展示、不可购买；但卡仍有效，存量持卡人权益照常，
@@ -380,7 +380,7 @@ function seed() {
       _id: 'e33be08d678e255a0189586d3b0d8a79',
       card_name: '夜场畅玩卡',
       trial: 0,
-      discount: 1,
+      discount: 0,
       is_hidden: true,
       duration: { type: 0, start_hour: 23, end_hour: 10, days: 1, start_time: null, end_time: null },
       remain: -100,
@@ -790,20 +790,26 @@ function mockDurationHour(duration, which) {
  * 注意：这里**区分区域**——card.area 存在且与用户当前区域不一致时，该卡不生效。
  *       缺省/null/undefined 则两区通用。
  */
-function cardEffects(s, u, now = nowDate(), userArea) {
+function cardEffects(s, u, now = nowDate(), userArea, clockFromEnter = false) {
   const holds = (u && u.cards) || [];
   const ts = now.getTime();
   let zhekou = 1;
   const freeRanges = [];
 
+  // 判定「这次消费是否买了这张卡」的时刻：
+  //   · 计费（consumedPoints 传 clockFromEnter=true）→ 用入店时刻，与云端 getConsumePoint 一致。
+  //     早八票 08:00-10:00 打超到 11:00 时，卡的持有期已过，但那两小时买断了，必须照常抵扣。
+  //   · 入店放行（hasFreeTimeCard）→ 用当前时刻，只在卡的时段内才认为「此刻不扣费」。
+  const clockTs = clockFromEnter && u && u.enter_time ? new Date(u.enter_time).getTime() : ts;
+
   for (let i = 0; i < holds.length; i++) {
     const hold = holds[i];
     if (!hold || !hold.card_id) continue;
 
-    // 仅在持有有效期内的卡才生效
+    // 卡是否适用于「这次消费」：入店时刻不晚于有效期终点，且当前/入店不早于起点
     const start = new Date(hold.start_time).getTime();
     const end = new Date(hold.end_time).getTime();
-    if (!(start <= ts && ts <= end)) continue;
+    if (!(clockTs <= end && ts >= start)) continue;
 
     const card = s.cards.find((c) => c._id === hold.card_id);
     if (!card) continue;
@@ -820,7 +826,8 @@ function cardEffects(s, u, now = nowDate(), userArea) {
     } else if (discount === 0 && card.duration) {
       const sh = mockDurationHour(card.duration, 'start');
       const eh = mockDurationHour(card.duration, 'end');
-      if (sh !== null && eh !== null) freeRanges.push({ start: sh, end: eh });
+      // fromMs/toMs = 这次持有的有效期，billingMinutes 会把免单时段夹在这段之内（防跨天多免）
+      if (sh !== null && eh !== null) freeRanges.push({ start: sh, end: eh, fromMs: start, toMs: end });
     }
   }
   return { zhekou, freeRanges };
@@ -890,22 +897,40 @@ function bjMinuteStamp(d) {
 function billingMinutes(enter, now, freeRanges) {
   // 免单时段转成「当天分钟」；跨天时段（start > end，如夜场 23:00→次日10:00）拆成两段，
   // 否则 [1380,600] 交集恒为 0，夜场卡在桌游区/音游区都抵扣不掉。
-  const intervals = [];
+  //
+  // freeRanges 里的每一项可选带 fromMs/toMs（该卡的持有有效期，绝对毫秒）。
+  // 免单时段本身是「每天重复」的，必须夹在持有有效期内，否则入店后一直不离店时
+  // 第二天、第三天的同一时段会继续免单（云端 getConsumePoint 同样处理）。
+  const groups = new Map();
   freeRanges.forEach((r) => {
-    const s = r.start * 60;
-    const e = r.end * 60;
-    if (r.start < r.end) {
-      intervals.push({ start: s, end: e });
-    } else {
-      intervals.push({ start: s, end: 1440 });
-      intervals.push({ start: 0, end: e });
-    }
+    const fromMs = (r.fromMs === undefined || r.fromMs === null) ? null : r.fromMs;
+    const toMs = (r.toMs === undefined || r.toMs === null) ? null : r.toMs;
+    const key = `${fromMs === null ? '-' : fromMs}|${toMs === null ? '-' : toMs}`;
+    if (!groups.has(key)) groups.set(key, { fromMs, toMs, list: [] });
+    groups.get(key).list.push(r);
   });
-  intervals.sort((a, b) => a.start - b.start);
-  const merged = [];
-  intervals.forEach((iv) => {
-    if (merged.length === 0 || merged[merged.length - 1].end < iv.start) merged.push(iv);
-    else merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, iv.end);
+
+  const bjStampToMs = (stamp) => stamp * 60000 - BJ_OFFSET_MS;
+  const windows = [];
+  groups.forEach((g) => {
+    const intervals = [];
+    g.list.forEach((r) => {
+      const s = r.start * 60;
+      const e = r.end * 60;
+      if (r.start < r.end) {
+        intervals.push({ start: s, end: e });
+      } else {
+        intervals.push({ start: s, end: 1440 });
+        intervals.push({ start: 0, end: e });
+      }
+    });
+    intervals.sort((a, b) => a.start - b.start);
+    const merged = [];
+    intervals.forEach((iv) => {
+      if (merged.length === 0 || merged[merged.length - 1].end < iv.start) merged.push(iv);
+      else merged[merged.length - 1].end = Math.max(merged[merged.length - 1].end, iv.end);
+    });
+    windows.push({ fromMs: g.fromMs, toMs: g.toMs, ranges: merged });
   });
 
   const startStamp = bjMinuteStamp(enter);
@@ -920,18 +945,26 @@ function billingMinutes(enter, now, freeRanges) {
   while (cursor < endStamp && guard++ < 7) {
     const dayStart = Math.floor(cursor / 1440) * 1440;
     const segEnd = Math.min(dayStart + 1440, endStamp);
-    const sMin = cursor - dayStart;
-    const eMin = segEnd - dayStart;
-    total += eMin - sMin;
-    merged.forEach((card) => {
-      const os = Math.max(sMin, card.start);
-      const oe = Math.min(eMin, card.end);
-      if (os < oe) discounted += oe - os;
+    total += segEnd - cursor;
+
+    const segFromMs = bjStampToMs(cursor);
+    const segToMs = bjStampToMs(segEnd);
+    windows.forEach((w) => {
+      w.ranges.forEach((r) => {
+        let fromMs = bjStampToMs(dayStart + r.start);
+        let toMs = bjStampToMs(dayStart + r.end);
+        if (w.fromMs !== null) fromMs = Math.max(fromMs, w.fromMs);
+        if (w.toMs !== null) toMs = Math.min(toMs, w.toMs);
+        fromMs = Math.max(fromMs, segFromMs);
+        toMs = Math.min(toMs, segToMs);
+        if (fromMs < toMs) discounted += Math.round((toMs - fromMs) / 60000);
+      });
     });
     cursor = segEnd;
   }
   if (enter.getSeconds() > now.getSeconds()) total -= 1;
-  const billingTime = total - discounted;
+  const discountedSafe = Math.min(discounted, total);
+  const billingTime = total - discountedSafe;
   return billingTime > 0 ? billingTime : 0;
 }
 
@@ -952,7 +985,7 @@ function consumedPoints(s, u) {
   const enter = new Date(u.enter_time || nowTs());
   const now = nowDate();
   const area = normalizeArea(u.area);
-  const { zhekou, freeRanges } = cardEffects(s, u, now, area);
+  const { zhekou, freeRanges } = cardEffects(s, u, now, area, true);
   const rate = AREA_RATE[area];
   // 两个区共用同一套「按北京时间逐天累计 + 免单卡时段抵扣」的算法
   const minutes = billingMinutes(enter, now, freeRanges);
