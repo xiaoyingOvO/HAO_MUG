@@ -22,3 +22,9 @@ cloudfunctions/lowcode-automation-preview
 cloudfunctions/lowcode-datasource
 cloudfunctions/lowcode-datasource-preview
 cloudfunctions/queueFunctions/node_modules/
+
+# 云函数依赖统一由云端安装，不入库（覆盖所有云函数，避免逐个补）
+cloudfunctions/*/node_modules/
+
+# 从控制台「下载云函数」会带上这些打包产物，仅用于排查，不入库
+cloudfunctions/*/*.zip
