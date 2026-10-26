@@ -9,10 +9,10 @@
       <view class="amount-input-group">
           <input
             class="amount-input"
-            type="number"
+            type="{{payPrecision > 0 ? 'digit' : 'number'}}"
             value="{{rechargeAmountInput}}"
             bindinput="handleAmountInput"
-            placeholder="请输入整数金额"
+            placeholder="{{payPrecision > 0 ? '请输入金额，可精确到分' : '请输入整数金额'}}"
             placeholder-class="input-placeholder"
           />
           <text class="currency-unit">点</text> <!-- 添加单位 -->

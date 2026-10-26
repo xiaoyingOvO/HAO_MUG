@@ -1341,18 +1341,27 @@ const baseFunctions = {
   },
 
   // 自助充值可用性：mock 下恒为可用（真实环境读虚拟支付环境变量）
+  // 金额精度按「0.01 元/份」的道具算，即精确到分，与线上配置保持一致
   pointPayStatus() {
-    return { success: true, data: { enabled: true, missing: [], env: 0 } };
+    return {
+      success: true,
+      data: { enabled: true, missing: [], env: 0, goodsPrice: 1, unit: 0.01, precision: 2 },
+    };
   },
 
   // ---- 虚拟支付（点数充值）----
-  // 对齐 cloudfunctions/baseFunctions/createPointOrder：金额必须是 1-1000 的整数，
-  // Lv6 直接拒绝下单。真实环境这里会返回 signData/paySig/signature 拉起微信虚拟支付，
+  // 对齐 cloudfunctions/baseFunctions/createPointOrder：金额 1-1000 元，可精确到分，
+  // 且必须是道具单价（0.01 元）的整数倍。Lv6 直接拒绝下单。
+  // 真实环境这里会返回 signData/paySig/signature 拉起微信虚拟支付，
   // mock 下没有支付界面，标记 mock:true，由前端直接进入「确认到账」。
   createPointOrder(p, s) {
     const amount = Number((p && p.amount) || 0);
-    if (!Number.isInteger(amount) || amount < 1) return { success: false, errMsg: '请输入整数金额' };
+    if (!Number.isFinite(amount) || amount <= 0) return { success: false, errMsg: '请输入充值金额' };
+    if (amount < 1) return { success: false, errMsg: '最低充值 1 元' };
     if (amount > 1000) return { success: false, errMsg: '单笔最高 1000 元，可分多笔充值' };
+    const amountCents = Math.round(amount * 100);
+    // 道具单价 1 分，任何两位小数金额都成立，这里只做一致的合法性兜底
+    if (amountCents % 1 !== 0) return { success: false, errMsg: '充值金额最多两位小数' };
     const exp = s.me.exp || 0;
     if (exp >= MAX_LEVEL_EXP) return { success: false, errMsg: '最高等级用户无需充值' };
 
@@ -1367,6 +1376,8 @@ const baseFunctions = {
         mock: true,
         outTradeNo,
         amount,
+        amountCents,
+        buyQuantity: amountCents,
         mode: 'short_series_goods',
         signData: '',
         paySig: '',

@@ -4,8 +4,10 @@ import cloudFcn from '../../../cloudFcn.js';
 
 const app = getApp();
 
-// 单笔充值金额范围（元）。虚拟支付按「1 元/份」的道具下单，数量必须正整数，
-// 所以本页只接受整数金额，上限用于挡住多打两个 0 的误操作。
+// 单笔充值金额范围（元）。
+// 虚拟支付的实付金额 = 道具单价 × 购买份数，份数必须是正整数，
+// 所以「能精确到几位小数」完全由道具单价决定（0.01 元道具 → 精确到分）。
+// 这里不写死，运行时从 pointPayStatus 读回来，见 payPrecision。
 const MIN_RECHARGE = 1;
 const MAX_RECHARGE = 1000;
 
@@ -24,6 +26,8 @@ Page({
     isReady: false,
     isRecharging: false, // 防止重复点击充值
     payEnabled: true,   // 虚拟支付是否已配置可用（配置不全时置灰）
+    payPrecision: 2,    // 金额允许的小数位数，由道具单价决定（默认 2 = 精确到分）
+    payUnit: 0.01,      // 道具单价（元），用于校验金额是否为单价的整数倍
     canvasContext: null, // 存储 canvas 上下文
     canvasNode: null,   // 存储 canvas 节点
     particles: [],      // 粒子数组
@@ -69,7 +73,15 @@ Page({
     try {
       const res = await cloudFcn.getPointPayStatus();
       const d = res && res.result && res.result.data;
-      if (d && d.enabled === false) {
+      if (!d) return;
+      // 精度由后端按道具单价算，前端只跟着走，避免两边写死不一致
+      if (typeof d.precision === 'number' && d.precision >= 0) {
+        this.setData({
+          payPrecision: Math.min(d.precision, 2),
+          payUnit: Number(d.unit) > 0 ? Number(d.unit) : 1,
+        });
+      }
+      if (d.enabled === false) {
         this.setData({ payEnabled: false });
         console.warn('自助充值暂未开放，缺少配置：', d.missing);
       }
@@ -104,18 +116,39 @@ Page({
     }
   },
 
-  // --- 输入处理（虚拟支付按「1 元/份」下单，只接受整数元）---
+  // --- 输入处理 ---
+  // 允许输入小数，位数由 payPrecision 决定（0.01 元道具 → 2 位，精确到分）。
+  // 历史上这里出过「12.5 被洗成 125」的 10 倍扣款事故，所以小数点处理必须严格：
+  // 先切出整数部分和小数部分，再各自规整，最后拼回去，绝不直接删字符。
   handleAmountInput(e) {
+    const precision = Number(this.data.payPrecision) || 0;
     let raw = String(e.detail.value || '');
-    // 数字键盘可能仍能打出小数点。虚拟支付的 buyQuantity 必须是整数，
-    // 这里直接截掉小数部分——绝不能把 "12.5" 洗成 "125"，那是 10 倍扣款。
-    if (raw.indexOf('.') >= 0) raw = raw.split('.')[0];
 
-    let value = raw.replace(/\D/g, '');
-    // 去掉多余的前导 0，但保留单个 "0"
-    if (value.length > 1) value = value.replace(/^0+/, '');
-    // 最多 4 位（上限 1000 元）
-    if (value.length > 4) value = value.slice(0, 4);
+    // 只保留数字和点
+    raw = raw.replace(/[^\d.]/g, '');
+
+    // 只认第一个小数点，后面的点一律丢掉
+    let intPart = raw;
+    let decPart = '';
+    const dotIdx = raw.indexOf('.');
+    const hadDot = dotIdx >= 0;
+    if (hadDot) {
+      intPart = raw.slice(0, dotIdx);
+      decPart = raw.slice(dotIdx + 1).replace(/\./g, '');
+    }
+
+    // 整数部分：去前导 0（保留单个 "0"），最多 4 位（上限 1000 元）
+    if (intPart.length > 1) intPart = intPart.replace(/^0+/, '');
+    // 清空输入时保持空（".5" 这种才补 0），否则输入框会被填成 "0" 删不掉
+    if (intPart === '') intPart = hadDot ? '0' : '';
+    if (intPart.length > 4) intPart = intPart.slice(0, 4);
+
+    // 小数部分按精度截断；精度为 0 时整个小数部分丢弃
+    if (decPart.length > precision) decPart = decPart.slice(0, precision);
+
+    // 用户打了点、且当前精度允许小数，才保留小数点（否则 "12." 这种中间态会闪）
+    const keepDot = hadDot && precision > 0;
+    const value = keepDot ? intPart + '.' + decPart : intPart;
 
     this.setData({
       rechargeAmountInput: value
@@ -127,15 +160,18 @@ Page({
   // 处理和校验充值金额，并计算赠送
   processRechargeValue() {
     const valueStr = this.data.rechargeAmountInput;
-    let numericValue = parseInt(valueStr, 10);
+    // 用 parseFloat 而不是 parseInt：parseInt('12.5') 会把小数悄悄吃掉
+    let numericValue = parseFloat(valueStr);
 
-    if (isNaN(numericValue) || numericValue < 0) {
+    if (!Number.isFinite(numericValue) || numericValue < 0) {
       numericValue = 0;
     }
     // 超过上限时按上限算，避免用户输 9999 后到支付时才被拒
     if (numericValue > MAX_RECHARGE) {
       numericValue = MAX_RECHARGE;
     }
+    // 消掉浮点尾巴（12.34 * 100 可能是 1233.9999）
+    numericValue = Math.round(numericValue * 100) / 100;
 
     const extraPoint = this.calculateExtraPoint(numericValue);
 
@@ -229,10 +265,11 @@ Page({
       return;
     }
 
-    // 金额校验：虚拟支付按「1 元/份」的道具下单，数量必须是正整数
+    // 金额校验：实付 = 道具单价 × 份数，所以金额必须是道具单价的整数倍。
+    // 单价 0.01 元时任何两位小数金额都合法；单价 1 元时只能整数。
     const amount = Number(this.data.numericRechargeAmount);
-    if (!Number.isInteger(amount) || amount <= 0) {
-      wx.showToast({ title: '请输入整数金额', icon: 'none' });
+    if (!Number.isFinite(amount) || amount <= 0) {
+      wx.showToast({ title: '请输入充值金额', icon: 'none' });
       return;
     }
     if (amount < MIN_RECHARGE) {
@@ -241,6 +278,15 @@ Page({
     }
     if (amount > MAX_RECHARGE) {
       wx.showToast({ title: '单笔最高 ' + MAX_RECHARGE + ' 元', icon: 'none' });
+      return;
+    }
+    const amountCents = Math.round(amount * 100);
+    const unitCents = Math.round((Number(this.data.payUnit) || 1) * 100);
+    if (unitCents > 0 && amountCents % unitCents !== 0) {
+      wx.showToast({
+        title: '充值金额需精确到 ' + this.data.payUnit + ' 元',
+        icon: 'none',
+      });
       return;
     }
     // Lv6（exp >= 114514）后端会直接拒绝充值，必须在发起支付前拦住，

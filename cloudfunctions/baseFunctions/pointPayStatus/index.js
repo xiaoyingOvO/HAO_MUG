@@ -14,7 +14,7 @@ cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV,
 });
 
-const { readConfig, missingKeys } = require('../xpay/config');
+const { readConfig, missingKeys, priceYuan, amountPrecision } = require('../xpay/config');
 
 exports.main = async (event, context) => {
   const conf = readConfig();
@@ -26,6 +26,11 @@ exports.main = async (event, context) => {
       enabled: missing.length === 0,
       missing,
       env: conf.env,
+      // 道具单价决定充值金额的小数位数：0.01 元道具 → 精确到分。
+      // 前端据此限制输入框的小数位数，避免用户输了一堆却在下单时才被拒。
+      goodsPrice: conf.goodsPrice,
+      unit: priceYuan(conf.goodsPrice),
+      precision: amountPrecision(conf.goodsPrice),
     },
   };
 };

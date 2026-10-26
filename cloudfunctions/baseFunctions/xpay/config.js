@@ -8,8 +8,10 @@
  *   XPAY_OFFER_ID         虚拟支付 OfferID（MP后台 → 虚拟支付 → 基本配置）
  *   XPAY_APP_KEY          现网 AppKey
  *   XPAY_APP_KEY_SANDBOX  沙箱 AppKey（env=1 时使用，可留空）
- *   XPAY_PRODUCT_ID       道具 ID（后台创建的「点数」道具，单价 1 元）
+ *   XPAY_PRODUCT_ID       道具 ID（后台创建的「点数」道具）
  *   XPAY_GOODS_PRICE      道具单价（分），必须与后台道具价格完全一致，默认 100
+ *                         这个值直接决定充值金额能精确到几位小数：
+ *                         1 分（0.01 元）→ 可精确到分；10 分（0.1 元）→ 到角；100 分 → 只能整数元
  *   XPAY_ENV              0 现网 / 1 沙箱，默认 0（现网版本只能填 0，否则 -15011）
  *   MP_APPSECRET          小程序 AppSecret（用于换 session_key / access_token）
  *
@@ -60,6 +62,33 @@ function missingKeys(conf) {
   return miss;
 }
 
+/**
+ * 道具单价（元）。后台道具配置里的价格就是这个数。
+ */
+function priceYuan(goodsPrice) {
+  return num(goodsPrice, DEFAULT_GOODS_PRICE) / 100;
+}
+
+/**
+ * 充值金额支持的小数位数，由道具单价决定。
+ *
+ * 虚拟支付的实付金额 = 道具单价 × buyQuantity，而 buyQuantity 必须是正整数，
+ * 所以金额的最小步进就等于道具单价：
+ *   单价 1 元（100 分）  → 商品只能 1 元 1 元地买，充值只能填整数元，0 位小数
+ *   单价 0.1 元（10 分） → 可以 0.1 元 0.1 元地买，充值支持到角，1 位小数
+ *   单价 0.01 元（1 分） → 支持到分，2 位小数
+ *
+ * 这样同一套代码既能跑「只能充整数」的 1 元道具，也能跑更细的道具，
+ * 精度只由环境变量 XPAY_GOODS_PRICE 决定，不用改代码。
+ */
+function amountPrecision(goodsPrice) {
+  const yuan = priceYuan(goodsPrice);
+  // toFixed(2) 后去掉末尾的 0 和孤立的小数点："1.00"→"1"、"0.10"→"0.1"、"0.01"→"0.01"
+  const s = yuan.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+  const dot = s.indexOf('.');
+  return dot < 0 ? 0 : s.length - dot - 1;
+}
+
 module.exports = {
   ENV_PROD,
   ENV_SANDBOX,
@@ -67,4 +96,6 @@ module.exports = {
   readConfig,
   currentAppKey,
   missingKeys,
+  priceYuan,
+  amountPrecision,
 };
