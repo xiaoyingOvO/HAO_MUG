@@ -745,6 +745,40 @@ function hourInRange(hour, startHour, endHour) {
 }
 
 /**
+ * 取卡片时段的小时数（0~24），对齐云端 timeUtil.durationHour：
+ * 先按 start_time 解析（兼容 "HH:MM" / Date / { $date } / 数字），解析不出来再回落到 start_hour。
+ *
+ * 为什么要回落：真实数据是 { start_hour: 8, end_hour: 10, start_time: null, end_time: null }
+ * —— start_time 这个 key 存在但值为 null，用 `!== undefined` 判断会把 null 当成有值，
+ * start_hour 永远读不到，免单时段直接丢失（早八票打超会把早八两小时也计费）。
+ */
+function mockDurationHour(duration, which) {
+  const dur = duration || {};
+  const primary = which === 'start' ? dur.start_time : dur.end_time;
+  const legacy = which === 'start' ? dur.start_hour : dur.end_hour;
+
+  const parse = (v) => {
+    if (v === undefined || v === null) return null;
+    if (typeof v === 'string') {
+      const m = v.match(/^(\d{1,2}):(\d{1,2})$/);
+      if (m) return parseInt(m[1], 10);
+      const n = Number(v);
+      return Number.isNaN(n) ? null : n;
+    }
+    if (v instanceof Date) return (v.getUTCHours() + 8) % 24;
+    if (typeof v === 'object' && v.$date !== undefined) {
+      return (Math.floor(Number(v.$date) / 3600000) + 8) % 24;
+    }
+    const n = Number(v);
+    return Number.isNaN(n) ? null : n;
+  };
+
+  const p = parse(primary);
+  if (p !== null) return p;
+  return parse(legacy);
+}
+
+/**
  * 汇总用户持有的卡对计费的影响（对齐 getConsumePoint:63-86）。
  *
  *   discount != 0 → 折扣卡：zhekou *= discount（如高级会员卡 0.5 = 计时 5 折）
@@ -784,9 +818,9 @@ function cardEffects(s, u, now = nowDate(), userArea) {
     if (!Number.isNaN(discount) && discount !== 0) {
       zhekou *= discount;
     } else if (discount === 0 && card.duration) {
-      const sh = Number(card.duration.start_hour);
-      const eh = Number(card.duration.end_hour);
-      if (!Number.isNaN(sh) && !Number.isNaN(eh)) freeRanges.push({ start: sh, end: eh });
+      const sh = mockDurationHour(card.duration, 'start');
+      const eh = mockDurationHour(card.duration, 'end');
+      if (sh !== null && eh !== null) freeRanges.push({ start: sh, end: eh });
     }
   }
   return { zhekou, freeRanges };

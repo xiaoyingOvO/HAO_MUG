@@ -9,7 +9,7 @@ const db_user = 'user';
 const db_card = 'card'
 const db_cmd = db.command;
 
-const { toBJHour } = require('../timeUtil');
+const { durationHour } = require('../timeUtil');
 
 // 区域费率（点/分钟）
 const AREA_ARCADE = 'arcade'
@@ -72,9 +72,20 @@ async function getConsumePointMain(event, context) {
   console.log('计费区域:', area, '费率:', rate, '点/分')
   // 处理所有优惠卡信息（批量查询，避免 N+1）
   // 1. 先筛选出时间范围有效的卡，收集 card_id
+  //    口径：入店时刻落在卡的持有有效期内，且结算时刻不早于有效期起点。
+  //    ⚠️ 这里**故意不校验 current_time <= c.end_time** —— 早八票 08:00-10:00 打超到 11:00 时，
+  //    卡的持有有效期已过，但 08:00-10:00 这段已经买断的免单权益必须照常抵扣。
+  //    用「入店时刻是否在有效期内」来判定「这次消费是否买了这张卡」，比「结算时刻是否还在有效期内」正确。
   const activeCardRefs = []
   cards.forEach(c => {
-    if (enter_time <= c.end_time && current_time >= c.start_time) {
+    if (!c || !c.card_id) return
+    if (c.start_time == null || c.end_time == null) return
+    const holdStart = new Date(c.start_time).getTime()
+    const holdEnd = new Date(c.end_time).getTime()
+    if (Number.isNaN(holdStart) || Number.isNaN(holdEnd)) return
+    const enterMs = new Date(enter_time).getTime()
+    const nowMs = current_time.getTime()
+    if (enterMs <= holdEnd && nowMs >= holdStart) {
       activeCardRefs.push(c)
     }
   })
@@ -108,8 +119,12 @@ async function getConsumePointMain(event, context) {
         continue
       }
       const dur = cardInfo.duration || {}
-      const sh = toBJHour(dur.start_time !== undefined ? dur.start_time : dur.start_hour)
-      const eh = toBJHour(dur.end_time !== undefined ? dur.end_time : dur.end_hour)
+      // 早八畅玩套餐 / 全天畅玩套餐 / 夜场畅玩卡的真实存法是：
+      //   { type: 0, start_hour: 8, end_hour: 10, start_time: null, end_time: null }
+      // 必须用 durationHour 做「按可解析性回落」，不能写成 `start_time !== undefined ? ... : start_hour`
+      // ——那样 null 会被当成有值，start_hour 永远读不到，免单时段丢失，整段时长全额计费。
+      const sh = durationHour(dur, 'start')
+      const eh = durationHour(dur, 'end')
       if (!Number.isNaN(sh) && sh !== null && !Number.isNaN(eh) && eh !== null) {
         discountCards.push({ start: sh, end: eh })
       } else {
@@ -226,7 +241,9 @@ function billingMinutes(playStart, playEnd, discountCards) {
   // 与原版一致：入店秒数大于结算秒数时扣掉 1 分钟（抵消截断误差，不满一分钟不计费）
   if (playStart.getSeconds() > playEnd.getSeconds()) total -= 1;
 
-  const billingTime = total - discounted;
+  // 多张免单卡时段重叠时可能重复抵扣，兜底不能超过真实时长
+  const discountedSafe = Math.min(discounted, total);
+  const billingTime = total - discountedSafe;
   return billingTime > 0 ? billingTime : 0;
 }
 

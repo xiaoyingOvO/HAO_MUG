@@ -9,7 +9,7 @@ const db_user = "user"
 const db_card = "card"
 const db_arcade_log = "arcade_log"
 
-const { toBJHour, nowBJMinutes } = require('../timeUtil');
+const { durationHour, nowBJMinutes } = require('../timeUtil');
 
 // 区域：音游区（老版计费）/ 桌游区（一把时间可能很长，23 点不强制离店）
 const AREA_ARCADE = 'arcade'   // 音游区：0.2 点/分 = 12 点/小时
@@ -208,8 +208,10 @@ async function hasFreeTimeCard(userCards, currentTime, userArea) {
 
     // 免单时段：统一用公共工具解析成「北京时间小时」（兼容字符串/Date/$date/数字），
     // 与 getConsumePoint 的口径严格一致，避免 new Date("23:00").getHours() 得到 NaN。
-    const startHour = toBJHour(duration.start_time !== undefined ? duration.start_time : duration.start_hour)
-    const endHour = toBJHour(duration.end_time !== undefined ? duration.end_time : duration.end_hour)
+    // 用 durationHour 做「按可解析性回落」：真实数据是 { start_time: null, start_hour: 8 }，
+    // 写成 `start_time !== undefined ? ...` 会把 null 当成有值，start_hour 永远读不到。
+    const startHour = durationHour(duration, 'start')
+    const endHour = durationHour(duration, 'end')
     if (startHour === null || endHour === null) continue
 
     // 当前北京时间小时（云函数跑 UTC，需 +8）

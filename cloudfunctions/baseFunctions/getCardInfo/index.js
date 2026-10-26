@@ -9,7 +9,7 @@ const db_cmd = db.command;
 const db_card = 'card';
 const db_user = 'user';
 
-const { toBJMinutes, nowBJMinutes } = require('../timeUtil');
+const { nowBJMinutes, durationMinutes } = require('../timeUtil');
 
 // 购买优惠卡云函数入口
 exports.main = async (event, context) => {
@@ -91,9 +91,10 @@ exports.main = async (event, context) => {
 
     let now = new Date();
     if (card?.duration?.type == 0) {
-        // 统一用公共工具解析「北京时间分钟」，兼容字符串/Date/$date 三种存法
-        const startMin = toBJMinutes(card?.duration?.start_time);
-        const endMin = toBJMinutes(card?.duration?.end_time);
+        // 统一用公共工具解析「北京时间分钟」，兼容字符串/Date/$date 三种存法，
+        // 并在 start_time 为 null 时回落到 start_hour/end_hour（真实数据就是这种结构）
+        const startMin = durationMinutes(card?.duration, 'start');
+        const endMin = durationMinutes(card?.duration, 'end');
         const nowMin = nowBJMinutes(now);
 
         if (startMin !== null && endMin !== null) {

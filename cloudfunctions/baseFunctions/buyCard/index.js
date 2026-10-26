@@ -10,7 +10,7 @@ const db_card = 'card';
 const db_user = 'user';
 const db_card_lock = 'card_lock';
 
-const { toBJHour, toBJMinutes, nowBJMinutes } = require('../timeUtil');
+const { toBJHour, toBJMinutes, nowBJMinutes, durationMinutes } = require('../timeUtil');
 
 const max_retry_time = 5;
 const retry_wait_seconds = 0.5;
@@ -193,8 +193,11 @@ async function getUserAndCardInfo(params) {
   // 支持跨天时段：startMin > endMin 表示跨天（如夜场 23:00-次日 10:00）
   if (duration && duration.type == 0) {
     const nowMin = nowBJMinutes(new Date());
-    const startMin = toBJMinutes(duration.start_time);
-    const endMin = toBJMinutes(duration.end_time);
+    // durationMinutes 会在 start_time 解析失败时回落到 start_hour/end_hour。
+    // 若直接用 toBJMinutes(duration.start_time)，真实数据里的 start_time: null 会得到 null，
+    // 导致下面 inRange 恒为 false → 明明是可购买时段却报「当前不在可购买时段」，买不了卡。
+    const startMin = durationMinutes(duration, 'start');
+    const endMin = durationMinutes(duration, 'end');
 
     let inRange = false;
     if (startMin !== null && endMin !== null) {
@@ -407,8 +410,13 @@ async function calStartEndTime(duration) {
   if (duration.type == 0) {
     // 时段卡：duration.start_time/end_time 历史上可能是字符串 "HH:MM"、Date 或 { $date }，
     // 统一用公共工具解析成「北京时间时分」，避免对字符串调用 getHours() 抛错。
-    const sm = toBJMinutes(duration.start_time);
-    const em = toBJMinutes(duration.end_time);
+    //
+    // ⚠️ 必须用 durationMinutes（解析失败时回落到 start_hour/end_hour）：
+    //   真实数据形如 { type: 0, start_hour: 8, end_hour: 10, start_time: null, end_time: null }，
+    //   直接 toBJMinutes(duration.start_time) 会拿到 null → 落到下面的 0 兜底 →
+    //   start_time == end_time == 今天 00:00，有效期长度为零，卡买了等于没买。
+    const sm = durationMinutes(duration, 'start');
+    const em = durationMinutes(duration, 'end');
     const startHour = sm === null ? 0 : Math.floor(sm / 60);
     const startMin = sm === null ? 0 : sm % 60;
     const endHour = em === null ? 0 : Math.floor(em / 60);

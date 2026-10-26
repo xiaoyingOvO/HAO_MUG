@@ -15,7 +15,7 @@ const db_reserve_lock = 'reserve_lock';
 const db_card = 'card';
 const db_meta = 'meta';
 
-const { toBJHour, toBJMinutes } = require('../timeUtil');
+const { toBJHour, toBJMinutes, durationMinutes } = require('../timeUtil');
 
 // 夜场票（预约夜场成功后发放，时段 23:00 ~ 次日 10:00，含桌游麻将）
 const night_card_id = 'e33be08d678e255a0189586d3b0d8a79';
@@ -444,8 +444,10 @@ async function chargeReserve(params) {
   // duration.start_time/end_time 历史上可能是字符串 "HH:MM"、Date 或 { $date }，
   // 统一用公共工具解析成「北京时间时分」，避免对字符串调用 getHours()/getUTCHours() 抛错。
   const duration = night_card_record.data[0].duration || {};
-  const startMin = toBJMinutes(duration.start_time);
-  const endMin = toBJMinutes(duration.end_time);
+  // durationMinutes 在 start_time 解析失败时回落到 start_hour/end_hour，
+  // 避免 start_time: null 的卡（真实数据常见结构）算不出正确有效期。
+  const startMin = durationMinutes(duration, 'start');
+  const endMin = durationMinutes(duration, 'end');
 
   // 解析失败时退回 23:00 / 次日 10:00 的默认夜场时段，避免 NaN 写库
   const startBJMin = startMin === null ? 23 * 60 : startMin;   // 默认 23:00

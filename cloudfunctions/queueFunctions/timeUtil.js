@@ -60,8 +60,63 @@ function nowBJMinutes(now) {
   return t.getUTCHours() * 60 + t.getUTCMinutes();
 }
 
+/**
+ * 解析卡片的「时段起点/终点」（北京时间分钟数 0~1440），解析失败返回 null。
+ *
+ * ⚠️ 为什么不能写成 `duration.start_time !== undefined ? duration.start_time : duration.start_hour`：
+ *   数据库里 card.duration 长期是「两套字段并存」的结构 ——
+ *       { type: 0, start_hour: 8, end_hour: 10, start_time: null, end_time: null }
+ *   `start_time` 这个 key 是存在的，只是值为 null，所以 `!== undefined` 恒为 true，
+ *   取到的就是 null，`start_hour: 8` 永远不会被读到 → 时段解析失败 → 免单时段丢失。
+ *   早八畅玩套餐（08:00-10:00 免单）打超时「把早八那两小时也计费」就是这个原因。
+ *
+ * 所以这里改成「按可解析性回落」：先试 start_time，解析不出来再试 start_hour。
+ *
+ * @param {object} duration card.duration
+ * @param {'start'|'end'} which 取起点还是终点
+ * @returns {number|null} 北京时间分钟数
+ */
+function durationMinutes(duration, which) {
+  const dur = duration || {};
+  const primary = which === 'start' ? dur.start_time : dur.end_time;
+  const legacy = which === 'start' ? dur.start_hour : dur.end_hour;
+
+  // 裸数字（没有 "HH:MM" 格式可辨）按「小时」理解，与 start_hour 语义保持一致。
+  // 否则 toBJMinutes(8) 会按「8 分钟」处理，把 08:00 算成 00:08。
+  if (typeof primary === 'number') {
+    const h = toBJHour(primary);
+    return h === null ? null : h * 60;
+  }
+
+  const p = toBJMinutes(primary);
+  if (p !== null) return p;
+
+  // 回落：老字段只存「小时」，换算成分钟
+  const h = toBJHour(legacy);
+  return h === null ? null : h * 60;
+}
+
+/**
+ * 同上，但只取「小时」（0~24）。用于只看小时粒度的场景（如免单时段抵扣）。
+ * @param {object} duration card.duration
+ * @param {'start'|'end'} which
+ * @returns {number|null} 北京时间小时数
+ */
+function durationHour(duration, which) {
+  const dur = duration || {};
+  const primary = which === 'start' ? dur.start_time : dur.end_time;
+  const legacy = which === 'start' ? dur.start_hour : dur.end_hour;
+
+  const p = toBJHour(primary);
+  if (p !== null) return p;
+
+  return toBJHour(legacy);
+}
+
 module.exports = {
   toBJHour,
   toBJMinutes,
   nowBJMinutes,
+  durationMinutes,
+  durationHour,
 };
