@@ -13,6 +13,8 @@
       <text wx:if="{{userPointsIsNumber}}" class="points-unit">点</text>
     </view>
   </view>
+  <!-- 点数使用范围声明 -->
+  <view class="points-scope-tip">点数仅限本店线下消费，不可提现</view>
   <!-- 加载状态 -->
   <view wx:if="{{isLoading && isLoadingPoints}}" class="loading-container">
     <text>加载优惠卡列表中...</text>

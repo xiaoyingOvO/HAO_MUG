@@ -206,3 +206,14 @@ button.primary-button::after { border: none; }
 }
 .btn-content { display: flex; align-items: center; }
 .success-icon { width: 40rpx; height: 40rpx; margin-right: 15rpx; }
+/* ===== 转赠使用范围声明 ===== */
+/* 卡片内底部，加一条分隔线跟表单区隔开 */
+.points-scope-tip {
+  margin-top: 32rpx;
+  padding-top: 24rpx;
+  border-top: 1rpx solid #eef2f5;
+  font-size: 22rpx;
+  line-height: 1.6;
+  color: #7b8794;
+  text-align: center;
+}

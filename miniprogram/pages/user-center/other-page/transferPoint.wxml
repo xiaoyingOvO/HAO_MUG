@@ -58,6 +58,9 @@
           <text class="unit">点</text>
         </view>
       </view>
+
+      <!-- 转赠使用范围声明 -->
+      <view class="points-scope-tip">转赠点数仅限在本店消费使用，不可提现</view>
     </view>
   </view>
 

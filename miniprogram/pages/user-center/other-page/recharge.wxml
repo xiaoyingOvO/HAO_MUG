@@ -35,7 +35,8 @@
 
      <!-- 提示信息 (可选) -->
      <view class="footer-tip">
-         <text>温馨提示：1元=1点。单笔最高1万点</text>
+         <text class="footer-tip__line">温馨提示：1 元 = 1 点，单笔最高 1 万点</text>
+         <text class="footer-tip__line footer-tip__line--scope">点数仅限本店线下消费，不可提现</text>
      </view>
   </view>
 

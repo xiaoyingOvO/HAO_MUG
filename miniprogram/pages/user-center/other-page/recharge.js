@@ -268,7 +268,9 @@ Page({
         data: {
           name: PAY_WORKFLOW_NAME,
           data: {
-            description: '点数充值',
+            // 这个字段会写进微信支付账单的「商品说明」，是审核与用户都能看到的硬凭证，
+            // 所以按线下预存消费描述，不出现「点数」「虚拟」这类字样。
+            description: '门店消费储值',
             openid: openid,
             point: amount,
           },

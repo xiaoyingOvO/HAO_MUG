@@ -175,6 +175,19 @@ button.primary-button::after {
     text-align: center;
 }
 
+/* 两行提示：用 block 分行，避免挤成一句 */
+.footer-tip__line {
+    display: block;
+    line-height: 1.7;
+}
+
+/* 使用范围声明：比常规提示再淡一档，不抢「立即充值」的视觉重心 */
+.footer-tip__line--scope {
+    margin-top: 8rpx;
+    font-size: 22rpx;
+    color: #96a3ae;
+}
+
 /* 动画 */
 .animation-fade-in {
   animation: fade-in 0.6s ease-out forwards;
