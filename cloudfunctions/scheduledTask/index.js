@@ -133,6 +133,14 @@ exports.main = async (event, context) => {
     //   3. leaveArcade 的清卡在 try/catch 里（不能让清卡失败把离店搞失败），
     //      万一失败一次，只能靠这里补。
     // 两边决策规则必须一致：end_time <= now 且本次消费不再使用它（cardStillInUse）。
+    //
+    // 关于「能不能只清限量卡（高级会员卡）」——库存层面本来就已经是这样了，不用改：
+    //   card_map 来自上面 card_result 的查询，而那条查询带 `remain: neq(-100)`，
+    //   不限量卡压根不会进 card_map，所以「归还 remain」这一步只对限量卡生效。
+    //   这里连带清掉不限量卡的过期持有记录，是同一个循环的零成本副作用；
+    //   砍掉它不会省任何代码（循环、cardStillInUse、7 天兜底一样都得留着给会员卡用），
+    //   只会让 user.cards 只增不减。实测「买完卡杀掉小程序、从不离店」的用户：
+    //   现在 7 天兜底后能收敛到 0 张；只清限量卡则早八/全天卡永久滞留。
     for(var j = 0 ; j < cards.length ; j++){
       current_time = new Date()
       var cardsID = cards[j].card_id
