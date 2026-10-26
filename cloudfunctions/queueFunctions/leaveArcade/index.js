@@ -11,7 +11,10 @@ const db_user = "user"
 const db_card = "card"
 const db_arcade_log = "arcade_log"
 
-// remain == -100 表示不限量，不参与库存回收
+// remain <= -100 表示不限量（约定值 -100），不参与库存回收。
+// 判定用 <= 而不是 ==，与 buyCard 的售罄判定（-100 < remain <= 0 视为已售罄）严格互补：
+// 万一有人用 -200 之类的小于 -100 的值表示不限量，这里也不会把库存加到一个负的 remain 上，
+// 否则 -200 被 inc 到落进（-100, 0] 区间就会被判成售罄。mock 侧用的是同一套 <= 语义。
 const UNLIMITED_REMAIN = -100
 
 /**
@@ -67,7 +70,7 @@ async function recycleExpiredCards(openid, cards, now) {
     }).get()
     const remain = r && r.data && r.data.length ? r.data[0].remain : null
     if (remain === null || remain === undefined) continue
-    if (Number(remain) === UNLIMITED_REMAIN) continue
+    if (Number(remain) <= UNLIMITED_REMAIN) continue
     await db.collection(db_card).where({
       _id: id
     }).update({
