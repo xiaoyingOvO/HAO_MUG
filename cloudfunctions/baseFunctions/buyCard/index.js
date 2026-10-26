@@ -55,69 +55,61 @@ exports.main = async (event, context) => {
   let durationInfo = res.data.duration;
 
 
-  // 如果有余量限制，需分布式锁阶段
-  // needLock 单独记标志：后面 res 会被 recordBuyInfo 的返回值覆盖，
-  // 原来用 res.data.remain 判断「要不要释放锁」，一旦购买失败（res.data 为空）
-  // 就会在这里抛 Cannot read properties of undefined。
-  let needLock = false;
-  if (res.data.remain > 0) {
-    needLock = true;
-    // 尝试获取分布式锁
-    let lockRes = await acquireCardLock({
-      openid: openid,
-      card_id: card_id
-    });
+  // 所有卡统一过分布式锁，不再只限「remain > 0」的限量卡。
+  //
+  // 原版只给限量卡加锁，不限量卡（remain = -100）完全不加锁。
+  // 「已有该优惠卡」的校验在锁外，同一用户连点两次时两个请求都能通过校验：
+  //   · cards 数组被 push 两条同样的卡 —— 折扣卡会让 getConsumePoint 的 zhekou
+  //     连乘（0.5 × 0.5 = 0.25），用户被动打了对折；
+  //   · 限量卡的 remain 被 $inc(-1) 两次，最后一张能被两个人同时买走，甚至变成负数。
+  // 锁行由 addCard 在 remain > 0 时创建，不限量卡没有锁行，acquireCardLock 内部会自愈补建。
+  let lockRes = await acquireCardLock({
+    openid: openid,
+    card_id: card_id
+  });
 
-    if (!lockRes.success) {
-      return {
-        success: false,
-        errMsg: "购买人数太多，购买失败，请重试...",
-        data: {
-          remain: res.data.remain
-        }
+  if (!lockRes.success) {
+    return {
+      success: false,
+      errMsg: "购买人数太多，购买失败，请重试...",
+      data: {
+        remain: res.data.remain
       }
     }
+  }
 
-    // 第二次获取卡持续天数和余量
+  // 上了锁就必须释放：原来只在「成功且 remain > 0」时释放，
+  // 失败分支和 recordBuyInfo 抛异常时锁要等 2 秒超时才失效，
+  // 这段时间别人买这张卡会一直看到「购买人数太多」。
+  try {
+    // 第二次获取卡持续天数和余量：拿到锁之后重读才是锁内的一致快照，
+    // 并发进来的第二个请求会在这里看到「已有该优惠卡」而被拒绝。
     res = await getUserAndCardInfo({
       openid: openid,
       card_id: card_id,
       card_name: card_name
     });
     if (res.success == false) {
-        // 这里原来写的是 cardCost: card_id，参数名不对，锁实际没释放掉
-        await releaseCardLock({
-            openid: openid,
-            card_id: card_id
-        });
-        return res;
+      return res;
     }
-    const currentRemain = res.data.remain;
     userCardInfo = res.data.card;
     durationInfo = res.data.duration;
-  }
 
-  // 添加信息至数据库
-  res = await recordBuyInfo({
-    openid: openid,
-    card_id: card_id,
-    card: res.data.card,
-    duration: res.data.duration,
-    remain: res.data.remain,
-    cost: cardCost
-  });
-
-  // 加过锁就释放，成功失败都要放。
-  // 原来只在成功且 res.data.remain > 0 时释放，失败时锁要等 2 秒超时才失效，
-  // 这段时间别人买这张限量卡会一直看到「购买人数太多」。
-  if (needLock) {
+    // 添加信息至数据库
+    return await recordBuyInfo({
+      openid: openid,
+      card_id: card_id,
+      card: res.data.card,
+      duration: res.data.duration,
+      remain: res.data.remain,
+      cost: cardCost
+    });
+  } finally {
     await releaseCardLock({
       openid: openid,
       card_id: card_id
-    })
+    });
   }
-
-  return res;
 };
 
 
@@ -277,6 +269,41 @@ async function getUserAndCardInfo(params) {
   };
 }
 
+// 补建缺失的锁行。
+// addCard 只在 remain > 0 时写 card_lock，不限量卡（remain = -100）以及
+// 早期直接往 card 集合里插的数据都没有锁行。这里按需补一条初始行
+// （openid = "xx"、release_time = 1970），后续走正常的 CAS 流程。
+// 并发补建的概率极低，且重复行的初始值完全相同，CAS 更新依然成立，不影响正确性。
+//
+// 返回 true = 锁行可用（已存在或补建成功）；false = 补建失败。
+// 用 get 而不是 count：少一次聚合查询，也避免 count 在部分环境不可用时整条购买链断掉。
+async function ensureCardLockRow(card_id) {
+  try {
+    const exist = await db.collection(db_card_lock)
+      .where({
+        card_id: card_id,
+      })
+      .limit(1)
+      .get();
+    if (exist && exist.data && exist.data.length > 0) {
+      return true;
+    }
+    await db.collection(db_card_lock)
+      .add({
+        data: {
+          card_id: card_id,
+          openid: "xx",
+          release_time: new Date(0),
+        }
+      });
+    console.log("已补建 card_lock:", card_id);
+    return true;
+  } catch (err) {
+    console.error("补建 card_lock 失败:", card_id, err);
+    return false;
+  }
+}
+
 async function acquireCardLock(params) {
   const openid = params.openid;
   const card_id = params.card_id;
@@ -301,20 +328,34 @@ async function acquireCardLock(params) {
         fail: console.error
       });
     
-    // 如果锁不存在，报错
+    // 锁行缺失 → 自愈补建，而不是直接失败。
+    // addCard 只在 remain > 0 时创建 card_lock 行，不限量卡（remain = -100）本来就没有锁行；
+    // 现在所有卡都要上锁，若仍按原逻辑返回「分布式锁不存在」，
+    // 这些卡会从「不加锁」直接变成「完全买不了」。
     if (card_lock_record != null && card_lock_record.data.length == 0) {
-      console.log("该优惠卡分布式锁不存在");
-      return {
-        success: false,
-        errMsg: "该优惠卡分布式锁不存在，请联系管理员！"
-      };
+      console.log("该优惠卡分布式锁不存在，自动补建:", card_id);
+      const ready = await ensureCardLockRow(card_id);
+      if (!ready) {
+        // 补建失败（集合不可写 / 权限异常等）→ 降级为「无锁放行」。
+        // 宁可退化成原版的不加锁行为，也不能让整张卡从此买不了。
+        console.warn("card_lock 补建失败，本次降级为无锁购买:", card_id);
+        return {
+          success: true,
+          degraded: true
+        };
+      }
+      continue;
     }
 
     const old_openid = card_lock_record.data[0].openid;
     const old_release_time = card_lock_record.data[0].release_time;
-    // 锁被其他占有，重试
+    // 锁被占有则重试。
+    // 原版写的是 `old_openid != openid && release_time < old_release_time`，
+    // 同一 openid 会**跳过等待、直接抢占自己的锁** —— 用户连点两次时两个请求
+    // 同时进入临界区，「已有该优惠卡」两边都查不到，于是重复写卡、扣两次钱。
+    // 去掉 openid 判断后，同一个人的第二个请求也要排队（锁 2 秒自动过期，最多等 5 轮）。
     const release_time = new Date();
-    if (old_openid != openid && release_time < old_release_time) {
+    if (release_time < old_release_time) {
       console.log("card lock retry time: " + retry_time);
       await sleep(retry_wait_seconds);
       continue;

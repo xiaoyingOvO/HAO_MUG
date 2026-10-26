@@ -1041,11 +1041,14 @@ function billingMinutes(enter, now, freeRanges) {
  *   points = ori × 折扣系数（优惠卡的 discount 连乘）
  *   exp >= 114514（Lv6）→ 免单 0 点
  *
- * ⚠️ 两处与原版的差异，都已在注释里标明，按需调整：
+ * ⚠️ 与原版的差异（都在注释里标明，按需调整）：
  *   1. 信用系数：原版 switch(credit) 配 `case credit >= 85` 这类布尔表达式，
  *      case 永远匹配不上数字 credit，实际**完全不生效**。这里沿用「不生效」的实际行为。
- *   2. experience：原版返回 ori_consumePoint（点数金额），疑似笔误；
- *      这里仍返回「游玩分钟数」，更符合「经验按游玩时长累计」的直觉。
+ *   2. experience：原版返回 ori_consumePoint（点数金额），旧 mock 曾返回「游玩分钟数」，
+ *      导致测试号的 exp 增长速度约是云端的 5 倍（音游区 0.2 点/分 → 1 分钟只值 0.2 点）。
+ *      现已对齐原版：experience = ori，即「未打折、未取整的原始点数」。
+ *      注意 exp 的等级阈值（2000 / 8000 / 18000 / 30000 / 114514）本来就是点数语义，
+ *      与充值赠送 calcBonus 用的是同一套门槛，所以这里必须是点数而不是分钟。
  */
 function consumedPoints(s, u) {
   if (u.enter_state === 0) return { points: 0, experience: 0 };
@@ -1062,7 +1065,9 @@ function consumedPoints(s, u) {
   // Lv6 免单（与入店校验的 exp >= 114514 保持同一边界）
   if ((u.exp || 0) >= 114514) points = 0;
 
-  return { points, experience: minutes };
+  // experience 用 ori：云端是 `let experience = ori_consumePoint`，
+  // 即折扣前、Lv6 免单前的原始点数 —— 折扣卡不会让经验打折，Lv6 也照样涨经验。
+  return { points, experience: ori };
 }
 
 /* ============================================================
@@ -1396,6 +1401,15 @@ const baseFunctions = {
       return { success: false, errMsg: '该优惠卡已售罄', data: { remain: card.remain } };
     }
     const cost = Number(card.cost) || 0;
+    // 对齐云端 buyCard：「已有该优惠卡」直接拒绝（同一 card_id 且未过期）。
+    // 云端靠分布式锁 + 锁内重查保证原子性；mock 是单线程同步执行，天然串行，
+    // 但这条校验本身必须在，否则 mock 允许重复购买 → 点数被扣两次、
+    // 折扣卡挂两条后 zhekou 连乘，模拟环境的表现会和线上完全不同。
+    const owned = (s.me.cards || []).find((m) => m && m.card_id === card._id);
+    const ownedEnd = owned ? mockToMs(owned.end_time) : null;
+    if (ownedEnd !== null && ownedEnd !== undefined && nowTs() < ownedEnd) {
+      return { success: false, errMsg: '已有该优惠卡', data: { remain: card.remain } };
+    }
     // Lv6 免单：与云端 buyCard 一致（exp >= 114514 买卡不扣点）。
     // Lv6 平时消费全免、余额通常很低，不判断的话会直接报「点数不足」买不了。
     const effectiveCost = (s.me.exp || 0) >= 114514 ? 0 : cost;
