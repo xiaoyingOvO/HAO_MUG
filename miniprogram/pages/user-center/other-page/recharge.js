@@ -9,10 +9,10 @@ const app = getApp();
 // 所以「能精确到几位小数」完全由道具单价决定（0.01 元道具 → 精确到分）。
 // 这里不写死，运行时从 pointPayStatus 读回来，见 payPrecision。
 //
-// 注意：超上限时**不要**把金额改小再显示，那样用户看到的数字和自己输入的不一样，
-// 会误以为付的就是原来那个数。保持原值，在提交时明确提示。
+// 超过上限时直接锁到上限：输入框里显示的就是实际会被受理的金额，
+// 用户不会看到一个自己输的、但实际不会生效的数字。
 const MIN_RECHARGE = 1;
-const MAX_RECHARGE = 100000;
+const MAX_RECHARGE = 10000;
 
 Page({
   data: {
@@ -152,7 +152,13 @@ Page({
 
     // 用户打了点、且当前精度允许小数，才保留小数点（否则 "12." 这种中间态会闪）
     const keepDot = hadDot && precision > 0;
-    const value = keepDot ? intPart + '.' + decPart : intPart;
+    let value = keepDot ? intPart + '.' + decPart : intPart;
+
+    // 超过单笔上限直接锁到上限。这一步在输入阶段做，输入框里显示的就是
+    // 实际会被受理的金额，用户不会出现「输的是 100000、付的是 10000」的错位。
+    if (value !== '' && Number(value) > MAX_RECHARGE) {
+      value = String(MAX_RECHARGE);
+    }
 
     this.setData({
       rechargeAmountInput: value
@@ -170,9 +176,10 @@ Page({
     if (!Number.isFinite(numericValue) || numericValue < 0) {
       numericValue = 0;
     }
-    // 这里不再把超过上限的金额悄悄改成上限值。改数会让输入框显示的数字
-    // 和用户实际输入的不一致，用户以为付了 100000 结果收银台是 10000。
-    // 超限交给 handleRecharge 明确提示。
+    // 兜底：input 阶段已经锁过上限，这里防的是直接从代码/data 写入超限值的路径
+    if (numericValue > MAX_RECHARGE) {
+      numericValue = MAX_RECHARGE;
+    }
     // 消掉浮点尾巴（12.34 * 100 可能是 1233.9999）
     numericValue = Math.round(numericValue * 100) / 100;
 

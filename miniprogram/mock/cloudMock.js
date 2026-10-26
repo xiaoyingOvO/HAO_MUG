@@ -1350,7 +1350,7 @@ const baseFunctions = {
   },
 
   // ---- 虚拟支付（点数充值）----
-  // 对齐 cloudfunctions/baseFunctions/createPointOrder：金额 1-100000 元，可精确到分，
+  // 对齐 cloudfunctions/baseFunctions/createPointOrder：金额 1-10000 元，可精确到分，
   // 且必须是道具单价（0.01 元）的整数倍。Lv6 直接拒绝下单。
   // 真实环境这里会返回 signData/paySig/signature 拉起微信虚拟支付，
   // mock 下没有支付界面，标记 mock:true，由前端直接进入「确认到账」。
@@ -1358,7 +1358,7 @@ const baseFunctions = {
     const amount = Number((p && p.amount) || 0);
     if (!Number.isFinite(amount) || amount <= 0) return { success: false, errMsg: '请输入充值金额' };
     if (amount < 1) return { success: false, errMsg: '最低充值 1 元' };
-    if (amount > 100000) return { success: false, errMsg: '单笔最高 100000 元，可分多笔充值' };
+    if (amount > 10000) return { success: false, errMsg: '单笔最高 10000 元，可分多笔充值' };
     const amountCents = Math.round(amount * 100);
     // 道具单价 1 分，任何两位小数金额都成立，这里只做一致的合法性兜底
     if (amountCents % 1 !== 0) return { success: false, errMsg: '充值金额最多两位小数' };
