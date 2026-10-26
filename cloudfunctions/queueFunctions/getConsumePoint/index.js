@@ -104,6 +104,9 @@ async function getConsumePointMain(event, context) {
   // 3. 处理每张卡的折扣和免单时段
   let zhekou = 1
   const discountCards = []
+  // 同一张折扣卡只乘一次。用户可能因为并发购买 / 脏数据在 cards 里挂了两条同一张会员卡，
+  // 若不过滤会变成 0.5 × 0.5 = 0.25（折扣翻倍，营收直接少一半）。
+  const discountApplied = new Set()
   for (const { ref: c, holdStart, holdEnd } of activeCardRefs) {
     const cardInfo = cardDetails[c.card_id]
     if (!cardInfo) {
@@ -117,15 +120,19 @@ async function getConsumePointMain(event, context) {
     //   ⚠️ 夜场畅玩卡的 discount 必须是 0。填 1 会走「折扣卡」分支，zhekou *= 1 等于不打折，
     //      也拿不到免单时段，持卡人整晚被全额计费 —— 云开发控制台 card 集合里已改为 0。
     const discountNum = Number(cardInfo.discount)
+    // 区域限制：card.area 存在且不等于用户当前区域 → 该卡不适用。
+    // 免单卡和折扣卡都要检查（原先只在免单分支检查，若有卡同时配了 area 与 discount，
+    // 拿桌游区的票进音游区也能打 5 折）。
+    const cardArea = cardInfo.area
+    if (cardArea && cardArea !== area) {
+      console.log(`卡 ${cardInfo._id} 仅限 ${cardArea} 区，用户当前 ${area}，不生效`)
+      continue
+    }
     if (!Number.isNaN(discountNum) && discountNum !== 0) {
+      if (discountApplied.has(c.card_id)) continue
+      discountApplied.add(c.card_id)
       zhekou *= discountNum
     } else {
-      // 区域限制：card.area 存在且不等于用户当前区域 → 该卡不享受免单
-      const cardArea = cardInfo.area
-      if (cardArea && cardArea !== area) {
-        console.log(`卡 ${cardInfo._id} 仅限 ${cardArea} 区，用户当前 ${area}，不计免单`)
-        continue
-      }
       const dur = cardInfo.duration || {}
       // 早八畅玩套餐 / 全天畅玩套餐 / 夜场畅玩卡的真实存法是：
       //   { type: 0, start_hour: 8, end_hour: 10, start_time: null, end_time: null }
@@ -237,9 +244,21 @@ function billingMinutes(playStart, playEnd, discountCards) {
   const endStamp = bjMinuteStamp(playEnd);
   if (endStamp <= startStamp) return 0;
 
-  let total = 0;      // 真实游玩分钟
-  let discounted = 0; // 被免单卡覆盖的分钟
+  const playFromMs = bjStampToMs(startStamp);
+  const playToMs = bjStampToMs(endStamp);
 
+  // 真实游玩分钟：按北京时间分钟序号相减，跨天/跨月都不会翻负
+  let total = endStamp - startStamp;
+
+  // 收集所有免单区间（绝对毫秒），最后做「并集」再求和。
+  //
+  // ⚠️ 不能按「持有有效期分组」分别累加，那样跨组重叠会被重复计入：
+  //    夜场畅玩卡 23:00→次日10:00 与早八畅享套餐 08:00-10:00 重叠 2 小时，
+  //    两张卡的持有有效期不同（→ 不同分组），重叠的 120 分钟被算两遍，
+  //    23:00→次日11:00 本应只免 660 分，重复后变成 780 分，
+  //    被 total(720) 截断 → 整段 720 分全免，10:00-11:00 白玩。
+  //    并集是唯一不会重复计入的算法。
+  const intervals = [];
   let cursor = startStamp;
   let guard = 0;
   // 最多算 7 天（防止异常数据死循环）
@@ -247,11 +266,9 @@ function billingMinutes(playStart, playEnd, discountCards) {
     const dayStart = Math.floor(cursor / 1440) * 1440;   // 当天 00:00 的分钟序号
     const segEnd = Math.min(dayStart + 1440, endStamp);  // 当天 24:00 或结算时刻
 
-    total += segEnd - cursor;
-
     // 本段（当天这一段）的绝对毫秒区间，用来和时段、有效期求交
-    const segFromMs = bjStampToMs(cursor);
-    const segToMs = bjStampToMs(segEnd);
+    const segFromMs = Math.max(bjStampToMs(cursor), playFromMs);
+    const segToMs = Math.min(bjStampToMs(segEnd), playToMs);
 
     windows.forEach((w) => {
       w.ranges.forEach((r) => {
@@ -262,7 +279,7 @@ function billingMinutes(playStart, playEnd, discountCards) {
         if (w.toMs !== null) toMs = Math.min(toMs, w.toMs);
         fromMs = Math.max(fromMs, segFromMs);
         toMs = Math.min(toMs, segToMs);
-        if (fromMs < toMs) discounted += Math.round((toMs - fromMs) / 60000);
+        if (fromMs < toMs) intervals.push({ from: fromMs, to: toMs });
       });
     });
     cursor = segEnd;
@@ -271,10 +288,34 @@ function billingMinutes(playStart, playEnd, discountCards) {
   // 与原版一致：入店秒数大于结算秒数时扣掉 1 分钟（抵消截断误差，不满一分钟不计费）
   if (playStart.getSeconds() > playEnd.getSeconds()) total -= 1;
 
-  // 多张免单卡时段重叠时可能重复抵扣，兜底不能超过真实时长
+  const discounted = Math.round(unionMinutes(intervals));
   const discountedSafe = Math.min(discounted, total);
   const billingTime = total - discountedSafe;
   return billingTime > 0 ? billingTime : 0;
+}
+
+/**
+ * 区间并集的总分钟数。
+ * 输入是绝对毫秒区间数组（可重叠），输出是不重叠覆盖的总分钟（浮点，由调用方取整）。
+ */
+function unionMinutes(intervals) {
+  if (!intervals || intervals.length === 0) return 0;
+  const sorted = intervals.slice().sort((a, b) => a.from - b.from);
+  let ms = 0;
+  let curFrom = sorted[0].from;
+  let curTo = sorted[0].to;
+  for (let i = 1; i < sorted.length; i++) {
+    const iv = sorted[i];
+    if (iv.from <= curTo) {
+      if (iv.to > curTo) curTo = iv.to;
+    } else {
+      ms += curTo - curFrom;
+      curFrom = iv.from;
+      curTo = iv.to;
+    }
+  }
+  ms += curTo - curFrom;
+  return ms / 60000;
 }
 
 /**
@@ -309,11 +350,14 @@ function mergeDiscountCards(discountCards) {
     const e = card.end;
     if (s < e) {
       intervals.push({ start: timeToMinutes(s), end: timeToMinutes(e) });
-    } else {
+    } else if (s > e) {
       // 跨天时段：拆成当天 [s, 24:00] 和次日 [00:00, e] 两段
       intervals.push({ start: timeToMinutes(s), end: 24 * 60 });
       intervals.push({ start: 0, end: timeToMinutes(e) });
     }
+    // s === e：时长 0 的时段，属于配置异常（例如把 start_hour / end_hour 填成同一个数）。
+    // 必须在这里跳过 —— 如果落进上面的跨天分支，会被拆成 [s,24:00] + [0,s]，
+    // 拼起来正好是 24 小时，这张卡就变成「全天免单」，等于白送。
   });
   intervals.sort((a, b) => a.start - b.start);
   // 合并重叠区间

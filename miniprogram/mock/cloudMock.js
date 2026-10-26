@@ -844,6 +844,10 @@ function cardEffects(s, u, now = nowDate(), userArea, clockFromEnter = false) {
   //   · 入店放行（hasFreeTimeCard）→ 用当前时刻，只在卡的时段内才认为「此刻不扣费」。
   const clockTs = clockFromEnter && u && u.enter_time ? new Date(u.enter_time).getTime() : ts;
 
+  // 同一张折扣卡只乘一次：并发购买/脏数据可能让 cards 里挂两条同卡，
+  // 不过滤会变成 0.5 × 0.5 = 0.25（与云端 getConsumePoint 一致的处理）
+  const discountApplied = new Set();
+
   for (let i = 0; i < holds.length; i++) {
     const hold = holds[i];
     if (!hold || !hold.card_id) continue;
@@ -864,6 +868,8 @@ function cardEffects(s, u, now = nowDate(), userArea, clockFromEnter = false) {
 
     const discount = Number(card.discount);
     if (!Number.isNaN(discount) && discount !== 0) {
+      if (discountApplied.has(card._id)) continue;
+      discountApplied.add(card._id);
       zhekou *= discount;
     } else if (discount === 0 && card.duration) {
       const sh = mockDurationHour(card.duration, 'start');
@@ -961,10 +967,11 @@ function billingMinutes(enter, now, freeRanges) {
       const e = r.end * 60;
       if (r.start < r.end) {
         intervals.push({ start: s, end: e });
-      } else {
+      } else if (r.start > r.end) {
         intervals.push({ start: s, end: 1440 });
         intervals.push({ start: 0, end: e });
       }
+      // start === end：时长 0 的异常配置，跳过。落进跨天分支会被拼成 24 小时全免。
     });
     intervals.sort((a, b) => a.start - b.start);
     const merged = [];
@@ -979,15 +986,17 @@ function billingMinutes(enter, now, freeRanges) {
   const endStamp = bjMinuteStamp(now);
   if (endStamp <= startStamp) return 0;
 
-  let total = 0;
-  let discounted = 0;
+  let total = endStamp - startStamp;
+  // 收集绝对毫秒区间，最后做并集 —— 不能按持有有效期分组累加，
+  // 否则夜场卡(23:00-10:00) 与早八票(08:00-10:00) 重叠的 2 小时会被算两遍，
+  // 多免 120 分后被 total 截断，整段白玩。云端 getConsumePoint 同一算法。
+  const intervals = [];
   let cursor = startStamp;
   let guard = 0;
   // 最多算 7 天，防止异常数据死循环
   while (cursor < endStamp && guard++ < 7) {
     const dayStart = Math.floor(cursor / 1440) * 1440;
     const segEnd = Math.min(dayStart + 1440, endStamp);
-    total += segEnd - cursor;
 
     const segFromMs = bjStampToMs(cursor);
     const segToMs = bjStampToMs(segEnd);
@@ -999,12 +1008,28 @@ function billingMinutes(enter, now, freeRanges) {
         if (w.toMs !== null) toMs = Math.min(toMs, w.toMs);
         fromMs = Math.max(fromMs, segFromMs);
         toMs = Math.min(toMs, segToMs);
-        if (fromMs < toMs) discounted += Math.round((toMs - fromMs) / 60000);
+        if (fromMs < toMs) intervals.push({ from: fromMs, to: toMs });
       });
     });
     cursor = segEnd;
   }
   if (enter.getSeconds() > now.getSeconds()) total -= 1;
+
+  // 区间并集
+  intervals.sort((a, b) => a.from - b.from);
+  let freedMs = 0;
+  let curFrom = null;
+  let curTo = null;
+  intervals.forEach((iv) => {
+    if (curFrom === null) { curFrom = iv.from; curTo = iv.to; return; }
+    if (iv.from <= curTo) { if (iv.to > curTo) curTo = iv.to; return; }
+    freedMs += curTo - curFrom;
+    curFrom = iv.from;
+    curTo = iv.to;
+  });
+  if (curFrom !== null) freedMs += curTo - curFrom;
+
+  const discounted = Math.round(freedMs / 60000);
   const discountedSafe = Math.min(discounted, total);
   const billingTime = total - discountedSafe;
   return billingTime > 0 ? billingTime : 0;
