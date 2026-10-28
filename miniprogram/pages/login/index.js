@@ -1,5 +1,6 @@
 // pages/login/login.js
 import cloudFcn from '../../cloudFcn.js'
+import { compressImage } from '../../utils/image.js'
 const app = getApp();
 
 Page({
@@ -131,20 +132,32 @@ Page({
     },
   
     // 选择头像
-    onChooseAvatar(e) {
-      // 获取头像临时路径并提前刷新
-      const avatarUrl = e.detail.avatarUrl;
-      // this.setData({
-      //   avatarFileID: avatarUrl
-      // });
+    async onChooseAvatar(e) {
+      // 获取头像临时路径
+      const avatarUrl = e && e.detail && e.detail.avatarUrl;
+      if (!avatarUrl) return;
+
+      wx.showLoading({ title: '处理中', mask: true });
+
+      // 先压缩再上传：头像在这个页面只显示 120rpx 左右，原图直传白耗
+      // 云存储和 CDN 流量（流量按每次加载计费，才是真正的成本大头）
+      const ready = await compressImage(avatarUrl, { maxEdge: 512 });
+      if (ready.changed) {
+        console.log('[avatar] 压缩 ' + Math.round(ready.sizeFrom / 1024) +
+          'KB → ' + Math.round(ready.sizeTo / 1024) + 'KB');
+      }
+
+      // 用正则取后缀。原来是 avatarUrl.substring(lastIndexOf('.'))：
+      // 路径没有扩展名时 lastIndexOf 返回 -1，而 substring(-1) 等价于
+      // substring(0)，会把**整条路径**拼进 cloudPath。
+      const suffix = (String(ready.path).match(/\.[a-zA-Z0-9]+$/) || ['.jpg'])[0];
       // 生成头像云存储路径
-      const suffix = avatarUrl.substring(avatarUrl.lastIndexOf("."));
       const avatarUuid = this.genUuid();
       const avatarCloudPath = `avatar/${avatarUuid}${suffix}`;
       // 上传云存储
       wx.cloud.uploadFile({
         cloudPath: avatarCloudPath,
-        filePath: avatarUrl,
+        filePath: ready.path,
       }).then(res => {
         // 获取资源ID
         const avatarFileID = res.fileID;
@@ -155,10 +168,12 @@ Page({
         }, () => {
             this.validateForm();
         });
+        wx.hideLoading();
       }).catch(error => {
         // 报错
+        wx.hideLoading();
         wx.showToast({
-          title: error.errMsg,
+          title: (error && error.errMsg) || '头像上传失败',
           icon: 'none',
           duration: 3000
         });

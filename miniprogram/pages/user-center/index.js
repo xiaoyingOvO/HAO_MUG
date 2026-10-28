@@ -3,6 +3,7 @@ import { checkBadge } from '../../messageBadge';
 import { add, toCents, toYuan } from '../../decimal';
 import cloudFcn from '../../cloudFcn.js';
 import { MOCK_ENABLED } from '../../mock/cloudMock.js';
+import { compressImage } from '../../utils/image.js';
 const app = getApp();
 
 Page({
@@ -125,9 +126,18 @@ Page({
         newAvatar = tempPath;
         await cloudFcn.modifyUsrInfo({ openid, avatar: newAvatar });
       } else {
-        const suffix = (String(tempPath).match(/\.[a-zA-Z0-9]+$/) || ['.png'])[0];
+        // 先压缩再上传：头像最大显示 140rpx（≈290px 物理像素），
+        // 512px 已够用。原图直传只会白耗云存储和 CDN 流量。
+        const ready = await compressImage(tempPath, { maxEdge: 512 });
+        if (ready.changed) {
+          console.log('[avatar] 压缩 ' + Math.round(ready.sizeFrom / 1024) +
+            'KB → ' + Math.round(ready.sizeTo / 1024) + 'KB');
+        }
+        // 后缀以压缩后的路径为准（compressImage 产出的通常是 .jpg）；
+        // 正则兜底而不是 split('.')，避免路径无扩展名时取到整条路径
+        const suffix = (String(ready.path).match(/\.[a-zA-Z0-9]+$/) || ['.jpg'])[0];
         const cloudPath = `avatar/${openid}_${Date.now()}${suffix}`;
-        const up = await wx.cloud.uploadFile({ cloudPath, filePath: tempPath });
+        const up = await wx.cloud.uploadFile({ cloudPath, filePath: ready.path });
         if (!up || !up.fileID) throw new Error('头像上传失败');
 
         const res = await cloudFcn.modifyUsrInfo({ openid, avatar: up.fileID });
