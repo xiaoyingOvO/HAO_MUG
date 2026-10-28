@@ -8,6 +8,15 @@ const POINTS_TOTAL = {
   four: 100000     // 四麻 25000 × 4
 };
 
+// 对局明细只保留最近 30 天（与云函数 ARCHIVE_DAYS 一致）。
+// 保留的是「今天 + 前 29 天」，所以可选的最早日期是 today-29。
+// 更早的日期云端会拒绝 —— 那一段已经折算成累计值，没法再插一局进去。
+const ARCHIVE_DAYS = 30;
+
+function ymd(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 Page({
   data: {
     // 权限
@@ -16,7 +25,9 @@ Page({
 
     // 对局日期（默认今天）
     today: '',
+    minDate: '',
     game_date: '',
+    retentionDays: ARCHIVE_DAYS,
 
     // 4 个玩家位：null 表示未选
     // { openid, nickname, avatar, points }
@@ -43,9 +54,12 @@ Page({
 
   onLoad(options) {
     const now = new Date();
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const today = ymd(now);
+    // 最早可选 = 今天往前 29 天，正好是「保留 30 天」的第一天
+    const min = new Date(now.getTime() - (ARCHIVE_DAYS - 1) * 86400000);
+    const minDate = ymd(min);
     const gameId = (options && options.game_id) || '';
-    this.setData({ today, game_date: today, editMode: !!gameId, gameId });
+    this.setData({ today, minDate, game_date: today, editMode: !!gameId, gameId });
     if (gameId) {
       wx.setNavigationBarTitle({ title: '修改对局' });
       this.loadGameDetail(gameId);
@@ -79,7 +93,13 @@ Page({
           points: String(p.points),
         };
       });
-      this.setData({ game_date: g.game_date || this.data.game_date, slots });
+      // 编辑模式可能碰到刚好卡在保留期边缘的局（今天还没跑归档时它还在），
+      // 这时把可选下限放宽到它自己的日期，否则 picker 会显示一个越界的值
+      const patch = { game_date: g.game_date || this.data.game_date, slots };
+      if (g.game_date && this.data.minDate && g.game_date < this.data.minDate) {
+        patch.minDate = g.game_date;
+      }
+      this.setData(patch);
       this.updateTotal();
     } catch (e) {
       console.error('加载对局详情失败', e);

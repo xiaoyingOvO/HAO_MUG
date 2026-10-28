@@ -83,38 +83,156 @@
   font-weight: 600;
 }
 
-/* ---------- 雀力卡 ---------- */
+/* ---------- 身份卡（头像 + 昵称 + 雀力 + 称号） ---------- */
+/* 上半区是身份信息，底部一条是称号入口，所以这里是纵向两段 */
 .rank-card {
+  display: block;
+}
+.rank-body {
   display: flex;
   align-items: center;
 }
-.rank-left { flex: 1; }
+/* 头像在最左，当身份区；没头像时走默认头像（仅本页） */
+.rank-avatar {
+  width: 104rpx;
+  height: 104rpx;
+  flex: none;
+  margin-right: 22rpx;
+  border-radius: 50%;
+  background: #e8f1fa;
+  border: 2rpx solid #dbe9f5;
+}
+.rank-left { flex: 1; min-width: 0; }
+/* 昵称可能很长（有人爱起十几个字），必须能省略，否则会顶到卡片外面 */
+.rank-name {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #3d5871;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 「四麻雀力」标签和数值同一行左对齐：两端对齐会把标签甩到最右边，看着像歪了 */
+.rank-power {
+  display: flex;
+  align-items: baseline;
+  margin-top: 6rpx;
+}
 .rank-label {
-  font-size: 24rpx;
+  flex: none;
+  margin-right: 10rpx;
+  font-size: 22rpx;
   color: #8aa7c2;
-  margin-bottom: 4rpx;
 }
 .rank-title {
-  font-size: 44rpx;
+  font-size: 40rpx;
   font-weight: 700;
   color: #4a8ec9;
 }
 .rank-games {
-  margin-top: 10rpx;
-  font-size: 28rpx;
+  margin-top: 8rpx;
+  font-size: 26rpx;
   color: #8aa7c2;
 }
-.rank-badge {
-  width: 120rpx;
-  height: 120rpx;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #b7d9f7, #8fc4ef);
+/* 展示称号图贴在卡片右侧，宽度比原来小一档：这里只是身份徽章，不再是主角。
+   容器固定 200×52（500×130 素材比例），图片用 widthFix 按宽自适应高度（≈52rpx），
+   既不会像 aspectFill 那样被放大裁切，也不会因为图片异步加载而让容器高度跳动 */
+.rank-title-wrap {
+  position: relative;
+  flex: none;
+  width: 200rpx;
+  height: 52rpx;
+  margin-left: 18rpx;
+}
+.rank-title-img {
+  width: 200rpx;
+  flex: none;
+  border-radius: 10rpx;
+  display: block;
+}
+/* 获得次数角标：只有超过 1 次才显示，否则「×1」是句废话 */
+.rank-title-count {
+  position: absolute;
+  right: 6rpx;
+  top: 6rpx;
+  min-width: 40rpx;
+  padding: 2rpx 10rpx;
+  background: rgba(0, 0, 0, 0.55);
   color: #fff;
-  font-size: 52rpx;
-  font-weight: 700;
+  font-size: 20rpx;
+  font-weight: 600;
+  line-height: 30rpx;
+  text-align: center;
+  border-radius: 15rpx;
+}
+/* 没设置展示称号时的占位块：高度对齐称号图（500×130，200rpx 宽约 52rpx 高） */
+.rank-title-none {
+  width: 200rpx;
+  height: 52rpx;
+  flex: none;
+  margin-left: 18rpx;
   display: flex;
   align-items: center;
   justify-content: center;
+  background: #f2f7fc;
+  border-radius: 10rpx;
+  color: #aabfd2;
+  font-size: 20rpx;
+}
+/* 称号入口条：分隔线以上是身份、以下是称号，点整张卡都能打开面板 */
+.rank-title-bar {
+  display: flex;
+  align-items: baseline;
+  margin-top: 20rpx;
+  padding-top: 16rpx;
+  border-top: 2rpx solid #eef4fa;
+}
+.rtb-label {
+  flex: none;
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #3d5871;
+}
+.rtb-count {
+  flex: none;
+  margin-left: 12rpx;
+  font-size: 24rpx;
+  color: #6fb0e6;
+  font-weight: 600;
+}
+/* 「· 共 N 次」比种类数弱一档，避免两个数字抢注意力 */
+.rtb-sub {
+  flex: none;
+  margin-left: 6rpx;
+  font-size: 22rpx;
+  color: #8aa6bf;
+}
+.rtb-more {
+  flex: none;
+  margin-left: auto;      /* 靠右，和左边的标签拉开 */
+  padding-left: 16rpx;
+  font-size: 24rpx;
+  color: #6fb0e6;
+  font-weight: 600;
+}
+/* 「查看全部 ›」现在是独立可点项，单独给一个按下反馈 */
+.rtb-more-hover {
+  opacity: 0.6;
+}
+/* 没有称号时的说明：弱化处理，别让它看起来像报错 */
+.rtb-hint {
+  flex: 1;
+  min-width: 0;
+  margin-left: 12rpx;
+  font-size: 22rpx;
+  color: #aabfd2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 称号图 / 「查看全部」按下反馈：只有这两个地方能点开面板 */
+.rank-card-hover {
+  opacity: 0.82;
 }
 
 /* ---------- 三率 / 统计格 ---------- */
@@ -151,105 +269,6 @@
   margin-top: 4rpx;
   font-size: 20rpx;
   color: #aabfd2;
-}
-
-/* ---------- 我的称号 ---------- */
-.title-card { padding: 24rpx 28rpx; }
-.title-card-head {
-  display: flex;
-  align-items: baseline;      /* 标题 / 种数 / 次数 字号不同，按基线对齐才不会高低错位 */
-  font-size: 30rpx;
-  font-weight: 600;
-  color: #3d5871;
-  margin-bottom: 20rpx;
-}
-.title-head-label {
-  font-size: 30rpx;
-  font-weight: 600;
-  color: #3d5871;
-}
-.title-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16rpx;
-}
-.title-badge-wrap {
-  position: relative;
-  width: 320rpx;
-}
-.title-badge {
-  width: 100%;
-  border-radius: 12rpx;
-  display: block;
-}
-.title-badge-count {
-  position: absolute;
-  right: 6rpx;
-  top: 6rpx;
-  min-width: 40rpx;
-  padding: 2rpx 12rpx;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  font-size: 22rpx;
-  font-weight: 600;
-  line-height: 32rpx;
-  text-align: center;
-  border-radius: 16rpx;
-}
-/* 主称号标记 */
-.title-main-badge {
-  position: absolute;
-  left: 6rpx;
-  top: 6rpx;
-  padding: 2rpx 10rpx;
-  background: #6fb0e6;
-  color: #fff;
-  font-size: 20rpx;
-  font-weight: 600;
-  line-height: 28rpx;
-  border-radius: 12rpx;
-}
-.title-set-main {
-  position: absolute;
-  right: 6rpx;
-  bottom: 6rpx;
-  padding: 2rpx 10rpx;
-  background: rgba(255,255,255,0.85);
-  color: #6fb0e6;
-  font-size: 20rpx;
-  font-weight: 600;
-  line-height: 28rpx;
-  border-radius: 12rpx;
-  border: 1rpx solid #6fb0e6;
-}
-.title-count {
-  margin-left: 14rpx;
-  font-size: 26rpx;
-  color: #6fb0e6;
-  font-weight: 600;
-}
-/* 「· 共 N 次」比种类数弱一档，避免两个数字抢注意力 */
-.title-count-sub {
-  margin-left: 6rpx;
-  font-size: 24rpx;
-  color: #8aa6bf;
-  font-weight: 500;
-}
-.title-empty {
-  color: #aabfd2;
-  font-size: 26rpx;
-  text-align: center;
-  padding: 20rpx 0;
-}
-/* 未识别称号提示：用警示色，和普通说明文字区分开 */
-.title-unknown {
-  margin-bottom: 16rpx;
-  padding: 12rpx 16rpx;
-  background: #fdf3e7;
-  border-radius: 10rpx;
-  color: #c47a2b;
-  font-size: 24rpx;
-  line-height: 34rpx;
 }
 
 /* ---------- 趋势格 ---------- */
@@ -419,20 +438,24 @@
 }
 .rank-head-row {
   background: #eaf3fc;
-  padding: 18rpx 28rpx;
+  padding: 18rpx 22rpx;
   color: #4a8ec9;
   font-size: 24rpx;
   font-weight: 600;
 }
-.rh-index { width: 76rpx; }
-.rh-user { flex: 1; display: flex; align-items: center; overflow: hidden; }
-.rh-num { width: 110rpx; text-align: center; font-size: 28rpx; color: #3d5871; }
+/* 各列宽度全部 flex: none —— 否则总宽超出时会按比例压缩，
+   称号图（内部固定 190rpx）被压到 140rpx 就直接截掉左边一半 */
+.rh-index { width: 64rpx; flex: none; }
+.rh-user { flex: 1; min-width: 0; display: flex; align-items: center; overflow: hidden; }
+.rh-num { width: 110rpx; flex: none; text-align: center; font-size: 28rpx; color: #3d5871; }
 /* 主数值列（麻币数 / 雀力）：比局数更醒目，是这张榜的主角 */
-.rh-main { width: 122rpx; font-weight: 700; font-size: 30rpx; }
-.rh-games { width: 84rpx; font-size: 24rpx; color: #8aa6bf; }
+.rh-main { width: 116rpx; flex: none; font-weight: 700; font-size: 30rpx; }
+.rh-games { width: 72rpx; flex: none; font-size: 24rpx; color: #8aa6bf; }
 .rh-value-coin { color: #c9891f; }
 .rh-value-power { color: #2f7fc1; }
-.rh-title { width: 140rpx; display: flex; align-items: center; justify-content: flex-end; overflow: hidden; }
+/* 称号列：宽度必须 ≥ 称号图宽度。原 140rpx < 图 176rpx，右侧对齐 + overflow:hidden
+   的结果是把图左边切掉一截，看上去就是「称号显示不全」 */
+.rh-title { width: 196rpx; flex: none; display: flex; align-items: center; justify-content: flex-end; overflow: hidden; }
 .rh-titles {
   display: flex;
   flex-direction: column;
@@ -440,13 +463,14 @@
   align-items: flex-end;
 }
 .rh-title-badge {
-  width: 176rpx;
-  border-radius: 12rpx;
+  width: 190rpx;
+  border-radius: 10rpx;
   display: block;
 }
 .rh-title-badge-wrap {
   position: relative;
-  width: 176rpx;
+  width: 190rpx;
+  flex: none;
 }
 .rh-title-badge-count {
   position: absolute;
@@ -471,13 +495,15 @@
   background: #e8f1fa;
 }
 .rh-name {
+  flex: 1;
+  min-width: 0;
   font-size: 28rpx;
   color: #3d5871;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.rank-row { padding: 20rpx 28rpx; }
+.rank-row { padding: 20rpx 22rpx; }
 
 /* ---------- 全部对局 ---------- */
 .mj-back {
@@ -485,6 +511,21 @@
   color: #4a8ec9;
   margin-bottom: 20rpx;
   padding: 8rpx 4rpx;
+}
+/* 对局保留期说明：明细只留 7 天，翻到底没有更早的局是设计如此，
+   不写清楚会被当成数据丢失来报障 */
+.games-note {
+  font-size: 23rpx;
+  line-height: 1.6;
+  color: #8aa7c2;
+  padding: 0 8rpx 18rpx;
+}
+.trend-note {
+  margin-top: 16rpx;
+  font-size: 22rpx;
+  line-height: 1.5;
+  color: #8aa7c2;
+  text-align: center;
 }
 .game-card { padding: 20rpx 28rpx; }
 .game-head {
@@ -561,4 +602,157 @@
   right: 404rpx;
   background: linear-gradient(135deg, #b58ee8, #9b6fd8);
   box-shadow: 0 8rpx 24rpx rgba(155, 111, 216, 0.45);
+}
+
+/* ---------- 称号设置面板（点称号图弹出） ---------- */
+/* 遮罩必须盖住两颗悬浮按钮，否则「＋录入」会透在上面被误点 */
+.ts-mask {
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(28, 48, 68, 0.45);
+  z-index: 900;
+  animation: ts-fade 0.16s ease-out;
+}
+.ts-sheet {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 901;
+  background: #fff;
+  border-radius: 28rpx 28rpx 0 0;
+  padding: 20rpx 40rpx;
+  /* 全面屏底部手势条，不加这条按钮会被压在手势区里点不到 */
+  padding-bottom: calc(28rpx + env(safe-area-inset-bottom));
+  box-sizing: border-box;
+  animation: ts-rise 0.18s ease-out;
+}
+.ts-handle {
+  width: 72rpx;
+  height: 8rpx;
+  border-radius: 4rpx;
+  background: #dbe7f2;
+  margin: 0 auto 20rpx;
+}
+.ts-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 0 4rpx;
+}
+.ts-head-title {
+  font-size: 32rpx;
+  font-weight: 600;
+  color: #3d5871;
+}
+.ts-head-sub {
+  font-size: 24rpx;
+  color: #8aa6bf;
+}
+.ts-tip {
+  margin-top: 8rpx;
+  padding: 0 4rpx;
+  font-size: 22rpx;
+  color: #aabfd2;
+}
+/* 称号多的时候这里滚，面板高度封顶，底部按钮永远在屏幕内 */
+.ts-scroll {
+  max-height: 46vh;
+  margin: 20rpx 0 4rpx;
+}
+.ts-grid {
+  display: flex;
+  flex-wrap: wrap;
+  /* 三列：面板左右各 40rpx 内边距，两列 16rpx 间隔；
+     左右各留 4rpx，否则选中态的 3rpx 描边会被 scroll-view 裁掉半条 */
+  padding: 4rpx;
+  gap: 16rpx;
+}
+.ts-cell {
+  position: relative;
+  width: 208rpx;
+  padding: 6rpx;
+  box-sizing: border-box;
+  border-radius: 14rpx;
+  border: 3rpx solid transparent;
+  background: #f7fafd;
+}
+/* 选中态要一眼看出来：描边 + 淡底，光靠描边在缩略图上不明显 */
+.ts-cell-on {
+  border-color: #6fb0e6;
+  background: #eaf4fd;
+}
+.ts-cell-hover {
+  opacity: 0.8;
+}
+.ts-cell-img {
+  width: 100%;
+  border-radius: 10rpx;
+  display: block;
+}
+.ts-cell-count {
+  position: absolute;
+  right: 12rpx;
+  top: 12rpx;
+  min-width: 36rpx;
+  padding: 0 10rpx;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  font-size: 20rpx;
+  font-weight: 600;
+  line-height: 30rpx;
+  text-align: center;
+  border-radius: 15rpx;
+}
+/* 正在展示的那个：右上角一颗星，和「选中」区分开（选中只管这次操作） */
+.ts-cell-main {
+  position: absolute;
+  left: 12rpx;
+  top: 12rpx;
+  width: 32rpx;
+  height: 32rpx;
+  line-height: 32rpx;
+  text-align: center;
+  background: #6fb0e6;
+  color: #fff;
+  font-size: 20rpx;
+  border-radius: 50%;
+}
+.ts-btn {
+  margin-top: 32rpx;
+  height: 92rpx;
+  line-height: 92rpx;
+  text-align: center;
+  background: #6fb0e6;
+  color: #fff;
+  font-size: 30rpx;
+  font-weight: 600;
+  border-radius: 46rpx;
+}
+/* 已经是展示称号时按钮降一档：这是「撤回」而不是主操作 */
+.ts-btn-plain {
+  background: #eef5fb;
+  color: #4a8ec9;
+}
+.ts-btn-busy {
+  opacity: 0.6;
+}
+.ts-cancel {
+  margin-top: 12rpx;
+  height: 80rpx;
+  line-height: 80rpx;
+  text-align: center;
+  font-size: 28rpx;
+  color: #8aa6bf;
+}
+@keyframes ts-rise {
+  from { transform: translateY(60rpx); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+@keyframes ts-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }

@@ -41,6 +41,13 @@
   font-size: 30rpx;
   color: #3d5871;
 }
+/* 保留期说明：可选日期被限制在 7 天内，不写原因会被当成选不了 */
+.rec-note {
+  margin-top: 12rpx;
+  font-size: 22rpx;
+  line-height: 1.5;
+  color: #8aa7c2;
+}
 
 /* 玩家位 */
 .slot {

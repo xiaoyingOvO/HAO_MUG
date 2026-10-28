@@ -19,7 +19,7 @@ function emptyModeStats(mode) {
     games: 0,
     rankCounts,
     rankRates,
-    flyRate: 0,
+    pointsSum: null,
     avgRank: null,
     avgPoints: null,
     maxPoints: null,
@@ -28,11 +28,45 @@ function emptyModeStats(mode) {
   };
 }
 
+/* ---------- 排行榜规则文案 ----------
+ * 麻币结算表和雀力系数都由云端 rankConfig 下发，文案必须跟着配置重算。
+ * 早先这段字写在 wxml 里写死，四麻改成 +3/+1/0/-2 之后，榜上还在念 +2/+1/0/-1。
+ */
+const DEFAULT_COIN_BY_RANK = { four: { 1: 3, 2: 1, 3: 0, 4: -2 }, three: { 1: 2, 2: 0, 3: -1 } };
+const DEFAULT_POWER = { base: 1000, coef: 300, baseRank: { four: 2.5, three: 2.0 }, minGames: 10 };
+
+function buildCoinRule(config) {
+  const table = (config && config.coinByRank) || DEFAULT_COIN_BY_RANK;
+  const fmt = (t, top) => {
+    const out = [];
+    for (let r = 1; r <= top; r += 1) {
+      const v = Number((t || {})[r]) || 0;
+      out.push(r + '位' + (v > 0 ? '+' + v : String(v)));
+    }
+    return out.join(' / ');
+  };
+  return '每局按顺位结算　四麻 ' + fmt(table.four, 4) + '　三麻 ' + fmt(table.three, 3) + '　最低 0';
+}
+
+function buildPowerRule(config) {
+  const c = config || {};
+  return {
+    base: Number(c.powerBase) || DEFAULT_POWER.base,
+    coef: Number(c.powerCoef) || DEFAULT_POWER.coef,
+    minGames: Number(c.powerMinGames) || DEFAULT_POWER.minGames,
+    // baseRank 一定要带着默认值合并：wxml 里是 powerRule.baseRank.four，
+    // 缺了字段会渲染成空白，看着像公式丢了
+    baseRank: Object.assign({}, DEFAULT_POWER.baseRank, c.powerBaseRank || {}),
+  };
+}
+
 Page({
   data: {
     activeTab: 'stats',   // 'stats' 我的战绩 | 'rank' 排行榜 | 'games' 全部对局
     loading: true,
     isAdmin: false,       // 是否管理员（决定是否显示删除/撤销入口）
+    // 当前用户：雀力卡左上角的头像 + 昵称
+    me: { avatar: '', nickname: '' },
 
     /* ---------- 我的战绩（三麻四麻分开） ---------- */
     statsTab: 'four',     // 'four' 四麻 | 'three' 三麻
@@ -47,6 +81,11 @@ Page({
     unknownTitleCount: 0, // 后台有记录但本版本字典不认识的称号数（多半是前端包没更新）
     titlesMissing: false, // 云端压根没返回 titles 字段（说明云函数还是旧版）
     mainTitle: null,      // 用户设置的展示称号（{key,name,img,count} 或 null）
+    // 称号面板：卡片上只留一条摘要，全部称号收进弹窗里。
+    // 称号越攒越多，原来平铺一行能占三四屏，现在点开看。
+    // selKey 是弹窗里选中的那条（未选为 ''），selIsMain 表示它已经是展示称号
+    // （是的话按钮变成「取消展示」—— 设错了要能撤回来）
+    titleSheet: { show: false, selKey: '', selIsMain: false, submitting: false },
     trendRange: 10,       // 趋势图显示 10 / 20 局
     trendRows: [],        // [{rank:1, cells:[{filled, rank}]}]（行数随模式：四麻 4 行、三麻 3 行）
 
@@ -55,7 +94,10 @@ Page({
     rankTab: 'coin',      // 'coin' 麻币 | 'power4' 四麻雀力 | 'power3' 三麻雀力
     rankData: { coin: [], power3: [], power4: [] },
     rankList: [],         // 当前 tab 的列表（wxml 直接遍历这个，避免模板里动态取键）
-    rankConfig: null,     // 云端下发的规则（门槛局数等），用于说明文案
+    // 说明文案预先算成字符串，模板里只做插值：
+    // wxml 里直接写 rankConfig.powerBaseRank.four 在配置回来之前会取空
+    coinRule: buildCoinRule(null),
+    powerRule: buildPowerRule(null),
 
     /* ---------- 全部对局 ---------- */
     games: [],
@@ -82,7 +124,7 @@ Page({
 
   async refresh() {
     this.setData({ loading: true, gamesLoaded: false });
-    await Promise.all([this.loadMyStats(), this.loadRanking(), this.loadMyRole()]);
+    await Promise.all([this.loadMyStats(), this.loadRanking(), this.loadMe()]);
     // 正停在「全部对局」页时直接重拉，否则等下次切过去再拉
     if (this.data.activeTab === 'games') {
       await this.loadGames(false);
@@ -90,14 +132,20 @@ Page({
     this.setData({ loading: false });
   },
 
-  // 获取当前用户角色（判断管理员）
-  async loadMyRole() {
+  // 取当前用户：角色（判断管理员）+ 头像 + 昵称，一次请求解决
+  async loadMe() {
     try {
       const res = await cloudFcn.getUsrInfo();
-      const user = res.result && res.result.data;
-      const role = user && user.role;
-      this.setData({ isAdmin: role === 'admin' || role === 'master' });
+      const user = (res.result && res.result.data) || {};
+      this.setData({
+        isAdmin: user.role === 'admin' || user.role === 'master',
+        me: {
+          avatar: user.avatar || '',
+          nickname: user.nickname || '',
+        },
+      });
     } catch (e) {
+      // 拿不到就退回默认头像、昵称位置显示占位，别让雀力卡空一块
       this.setData({ isAdmin: false });
     }
   },
@@ -206,13 +254,23 @@ Page({
     try {
       const res = await cloudFcn.mahjongGetRanking();
       const d = (res.result && res.result.data) || {};
-      // 统一加上名次/奖牌，并把展示称号 key 解析成图片对象
-      const decorate = (list) => (list || []).map((item, i) => ({
-        ...item,
-        medal: i < 3 ? ['🥇', '🥈', '🥉'][i] : '',
-        index: i + 1,
-        displayTitle: item.displayTitle ? getTitle(item.displayTitle) : null,
-      }));
+      // 统一加上名次/奖牌，并把展示称号 key 解析成图片对象 + 获得次数。
+      // 云端返回的 displayTitle 只是 key 字符串，count 要从 titles 数组里查：
+      // 排行榜上要在称号角标里显示「×N」，没有 count 就永远不显示
+      const decorate = (list) => (list || []).map((item, i) => {
+        const titleInfo = getTitle(item.displayTitle);
+        let count = 1;
+        if (titleInfo && Array.isArray(item.titles)) {
+          const hit = item.titles.find(t => t.title === item.displayTitle);
+          if (hit && hit.count) count = hit.count;
+        }
+        return {
+          ...item,
+          medal: i < 3 ? ['🥇', '🥈', '🥉'][i] : '',
+          index: i + 1,
+          displayTitle: titleInfo ? { ...titleInfo, count } : null,
+        };
+      });
       const rankData = {
         coin: decorate(d.coin),
         power3: decorate(d.power3),
@@ -221,7 +279,8 @@ Page({
       this.setData({
         rankData,
         rankList: rankData[this.data.rankTab] || [],
-        rankConfig: d.config || null,
+        coinRule: buildCoinRule(d.config),
+        powerRule: buildPowerRule(d.config),
       });
     } catch (e) {
       console.error('加载排行榜失败', e);
@@ -338,16 +397,62 @@ Page({
     wx.navigateTo({ url: '/pages/mahjong/grantTitle' });
   },
 
-  // 管理员手改玩家战绩（覆盖值与对局明细分开存，不会被重算洗掉）
+  // 管理员手改玩家战绩（直接读写 mahjong_player，改完回来自动刷新三处）
   goAdjustPlayer() {
     this._needRefresh = true;
     wx.navigateTo({ url: '/pages/mahjong/adjustPlayer' });
   },
 
-  // 用户设置主称号
-  async setMainTitle(e) {
+  /* ---------- 称号面板 ---------- */
+  // 称号只是一条入口条，点开才是全部称号。默认选中当前展示的那个，
+  // 没设置过就选第一个 —— 打开面板时按钮总归是能点的，不用先点一次格子
+  openTitleSheet(e) {
+    if (!this.data.myTitles.length) return;
+    const fromTap = e && e.currentTarget && e.currentTarget.dataset
+      ? e.currentTarget.dataset.key : '';
+    const main = this.data.mainTitle;
+    const selKey = fromTap || (main ? main.key : this.data.myTitles[0].key);
+    this.setData({
+      titleSheet: {
+        show: true,
+        selKey,
+        selIsMain: !!(main && main.key === selKey),
+        submitting: false,
+      },
+    });
+  },
+
+  // 弹窗里点某个称号：只改选中态，不直接提交（误触一下就把展示换掉太随意）
+  pickTitle(e) {
+    if (this.data.titleSheet.submitting) return;
     const key = e.currentTarget.dataset.key;
-    if (!key) return;
+    const main = this.data.mainTitle;
+    this.setData({
+      'titleSheet.selKey': key,
+      'titleSheet.selIsMain': !!(main && main.key === key),
+    });
+  },
+
+  closeTitleSheet() {
+    // 请求在飞的时候不给关：关掉再点别处会把 submitting 状态搅乱
+    if (this.data.titleSheet.submitting) return;
+    this.setData({ titleSheet: { show: false, selKey: '', selIsMain: false, submitting: false } });
+  },
+
+  // 遮罩上的 touchmove 拦截，防止背后的页面跟着滚
+  noop() {},
+
+  async confirmTitleSheet() {
+    const sheet = this.data.titleSheet;
+    if (sheet.submitting) return;
+    const item = this.data.myTitles.find(t => t.key === sheet.selKey);
+    if (!item) {
+      wx.showToast({ title: '请先选一个称号', icon: 'none' });
+      return;
+    }
+    const key = item.key;
+    const wantMain = !sheet.selIsMain;   // 已是展示 -> 取消；否则 -> 设为展示
+    this.setData({ 'titleSheet.submitting': true });
     try {
       const userRes = await cloudFcn.getUsrInfo();
       const myOpenid = userRes.result?.data?.openid;
@@ -355,17 +460,32 @@ Page({
         wx.showToast({ title: '获取用户信息失败', icon: 'none' });
         return;
       }
-      const res = await cloudFcn.modifyUsrInfo({ openid: myOpenid, display_title: key });
+      // 取消展示传 null（云函数会把 null 落成「无值」）。不要传 '' 或 0：
+      // 归一化路径里 '' 会被当成「没填」，0 会被当成一个真值写进去
+      const res = await cloudFcn.modifyUsrInfo({
+        openid: myOpenid,
+        display_title: wantMain ? key : null,
+      });
       const r = res.result || {};
       if (!r.success) {
         wx.showToast({ title: r.errMsg || '设置失败', icon: 'none' });
         return;
       }
-      const found = this.data.myTitles.find(t => t.key === key);
-      this.setData({ mainTitle: found || null });
-      wx.showToast({ title: '已设为展示称号', icon: 'success' });
+      this.setData({
+        mainTitle: wantMain ? item : null,
+        'titleSheet.show': false,
+        'titleSheet.selKey': '',
+        'titleSheet.selIsMain': false,
+      });
+      wx.showToast({ title: wantMain ? '已设为展示称号' : '已取消展示', icon: 'success' });
+      // 排行榜是三档一次拉回来缓存的（switchTab 只在空的时候才请求），
+      // 不刷的话切过去还是旧称号。没加载过就不必多发一次请求
+      if (this.data.rankData.coin.length) this.loadRanking();
     } catch (err) {
+      console.error('设置展示称号失败', err);
       wx.showToast({ title: '设置失败', icon: 'none' });
+    } finally {
+      this.setData({ 'titleSheet.submitting': false });
     }
   },
 

@@ -38,6 +38,13 @@ exports.main = async (event, context) => {
     return await xpayNotify.main(event, context);
   }
 
+  // 定时触发器：每天清理超过保留期的麻将对局明细（先把值折算进汇总再删）。
+  // 触发器事件的字段是大写的 Type，且没有 type、没有 OPENID，
+  // 既不能走 switch 也不能走管理员权限校验，必须单独拦在最前面。
+  if (event && event.Type === 'Timer') {
+    return await mahjongStats.timerArchive(event, context);
+  }
+
   switch (event.type) {
     // 用户信息相关
     case 'addUsrInfo':
@@ -126,10 +133,20 @@ exports.main = async (event, context) => {
       return await mahjongStats.rebuildPlayerStatsMain(event, context);
     case 'mahjongGetPlayerStatDetail':
       return await mahjongStats.getPlayerStatDetailMain(event, context);
-    case 'mahjongSetPlayerOverride':
-      return await mahjongStats.setPlayerOverrideMain(event, context);
-    case 'mahjongClearPlayerOverride':
-      return await mahjongStats.clearPlayerOverrideMain(event, context);
+    case 'mahjongSetPlayerStat':
+      return await mahjongStats.setPlayerStatMain(event, context);
+    case 'mahjongArchive':
+      return await mahjongStats.archiveMain(event, context);
+    // 兜底：没有 case 命中时绝不能再返回 undefined。
+    // 前端拿到 undefined 只能显示「未知错误」，而真正的原因是
+    // 「线上云函数还是旧版本，没有这个接口」—— 这类问题必须一眼看出来。
+    default:
+      console.error('[dispatch] 未识别的 type:', event && event.type);
+      return {
+        success: false,
+        errMsg: '云函数没有「' + String((event && event.type) || '') + '」这个接口' +
+          '（当前部署的版本可能旧于小程序代码，请重新上传部署 baseFunctions）'
+      };
   }
 };
         

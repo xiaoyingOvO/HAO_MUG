@@ -17,20 +17,54 @@
       <view class="coin-value">{{coin}}</view>
     </view>
 
+    <!-- 我的称号已并入下方雀力卡，作为卡片底部的入口条：两件事都是「我是谁」，
+         拆成两张卡占位置，合起来只多一行 -->
+
     <!-- 模式切换：两种模式的战绩完全分开 -->
     <view class="mode-tabs">
       <view class="mode-tab {{statsTab === 'four' ? 'mode-tab-active' : ''}}" data-tab="four" bindtap="switchStatsTab">四麻</view>
       <view class="mode-tab {{statsTab === 'three' ? 'mode-tab-active' : ''}}" data-tab="three" bindtap="switchStatsTab">三麻</view>
     </view>
 
-    <!-- 雀力卡 -->
+    <!-- 身份卡：左边头像 + 昵称 + 雀力，右边展示称号图，底部一条「我的称号」入口。
+         头像 / 昵称 / 称号都是「我是谁」，拆成两张卡白占位置 -->
+    <!-- 整卡不再绑 tap，只有点称号图或「查看全部 ›」才弹面板，防误触 -->
     <view class="mj-card rank-card">
-      <view class="rank-left">
-        <view class="rank-label">{{statsTab === 'four' ? '四麻' : '三麻'}}雀力</view>
-        <view class="rank-title">{{cur.power != null ? cur.power : '—'}}</view>
-        <view class="rank-games">对局 {{cur.games || 0}} 局</view>
+      <view class="rank-body">
+        <image class="rank-avatar" src="{{me.avatar || '/images/default-avatar.png'}}" mode="aspectFill" />
+        <view class="rank-left">
+          <view class="rank-name">{{me.nickname || '未设置昵称'}}</view>
+          <!-- 标签和数值同一行：原来标签被两端对齐顶到最右边，看着像飘出去 -->
+          <view class="rank-power">
+            <text class="rank-label">{{statsTab === 'four' ? '四麻' : '三麻'}}雀力</text>
+            <text class="rank-title">{{cur.power != null ? cur.power : '—'}}</text>
+          </view>
+          <view class="rank-games">对局 {{cur.games || 0}} 局</view>
+        </view>
+        <!-- 用户设置过展示称号 → 显示那张 + 获得次数，点击可打开面板；
+             没设置过 → 右侧灰底占位「未设置称号」 -->
+        <view class="rank-title-wrap" wx:if="{{mainTitle}}" bindtap="openTitleSheet" hover-class="rank-card-hover">
+          <image class="rank-title-img" src="{{mainTitle.img}}" mode="widthFix" />
+          <text class="rank-title-count" wx:if="{{mainTitle.count > 1}}">×{{mainTitle.count}}</text>
+        </view>
+        <view class="rank-title-none" wx:else>未设置称号</view>
       </view>
-      <view class="rank-badge">🀄</view>
+
+      <!-- 称号入口条：有称号时显示种类数并可点开面板；没有就只说一句怎么拿 -->
+      <view class="rank-title-bar">
+        <text class="rtb-label">我的称号</text>
+        <block wx:if="{{myTitles.length}}">
+          <text class="rtb-count">{{titleKinds}} 种</text>
+          <!-- 每种只拿过一次时不重复写「共 N 次」，避免 1 种 · 共 1 次的啰嗦 -->
+          <text class="rtb-sub" wx:if="{{titleTotal > titleKinds}}">· 共 {{titleTotal}} 次</text>
+          <text class="rtb-more" bindtap="openTitleSheet" hover-class="rtb-more-hover">查看全部 ›</text>
+        </block>
+        <!-- 后台有记录但本版本字典不认识：多半是新增称号后前端包没更新，
+             不提示会让人以为是没发上 -->
+        <text class="rtb-hint" wx:elif="{{unknownTitleCount}}">有 {{unknownTitleCount}} 个称号本版本不认识，请更新后再看</text>
+        <text class="rtb-hint" wx:elif="{{titlesMissing}}">云端未返回称号数据，请部署最新版云函数</text>
+        <text class="rtb-hint" wx:else>胡出役满后找管理员领取</text>
+      </view>
     </view>
 
     <!-- 该模式还没打过：只加一行说明，下面的指标骨架照常展示 -->
@@ -47,42 +81,9 @@
       <view class="rate-box rate-4" wx:if="{{statsTab === 'four'}}"><view class="rate-name">四位率</view><view class="rate-val">{{cur.games ? cur.rankRates[4] + '%' : '--'}}</view><view class="rate-sub">（{{cur.rankCounts[4] || 0}}回）</view></view>
     </view>
 
-    <!-- 我的称号（不分模式） -->
-    <view class="mj-card title-card" wx:if="{{myTitles.length}}">
-      <view class="title-card-head">
-        <text class="title-head-label">我的称号</text>
-        <text class="title-count">{{titleKinds}} 种</text>
-        <!-- 每种只拿过一次时不重复写「共 N 次」，避免 1 种 · 共 1 次的啰嗦 -->
-        <text class="title-count-sub" wx:if="{{titleTotal > titleKinds}}">· 共 {{titleTotal}} 次</text>
-      </view>
-      <!-- 后台有记录但本版本字典不认识：多半是新增称号后前端包没更新，不提示会让人以为是没发上 -->
-      <view class="title-unknown" wx:if="{{unknownTitleCount}}">
-        另有 {{unknownTitleCount}} 个称号本版本未识别，更新小程序后可见
-      </view>
-      <view class="title-list">
-        <view class="title-badge-wrap" wx:for="{{myTitles}}" wx:key="key">
-          <image class="title-badge" src="{{item.img}}" mode="widthFix" />
-          <text class="title-badge-count" wx:if="{{item.count > 1}}">×{{item.count}}</text>
-          <!-- 主称号高亮标记 + 设置按钮 -->
-          <view class="title-main-badge" wx:if="{{mainTitle && mainTitle.key === item.key}}">★展示</view>
-          <text class="title-set-main" data-key="{{item.key}}" bindtap="setMainTitle" wx:if="{{!mainTitle || mainTitle.key !== item.key}}">设为展示</text>
-        </view>
-      </view>
-    </view>
-    <view class="mj-card title-card title-card-empty" wx:else>
-      <view class="title-card-head">我的称号</view>
-      <view class="title-unknown" wx:if="{{titlesMissing}}">
-        云端未返回称号数据，请部署最新版云函数
-      </view>
-      <view class="title-unknown" wx:elif="{{unknownTitleCount}}">
-        后台有 {{unknownTitleCount}} 个称号，但本版本小程序不认识，请更新后再看
-      </view>
-      <view class="title-empty" wx:else>胡出役满后找管理员领取称号</view>
-    </view>
-
     <!-- 其他统计 -->
     <view class="rate-grid">
-      <view class="rate-box plain"><view class="rate-name">末位率</view><view class="rate-val">{{cur.games ? cur.flyRate + '%' : '--'}}</view></view>
+      <view class="rate-box plain"><view class="rate-name">累计点数</view><view class="rate-val">{{cur.pointsSum != null ? cur.pointsSum : '--'}}</view></view>
       <view class="rate-box plain"><view class="rate-name">最高点数</view><view class="rate-val">{{cur.maxPoints != null ? cur.maxPoints : '--'}}</view></view>
       <view class="rate-box plain"><view class="rate-name">平均顺位</view><view class="rate-val">{{cur.avgRank != null ? cur.avgRank : '--'}}</view></view>
       <view class="rate-box plain"><view class="rate-name">平均点数</view><view class="rate-val">{{cur.avgPoints != null ? cur.avgPoints : '--'}}</view></view>
@@ -110,6 +111,8 @@
           </view>
         </view>
       </view>
+      <!-- 明细只留最近 30 天，趋势格子不够 10/20 格是正常的，不是数据丢了 -->
+      <view class="trend-note">趋势只画最近 {{stats.retentionDays || 30}} 天的对局明细，更早的已折算进上方战绩</view>
     </view>
 
     <!-- 全部对局入口 -->
@@ -125,10 +128,10 @@
       <view class="rank-tab {{rankTab === 'power3' ? 'rank-tab-active' : ''}}" data-tab="power3" bindtap="switchRankTab">三麻雀力</view>
     </view>
 
-    <!-- 规则说明：数值怎么来的，让玩家看得懂 -->
+    <!-- 规则说明：数值怎么来的，让玩家看得懂。文案随云端下发的规则走，不在这里写死 -->
     <view class="rank-tip">
-      <text wx:if="{{rankTab === 'coin'}}">每局按顺位结算　四麻 1位+2 / 2位+1 / 3位0 / 4位-1　三麻 1位+2 / 2位0 / 3位-1　最低 0</text>
-      <text wx:else>1000 + ({{rankTab === 'power4' ? '2.5' : '2.0'}} − 平均顺位) × 300　满 {{rankConfig.powerMinGames || 10}} 局才入榜</text>
+      <text wx:if="{{rankTab === 'coin'}}">{{coinRule}}</text>
+      <text wx:else>{{powerRule.base}} + ({{rankTab === 'power4' ? powerRule.baseRank.four : powerRule.baseRank.three}} − 平均顺位) × {{powerRule.coef}}　满 {{powerRule.minGames}} 局才入榜</text>
     </view>
 
     <view class="mj-card rank-head-row">
@@ -150,19 +153,23 @@
       <view class="rh-col rh-title">
         <view class="rh-title-badge-wrap" wx:if="{{p.displayTitle}}">
           <image class="rh-title-badge" src="{{p.displayTitle.img}}" mode="widthFix" />
+          <!-- 获得次数角标：只有超过 1 次才显示，否则「×1」是句废话 -->
+          <text class="rh-title-badge-count" wx:if="{{p.displayTitle.count > 1}}">×{{p.displayTitle.count}}</text>
         </view>
         <text class="rh-title-none" wx:else>—</text>
       </view>
     </view>
     <view wx:if="{{!rankList.length && !loading}}" class="mj-card empty-card">
       <text wx:if="{{rankTab === 'coin'}}">还没有排行榜数据</text>
-      <text wx:else>还没有满 {{rankConfig.powerMinGames || 10}} 局{{rankTab === 'power4' ? '四麻' : '三麻'}}的玩家</text>
+      <text wx:else>还没有满 {{powerRule.minGames}} 局{{rankTab === 'power4' ? '四麻' : '三麻'}}的玩家</text>
     </view>
   </block>
 
   <!-- ============ 全部对局 ============ -->
   <block wx:if="{{activeTab === 'games'}}">
     <view class="mj-back" bindtap="backToStats">‹ 返回战绩</view>
+    <!-- 保留期说明放在最上面：翻到底发现没有更早的局时，第一反应会是「数据丢了」 -->
+    <view class="games-note">只保留最近 {{stats.retentionDays || 30}} 天的对局明细，更早的已折算进战绩，不能再查看或修改</view>
     <view class="mj-card game-card" wx:for="{{games}}" wx:key="_id" wx:for-item="g">
       <view class="game-head">
         <view class="game-left">
@@ -181,11 +188,42 @@
       </view>
     </view>
     <view wx:if="{{hasMoreGames && games.length}}" class="mj-btn mj-btn-plain" bindtap="loadMoreGames">加载更多</view>
-    <view wx:if="{{!games.length && gamesLoaded}}" class="mj-card empty-card"><text>还没有对局记录</text></view>
+    <view wx:if="{{!games.length && gamesLoaded}}" class="mj-card empty-card"><text>最近 {{stats.retentionDays || 30}} 天还没有对局记录</text></view>
   </block>
 
   <!-- 录入入口（所有人可见，云端会校验管理员权限；仅管理员能提交成功） -->
   <view class="mj-record-fab" bindtap="goRecord">＋ 录入</view>
   <view class="mj-record-fab mj-title-fab" bindtap="goGrantTitle">🏅 发称号</view>
   <view class="mj-record-fab mj-adjust-fab" wx:if="{{isAdmin}}" bindtap="goAdjustPlayer">✏ 改数据</view>
+
+  <!-- ============ 称号面板 ============ -->
+  <!-- 用 wx:if 整体挂载：关掉时不留节点，也不会出现「透明遮罩挡住下面点击」的经典坑 -->
+  <block wx:if="{{titleSheet.show}}">
+    <view class="ts-mask" bindtap="closeTitleSheet" catchtouchmove="noop"></view>
+    <!-- 面板本身不再 catchtouchmove：父级拦了 touchmove，里面的 scroll-view 就滚不动 -->
+    <view class="ts-sheet">
+      <view class="ts-handle"></view>
+      <view class="ts-head">
+        <text class="ts-head-title">我的称号</text>
+        <text class="ts-head-sub">{{titleKinds}} 种<text wx:if="{{titleTotal > titleKinds}}"> · 共 {{titleTotal}} 次</text></text>
+      </view>
+      <view class="ts-tip">点一个称号，再按下面的按钮设为展示</view>
+      <scroll-view class="ts-scroll" scroll-y>
+        <view class="ts-grid">
+          <view class="ts-cell {{titleSheet.selKey === item.key ? 'ts-cell-on' : ''}}"
+                wx:for="{{myTitles}}" wx:key="key"
+                data-key="{{item.key}}" bindtap="pickTitle" hover-class="ts-cell-hover">
+            <image class="ts-cell-img" src="{{item.img}}" mode="widthFix" />
+            <text class="ts-cell-count" wx:if="{{item.count > 1}}">×{{item.count}}</text>
+            <view class="ts-cell-main" wx:if="{{mainTitle && mainTitle.key === item.key}}">★</view>
+          </view>
+        </view>
+      </scroll-view>
+      <view class="ts-btn {{titleSheet.selIsMain ? 'ts-btn-plain' : ''}} {{titleSheet.submitting ? 'ts-btn-busy' : ''}}"
+            bindtap="confirmTitleSheet">
+        {{titleSheet.submitting ? '处理中…' : (titleSheet.selIsMain ? '取消展示' : '设为展示称号')}}
+      </view>
+      <view class="ts-cancel" bindtap="closeTitleSheet">关闭</view>
+    </view>
+  </block>
 </view>

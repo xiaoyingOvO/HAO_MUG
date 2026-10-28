@@ -536,7 +536,7 @@ function seed() {
       { _id: 'mt-2', openid: ME_OPENID, title: 'daisangen', count: 1, grant_by: 'mock-admin', create_time: new Date(now - 2 * DAY) },
       { _id: 'mt-3', openid: 'mock-openid-04', title: 'suankou', count: 1, grant_by: 'mock-admin', create_time: new Date(now - 3 * DAY) },
     ],
-    mahjongAdjust: {},
+    mahjongStat: {},
     users: others,
     machines,
     queues,
@@ -686,7 +686,7 @@ function mockStatOf(s, openid) {
     box.rankSum += Number(mine.rank) || 0;
     box.pointsSum += Number(mine.points) || 0;
     if (box.maxPoints === null || mine.points > box.maxPoints) box.maxPoints = Number(mine.points) || 0;
-    const table = mode === 'three' ? { 1: 2, 2: 0, 3: -1 } : { 1: 2, 2: 1, 3: 0, 4: -1 };
+    const table = mode === 'three' ? { 1: 2, 2: 0, 3: -1 } : { 1: 3, 2: 1, 3: 0, 4: -2 };
     const delta = table[mine.rank];
     if (delta !== undefined) coin = Math.max(0, coin + delta);
     total += 1;
@@ -694,23 +694,13 @@ function mockStatOf(s, openid) {
   return { openid, four, three, coin, gamesTotal: total };
 }
 
-function mockFlatten(fields) {
-  const out = [];
-  if (!fields) return out;
-  if (fields.coin !== undefined) out.push({ path: 'coin', value: fields.coin });
-  if (fields.gamesTotal !== undefined) out.push({ path: 'gamesTotal', value: fields.gamesTotal });
-  ['four', 'three'].forEach((mode) => {
-    const f = fields[mode];
-    if (!f) return;
-    ['games', 'rankSum', 'pointsSum', 'maxPoints'].forEach((k) => {
-      if (f[k] !== undefined) out.push({ path: mode + '.' + k, value: f[k] });
-    });
-    if (f.rankCounts) {
-      Object.keys(f.rankCounts).forEach((r) => {
-        out.push({ path: mode + '.rankCounts.' + r, value: f.rankCounts[r] });
-      });
-    }
+/** 明细算出的统计 + 本地手改值（mock 没有 base 快照，直接叠在算出的结果上） */
+function mockStatWithEdits(s, openid, values) {
+  const out = mockStatOf(s, openid);
+  Object.keys(values || {}).forEach((path) => {
+    mockSetPath(out, path, Number(values[path]));
   });
+  out.gamesTotal = (Number(out.four.games) || 0) + (Number(out.three.games) || 0);
   return out;
 }
 
@@ -727,12 +717,6 @@ function mockSetPath(obj, path, value) {
 
 function mockValueAt(obj, path) {
   return String(path).split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
-}
-
-function mockMerge(fields, base) {
-  const out = JSON.parse(JSON.stringify(base || {}));
-  mockFlatten(fields).forEach((x) => mockSetPath(out, x.path, x.value));
-  return out;
 }
 
 function totalPoints(u) {
@@ -1265,7 +1249,7 @@ const baseFunctions = {
         total,
         rankCounts,
         rankRates: { 1: rate(rankCounts[1]), 2: rate(rankCounts[2]), 3: rate(rankCounts[3]), 4: rate(rankCounts[4]) },
-        flyRate: rate(rankCounts[4]),
+        pointsSum: total ? pointsSum : null,
         avgRank: total ? +(rankSum / total).toFixed(2) : null,
         avgPoints: total ? +(pointsSum / total).toFixed(1) : null,
         maxPoints: total ? maxPoints : null,
@@ -1417,77 +1401,132 @@ const baseFunctions = {
     return { success: true, data: { players: 0 } };
   },
 
-  /* ---- 管理员手改覆盖值（mock 版：只存覆盖值和历史，不参与统计合并） ---- */
+  // mock 版不做归档：离线模拟没有「汇总快照」，删掉明细就等于凭空少了几十局，
+  // 统计会当场变错。这里只回报归档线，说明真实环境会清理到哪一天。
+  mahjongArchive() {
+    const d = new Date(Date.now() - 30 * 86400000);
+    const cutoff = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    return { success: true, data: { cutoff, removed: 0, rolled: 0, mock: true } };
+  },
+
+  /* ---- 管理员直接改玩家数据（mock 版：改动值存在本地，叠加在明细算出的统计上） ---- */
 
   mahjongGetPlayerStatDetail(p, s) {
     const openid = p && p.openid;
     if (!openid) return { success: false, errMsg: '未指定玩家' };
-    s.mahjongAdjust = s.mahjongAdjust || {};
-    const rec = s.mahjongAdjust[openid] || { fields: {}, logs: [] };
+    s.mahjongStat = s.mahjongStat || {};
+    const rec = s.mahjongStat[openid] || { values: {}, logs: [] };
     return {
       success: true,
       data: {
-        auto: mockStatOf(s, openid),
-        fields: rec.fields || {},
-        merged: mockMerge(rec.fields || {}, mockStatOf(s, openid)),
+        stat: mockStatWithEdits(s, openid, rec.values),
         logs: rec.logs || [],
       },
     };
   },
 
-  mahjongSetPlayerOverride(p, s) {
+  mahjongSetPlayerStat(p, s) {
     const openid = p && p.openid;
     if (!openid) return { success: false, errMsg: '未指定玩家' };
-    const incoming = (p && p.fields) || {};
-    if (!Object.keys(incoming).length) return { success: false, errMsg: '没有需要修改的字段' };
-    s.mahjongAdjust = s.mahjongAdjust || {};
-    const rec = s.mahjongAdjust[openid] || { fields: {}, logs: [] };
-    const before = mockMerge(rec.fields || {}, mockStatOf(s, openid));
-    const now = new Date();
-    const logs = (rec.logs || []).slice();
-    mockFlatten(incoming).forEach((item) => {
-      logs.unshift({
-        at: now,
-        by: (s.me && s.me.nickname) || '管理员',
-        field: item.path,
-        before: mockValueAt(before, item.path),
-        after: item.value,
-        note: String((p && p.note) || '').slice(0, 200),
-      });
-    });
-    rec.fields = mockFlatten(incoming).reduce((acc, item) => mockSetPath(acc, item.path, item.value), Object.assign({}, rec.fields));
-    rec.logs = logs.slice(0, 100);
-    s.mahjongAdjust[openid] = rec;
-    return { success: true, data: { fields: rec.fields, merged: mockMerge(rec.fields, mockStatOf(s, openid)) } };
-  },
+    const incoming = (p && p.values) || {};
+    const paths = Object.keys(incoming);
+    if (!paths.length) return { success: false, errMsg: '没有需要修改的字段' };
 
-  mahjongClearPlayerOverride(p, s) {
-    const openid = p && p.openid;
-    if (!openid) return { success: false, errMsg: '未指定玩家' };
-    s.mahjongAdjust = s.mahjongAdjust || {};
-    const rec = s.mahjongAdjust[openid] || { fields: {}, logs: [] };
-    const before = mockMerge(rec.fields || {}, mockStatOf(s, openid));
-    const paths = Array.isArray(p && p.paths) && p.paths.length
-      ? p.paths
-      : mockFlatten(rec.fields || {}).map((x) => x.path);
+    // 与云端一致：麻币 / 各顺位次数 / 最高点数可改；
+    // 局数 = Σ次数、顺位和 = Σ(名次×次数)，两者都跟着次数自动平移；
+    // 点数和跟着对局自动累加，都不接受手改
+    const EDITABLE = /^(coin|(four|three)\.(maxPoints|rankCounts\.[1-4]))$/;
+    const bad = paths.filter(path => !EDITABLE.test(path))[0];
+    if (bad) {
+      const isGames = /\.games$/.test(bad) || bad === 'gamesTotal';
+      const isRankSum = /\.rankSum$/.test(bad);
+      const isPointsSum = /\.pointsSum$/.test(bad);
+      let msg = '「' + bad + '」不能手改，它由对局自动累计。';
+      if (isGames) msg = '局数就是各顺位次数之和，不用填 —— 想加几局，就把对应位次的次数加上去，它会自己跟上。';
+      if (isRankSum) msg = '顺位和由各顺位次数自动算出，不用填 —— 改「N 位次数」它就会跟着变。';
+      if (isPointsSum) msg = '点数和由对局自动累计，改不了。要纠正它，请到「全部对局」修改或删除那一局。';
+      return { success: false, errMsg: msg };
+    }
+
+    for (let i = 0; i < paths.length; i += 1) {
+      const n = Number(incoming[paths[i]]);
+      if (!Number.isFinite(n)) return { success: false, errMsg: paths[i] + ' 必须是数字' };
+      if (!Number.isInteger(n)) return { success: false, errMsg: paths[i] + ' 必须是整数' };
+      if (n < 0) return { success: false, errMsg: paths[i] + ' 不能为负数' };
+    }
+
+    s.mahjongStat = s.mahjongStat || {};
+    const rec = s.mahjongStat[openid] || { values: {}, logs: [] };
+    const before = mockStatWithEdits(s, openid, rec.values);
+
+    const values = Object.assign({}, rec.values);
+    paths.forEach((path) => { values[path] = Number(incoming[path]); });
+
+    // 局数 / 顺位和跟着次数平移（与云端 applyStatEdits 同一套算法）
+    ['four', 'three'].forEach((mode) => {
+      let dGames = 0;
+      let dRank = 0;
+      for (let r = 1; r <= 4; r += 1) {
+        const path = mode + '.rankCounts.' + r;
+        if (incoming[path] === undefined) continue;
+        const was = Number(((before[mode] || {}).rankCounts || {})[r]) || 0;
+        const d = Number(incoming[path]) - was;
+        if (!d) continue;
+        dGames += d;
+        dRank += d * r;
+      }
+      if (dGames) values[mode + '.games'] = (Number((before[mode] || {}).games) || 0) + dGames;
+      if (dRank) values[mode + '.rankSum'] = (Number((before[mode] || {}).rankSum) || 0) + dRank;
+    });
+
+    // 与云端的「改小有下限」对齐：麻币下限就是明细算出来的量
+    if (incoming.coin !== undefined) {
+      const floor = Number(mockStatOf(s, openid).coin) || 0;
+      if (Number(incoming.coin) < floor) {
+        return { success: false, errMsg: '「麻币」最低只能到 ' + floor + '：保留期内对局算出来的量。要真正减少，请到「全部对局」删掉或修正那一局。' };
+      }
+    }
+
     const now = new Date();
-    const logs = (rec.logs || []).slice();
-    paths.forEach((path) => {
-      logs.unshift({
+    const note = String((p && p.note) || '').slice(0, 200);
+    const manual = paths
+      .filter(path => Number(mockValueAt(before, path)) !== Number(incoming[path]))
+      .map(path => ({
         at: now,
         by: (s.me && s.me.nickname) || '管理员',
         field: path,
         before: mockValueAt(before, path),
-        after: null,
-        note: '撤销覆盖',
+        after: Number(incoming[path]),
+        note: note,
+      }));
+
+    // 局数 / 顺位和是次数算出来的，也记一条 —— 否则事后看不出它们为什么变
+    const auto = [];
+    ['four', 'three'].forEach((mode) => {
+      ['games', 'rankSum'].forEach((key) => {
+        const path = mode + '.' + key;
+        if (incoming[path] !== undefined) return;
+        const b = Number(mockValueAt(before, path)) || 0;
+        const a = Number(values[path]);
+        if (!Number.isFinite(a) || a === b) return;
+        auto.push({
+          at: now,
+          by: (s.me && s.me.nickname) || '管理员',
+          field: path,
+          before: b,
+          after: a,
+          note: note || '随各顺位次数自动调整',
+        });
       });
     });
-    rec.fields = mockFlatten(rec.fields || {})
-      .filter((x) => paths.indexOf(x.path) < 0)
-      .reduce((acc, x) => mockSetPath(acc, x.path, x.value), {});
-    rec.logs = logs.slice(0, 100);
-    s.mahjongAdjust[openid] = rec;
-    return { success: true, data: { fields: rec.fields, merged: mockMerge(rec.fields, mockStatOf(s, openid)) } };
+
+    const changes = manual.concat(auto);
+    if (!changes.length) return { success: false, errMsg: '数值没有变化' };
+
+    rec.values = values;
+    rec.logs = changes.concat(rec.logs || []).slice(0, 100);
+    s.mahjongStat[openid] = rec;
+    return { success: true, data: { stat: mockStatWithEdits(s, openid, values), changes: changes } };
   },
 
   addUsrInfo(p, s) {
@@ -1534,6 +1573,10 @@ const baseFunctions = {
       if (!p || typeof p[k] === 'undefined') return;
       if (k === 'role') {
         target[k] = p[k];
+      } else if (k === 'display_title') {
+        // 字符串 key，清空时传 null。不能走下面的 Number 归一化：
+        // Number(null) 是 0，会把「取消展示」写成 0，页面就永远判不成空
+        target[k] = p[k] || null;
       } else {
         const n = Number(p[k]);
         target[k] = n === n ? n : p[k];

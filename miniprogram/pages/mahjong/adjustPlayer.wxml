@@ -1,4 +1,4 @@
-<!-- pages/mahjong/adjustPlayer.wxml —— 管理员手改玩家战绩 -->
+<!-- pages/mahjong/adjustPlayer.wxml —— 管理员改玩家数据 -->
 <view class="ap-page">
 
   <view wx:if="{{checkDone && !isAdmin}}" class="ap-card ap-noauth">
@@ -6,6 +6,20 @@
   </view>
 
   <block wx:if="{{checkDone && isAdmin}}">
+    <!-- 维护工具：明细只留最近 30 天，超期的先折算进汇总再删除。
+         定时器每天 4:00 自动跑，这里给首次上线/定时器未配好时手动补一次。 -->
+    <view class="ap-card">
+      <view class="ap-label">对局明细清理</view>
+      <view class="ap-maint-desc">
+        超过 {{retentionDays}} 天的对局会先把成绩折算进个人战绩，再删掉明细。
+        每天凌晨自动执行一次，也可以在这里手动补。
+      </view>
+      <view class="ap-maint-btn {{archiving ? 'ap-maint-btn-busy' : ''}}" bindtap="runArchive">
+        {{archiving ? '清理中…' : '立即清理超期对局'}}
+      </view>
+      <view wx:if="{{archiveResult}}" class="ap-maint-result">{{archiveResult}}</view>
+    </view>
+
     <!-- 选择玩家 -->
     <view class="ap-card">
       <view class="ap-label">选择玩家</view>
@@ -30,45 +44,107 @@
 
     <block wx:if="{{player && loaded}}">
       <view class="ap-hint">
-        自动值是按对局记录算出来的。填入的数字会覆盖对应字段，且不会因为以后删局、改分被重算覆盖；
-        清空输入框即恢复自动值。
+        <view class="ap-hint-state {{dirtyCount ? 'ap-hint-state-on' : ''}}">{{dirtyCount ? '已改动 ' + dirtyCount + ' 项，还没保存' : (lastEdit ? '当前显示的就是库里的数据 · ' + lastEdit : '当前显示的就是库里的数据')}}</view>
+        <view>下面的数字就是数据库里那条记录本身，改完点保存直接写回去。</view>
+        <view><text class="ap-hint-em">局数</text>、<text class="ap-hint-em">顺位和</text>、<text class="ap-hint-em">点数和</text>不用填：局数与顺位和跟着「N 位次数」自动算，点数和跟着对局自动累加。</view>
       </view>
 
-      <view class="ap-card" wx:for="{{groups}}" wx:key="title" wx:for-item="g" wx:for-index="gi">
+      <!-- 麻币：三麻四麻共用一个账户 -->
+      <view class="ap-card">
         <view class="ap-group-head">
-          <text class="ap-group-title">{{g.title}}</text>
-          <text class="ap-group-sub" wx:if="{{g.mode}}">平均顺位 {{g.stat.avgRankText}} · 一位率 {{g.stat.winRateText}} · 雀力 {{g.stat.powerText}}</text>
+          <text class="ap-group-title">麻币</text>
+          <text class="ap-group-sub">总对局数 {{gamesTotal}} = 四麻 + 三麻</text>
         </view>
-
-        <view class="ap-row" wx:for="{{g.rows}}" wx:key="path" wx:for-item="r" wx:for-index="ri">
+        <view class="ap-row">
           <view class="ap-row-label">
-            <text class="ap-row-name">{{r.label}}</text>
-            <text class="ap-row-auto">自动 {{r.autoText}}</text>
+            <text class="ap-row-name">{{coin.label}}</text>
+            <text class="ap-row-auto" wx:if="{{coin.dirty}}">原 {{coin.originalText}}</text>
           </view>
-          <input class="ap-row-input {{r.overridden ? 'ap-row-input-on' : ''}}"
-                 type="{{r.integral ? 'number' : 'digit'}}"
-                 placeholder="不改"
-                 value="{{r.value}}"
-                 data-gi="{{gi}}" data-ri="{{ri}}" bindinput="onInput" />
-          <text class="ap-row-reset" wx:if="{{r.overridden}}" data-path="{{r.path}}" bindtap="clearOne">还原</text>
+          <input class="ap-row-input {{coin.dirty ? 'ap-row-input-on' : ''}}"
+                 type="number"
+                 placeholder="{{coin.missing ? '无记录' : ''}}"
+                 value="{{coin.value}}"
+                 bindinput="onCoinInput" />
         </view>
-
-        <view class="ap-warn" wx:if="{{g.warn}}">{{g.warn}}</view>
+        <view class="ap-note-text">
+          麻币按顺位逐局结算、逐局钳制在 0，明细对不上时只能在这里整条改。
+          改小有下限：不能低于保留期内对局算出来的量。
+        </view>
       </view>
+
+      <!-- 三麻 / 四麻分段切换：两块数据都留着，只是切换显示，
+           切走再切回来改动的值还在，保存时也一起提交 -->
+      <view class="ap-mode-tabs">
+        <view wx:for="{{modeTabs}}" wx:key="mode" wx:for-item="t"
+              class="ap-mode-tab {{t.active ? 'ap-mode-tab-active' : ''}} {{t.warn ? 'ap-mode-tab-warn' : ''}}"
+              data-mode="{{t.mode}}" bindtap="onModeTab">
+          <text class="ap-mode-title">{{t.title}}</text>
+          <text wx:if="{{t.dirty}}" class="ap-mode-badge ap-mode-badge-warn">改了 {{t.dirty}} 项</text>
+          <text wx:else class="ap-mode-games">{{t.games}} 局</text>
+        </view>
+      </view>
+
+      <!-- 四麻 / 三麻：局数与次数可改，顺位和与点数和只读 -->
+      <block wx:for="{{modes}}" wx:key="mode" wx:for-item="m" wx:for-index="mi">
+        <view class="ap-card" wx:if="{{m.mode === activeMode}}">
+          <view class="ap-group-head">
+            <text class="ap-group-title">{{m.title}}</text>
+            <text class="ap-group-sub" wx:if="{{m.stat}}">平均顺位 {{m.stat.avgRankText}} · 一位率 {{m.stat.winRateText}} · 雀力 {{m.stat.powerText}}</text>
+          </view>
+
+          <view class="ap-row" wx:for="{{m.rows}}" wx:key="path" wx:for-item="r" wx:for-index="ri">
+            <view class="ap-row-label">
+              <text class="ap-row-name">{{r.label}}</text>
+              <text class="ap-row-auto" wx:if="{{r.dirty}}">原 {{r.originalText}}</text>
+            </view>
+            <input class="ap-row-input {{r.dirty ? 'ap-row-input-on' : ''}}"
+                   type="number"
+                   placeholder="{{r.missing ? '无记录' : ''}}"
+                   value="{{r.value}}"
+                   data-mi="{{mi}}" data-ri="{{ri}}" bindinput="onRowInput" />
+          </view>
+
+          <view class="ap-auto-row">
+            <view class="ap-auto-item">
+              <text class="ap-auto-k">局数</text>
+              <text class="ap-auto-v">{{m.gamesText}}</text>
+              <text class="ap-auto-h">次数之和</text>
+            </view>
+            <view class="ap-auto-item">
+              <text class="ap-auto-k">顺位和</text>
+              <text class="ap-auto-v">{{m.rankSumText}}</text>
+              <text class="ap-auto-h">随次数</text>
+            </view>
+            <view class="ap-auto-item">
+              <text class="ap-auto-k">点数和</text>
+              <text class="ap-auto-v">{{m.pointsSumText}}</text>
+              <text class="ap-auto-h">随对局</text>
+            </view>
+          </view>
+
+          <view class="ap-power-note" wx:if="{{m.stat.powerNote}}">{{m.stat.powerNote}}</view>
+          <view class="ap-warn" wx:if="{{m.warn}}">{{m.warn}}</view>
+          <view class="ap-warn-soft" wx:if="{{m.warnSoft}}">{{m.warnSoft}}</view>
+        </view>
+      </block>
 
       <view class="ap-card">
         <view class="ap-label">修改原因<text class="ap-label-sub">（会记进修改历史）</text></view>
-        <input class="ap-note" placeholder="例如：10/20 那局点数录错，补回 2 币"
+        <input class="ap-note" placeholder="例如：10/20 那局点数录错，少记了一局"
                value="{{note}}" bindinput="onNoteInput" maxlength="200" />
         <view class="ap-submit {{submitting ? 'disabled' : ''}}" bindtap="save">
-          {{submitting ? '保存中…' : '保存修改'}}
+          {{submitting ? '保存中…' : '保存到该玩家的记录'}}
         </view>
-        <view class="ap-reset-all" bindtap="clearAll">还原该玩家的全部手动设置</view>
+        <view class="ap-save-hint">
+          只提交改动过的字段，没动的保持原样。改小有下限：不能低于保留期内对局算出来的量，
+          要真正减少请到「全部对局」删掉或修正那一局。
+        </view>
       </view>
 
       <view class="ap-card" wx:if="{{logs.length}}">
-        <view class="ap-label">修改历史<text class="ap-label-sub">（最近 100 条，新的在上）</text></view>
-        <view class="ap-log" wx:for="{{logs}}" wx:key="index">
+        <view class="ap-label">修改历史<text class="ap-label-sub">（最近 100 条，新的在上；点一条可把旧值填回输入框）</text></view>
+        <view class="ap-log" wx:for="{{logs}}" wx:key="index"
+              data-field="{{item.field}}" data-before="{{item.beforeRaw}}" bindtap="fillFromLog">
           <view class="ap-log-line">
             <text class="ap-log-field">{{item.fieldText}}</text>
             <text class="ap-log-diff">{{item.beforeText}} → {{item.afterText}}</text>

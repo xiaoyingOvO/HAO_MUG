@@ -34,6 +34,16 @@
   color: #8aa7c2;
   padding: 0 8rpx 20rpx;
 }
+/* 覆盖状态：一眼看出手改值有没有真的进来 */
+.ap-hint-state {
+  font-size: 24rpx;
+  color: #9bb0c4;
+  margin-bottom: 8rpx;
+}
+.ap-hint-state-on {
+  color: #e08b2e;
+  font-weight: 600;
+}
 
 /* 玩家选择 */
 .ap-player {
@@ -77,6 +87,59 @@
   color: #aabfd2;
   text-align: center;
   padding: 24rpx 0;
+}
+
+/* ---- 三麻 / 四麻分段切换（与首页「我的战绩」同一套视觉） ---- */
+.ap-mode-tabs {
+  display: flex;
+  gap: 12rpx;
+  margin-bottom: 20rpx;
+}
+.ap-mode-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16rpx 0;
+  background: #fff;
+  border-radius: 16rpx;
+  box-shadow: 0 4rpx 16rpx rgba(147, 197, 253, 0.14);
+}
+.ap-mode-title {
+  font-size: 28rpx;
+  color: #8aa7c2;
+}
+/* 激活态：整块变主色底，标题加深，和另一侧拉开差别 */
+.ap-mode-tab-active {
+  background: #b7d9f7;
+}
+.ap-mode-tab-active .ap-mode-title {
+  color: #3a7bbf;
+  font-weight: 600;
+}
+/* 另一个模式里还有没保存的改动时，角标用橙色，切走也看得见 */
+.ap-mode-badge {
+  margin-top: 4rpx;
+  font-size: 20rpx;
+  font-weight: 400;
+  color: #4a8ec9;
+  background: #eef5fb;
+  border-radius: 20rpx;
+  padding: 2rpx 12rpx;
+}
+.ap-mode-badge-warn {
+  color: #c2622a;
+  background: #fff1e6;
+}
+.ap-mode-games {
+  margin-top: 4rpx;
+  font-size: 20rpx;
+  color: #aabfd2;
+}
+/* 该模式有硬错误：描边提示，别让人以为只有角标数字 */
+.ap-mode-tab-warn {
+  box-shadow: 0 4rpx 16rpx rgba(147, 197, 253, 0.14), inset 0 0 0 2rpx #f3c9a8;
 }
 
 /* 分组头 */
@@ -127,7 +190,8 @@
   padding: 12rpx 16rpx;
   font-size: 26rpx;
   color: #3d5871;
-  text-align: right;
+  /* 左对齐：光标落在框左边，输入时数字往右排，跟标签同一起点 */
+  text-align: left;
 }
 /* 已覆盖的字段用主色描边，一眼能看出哪些是手填的 */
 .ap-row-input-on {
@@ -136,11 +200,43 @@
   color: #2f6fa8;
   font-weight: 600;
 }
-.ap-row-reset {
-  flex: none;
-  font-size: 23rpx;
-  color: #7fb4e0;
-  padding: 8rpx 0 8rpx 20rpx;
+/* 局数 / 顺位和 / 点数和：只读，和可改的输入行在视觉上区分开。
+   三项平铺后横向放不下「标签+数值+说明」，改竖排居中 */
+.ap-auto-row {
+  display: flex;
+  gap: 10rpx;
+  margin-top: 16rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx dashed #e6f0f9;
+}
+.ap-auto-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  background: #f7fbfe;
+  border-radius: 12rpx;
+  padding: 12rpx 8rpx;
+}
+.ap-auto-k {
+  font-size: 20rpx;
+  color: #aabfd2;
+}
+.ap-auto-v {
+  font-size: 26rpx;
+  font-weight: 600;
+  color: #6b8aa6;
+  margin-top: 2rpx;
+}
+.ap-auto-h {
+  font-size: 18rpx;
+  color: #c3d5e4;
+  margin-top: 2rpx;
+}
+.ap-power-note {
+  margin-top: 12rpx;
+  font-size: 21rpx;
+  color: #aabfd2;
 }
 .ap-warn {
   margin-top: 14rpx;
@@ -150,6 +246,21 @@
   border-radius: 12rpx;
   padding: 12rpx 16rpx;
   line-height: 1.5;
+}
+.ap-warn-soft {
+  margin-top: 12rpx;
+  font-size: 21rpx;
+  color: #c2a06a;
+}
+.ap-note-text {
+  margin-top: 12rpx;
+  font-size: 21rpx;
+  line-height: 1.6;
+  color: #aabfd2;
+}
+.ap-hint-em {
+  color: #4a8ec9;
+  font-weight: 600;
 }
 
 /* 备注与提交 */
@@ -172,12 +283,6 @@
   box-shadow: 0 8rpx 20rpx rgba(111, 176, 230, 0.32);
 }
 .ap-submit.disabled { opacity: 0.6; }
-.ap-reset-all {
-  margin-top: 22rpx;
-  text-align: center;
-  font-size: 25rpx;
-  color: #c05a5a;
-}
 
 /* 修改历史 */
 .ap-log {
@@ -204,4 +309,37 @@
   color: #aabfd2;
   margin-top: 6rpx;
   line-height: 1.5;
+}
+
+/* ---- 明细清理工具 ---- */
+.ap-maint-desc {
+  font-size: 23rpx;
+  line-height: 1.6;
+  color: #8aa7c2;
+  margin-bottom: 20rpx;
+}
+.ap-maint-btn {
+  background: #eef5fb;
+  border-radius: 14rpx;
+  padding: 20rpx 0;
+  text-align: center;
+  font-size: 26rpx;
+  color: #4a8ec9;
+}
+.ap-maint-btn-busy {
+  opacity: 0.6;
+}
+.ap-maint-result {
+  margin-top: 16rpx;
+  font-size: 23rpx;
+  line-height: 1.6;
+  color: #3d5871;
+}
+
+/* 保存按钮下的说明 */
+.ap-save-hint {
+  margin-top: 16rpx;
+  font-size: 22rpx;
+  line-height: 1.6;
+  color: #8aa7c2;
 }

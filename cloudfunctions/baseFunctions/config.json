@@ -1,8 +1,15 @@
 {
-  "timeout": 20,
+  "timeout": 60,
   "permissions": {
     "openapi": [
       "phonenumber.getPhoneNumber"
     ]
-  }
+  },
+  "triggers": [
+    {
+      "name": "mahjongArchiveTimer",
+      "type": "timer",
+      "config": "0 0 4 * * * *"
+    }
+  ]
 }

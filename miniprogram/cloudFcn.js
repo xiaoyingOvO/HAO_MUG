@@ -449,8 +449,8 @@ const mahjongRebuildStats = async function() {
 }
 
 /**
- * 管理员：读取玩家统计详情
- * 返回 { auto: 自动算出的一份, fields: 当前覆盖值, merged: 叠加后的展示值, logs: 变更历史 }
+ * 管理员：读取玩家统计记录
+ * 返回 { stat: mahjong_player 那条记录本身, logs: 变更历史 }
  */
 const mahjongGetPlayerStatDetail = async function(params) {
   return wx.cloud.callFunction({
@@ -463,28 +463,32 @@ const mahjongGetPlayerStatDetail = async function(params) {
 }
 
 /**
- * 管理员：设置覆盖值
- * params: { openid, fields: { coin, gamesTotal, four: {games,rankSum,pointsSum,maxPoints,rankCounts}, three: {...} }, note }
+ * 管理员：直接改写玩家统计记录
+ * params: { openid, values: { 'four.games': 24, 'coin': 12, ... }, note }
+ * values 是扁平 path -> 新值，只传改动过的字段
  */
-const mahjongSetPlayerOverride = async function(params) {
+const mahjongSetPlayerStat = async function(params) {
   return wx.cloud.callFunction({
     name: 'baseFunctions',
     data: {
-      type: 'mahjongSetPlayerOverride',
+      type: 'mahjongSetPlayerStat',
       params
     }
   })
 }
 
 /**
- * 管理员：撤销覆盖，还原为自动计算值
- * params: { openid, paths: ['four.games', ...] }，paths 为空表示全部还原
+ * 管理员：手动触发一次归档
+ *
+ * 对局明细只保留最近 30 天，超期的会先把成绩折算进汇总再删除。
+ * 正常情况下每天 4:00 由定时触发器自动跑，这个入口是手动补一次用的
+ * （首次上线、或定时器没配好时）。
  */
-const mahjongClearPlayerOverride = async function(params) {
+const mahjongArchive = async function(params) {
   return wx.cloud.callFunction({
     name: 'baseFunctions',
     data: {
-      type: 'mahjongClearPlayerOverride',
+      type: 'mahjongArchive',
       params
     }
   })
@@ -576,8 +580,8 @@ export default {
   mahjongGetGameDetail,
   mahjongRebuildStats,
   mahjongGetPlayerStatDetail,
-  mahjongSetPlayerOverride,
-  mahjongClearPlayerOverride,
+  mahjongSetPlayerStat,
+  mahjongArchive,
   createPointOrder,
   queryPointOrder,
   getPointPayStatus

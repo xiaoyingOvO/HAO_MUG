@@ -46,12 +46,19 @@ exports.main = async (event, context) => {
     update_data.role = event.params.role
   }
   if ('display_title' in event.params) {
-    const validDisplayTitles = ['tenhou','chihou','kokushi','daisuushii','shousuushii','daisangen','tsuuiisou','chinroutou','chuuren','ryuuiisou','suukantsu','suankou','nagashi','chonbo'];
+    // 这里不再维护一份 key 白名单。它和前端 utils/mahjongTitles.js、以及
+    // mahjongStats 里的 VALID_TITLE_KEYS 是同一份东西的第三个副本，而且已经漂了:
+    // 少列了 suankoutanki / kokushijuusanmen / chuurenjunsei / kazoe 四个双倍役满，
+    // 玩家把「纯正九莲宝灯」设为展示称号会被判 unsupported。
+    // display_title 只影响展示（前端渲染时查字典，不认识的 key 显示为「—」），
+    // 所以这里只校验形态：允许 null / ''（清空），或一个短的小写 key。
     const dt = event.params.display_title;
-    if (dt !== null && dt !== undefined && !validDisplayTitles.includes(dt)) {
-      return {
-        success: false,
-        errMsg: "unsupported display_title...",
+    if (dt !== null && dt !== undefined && dt !== '') {
+      if (typeof dt !== 'string' || !/^[a-z][a-z0-9_]{0,31}$/.test(dt)) {
+        return {
+          success: false,
+          errMsg: "unsupported display_title...",
+        }
       }
     }
     update_data.display_title = dt || null

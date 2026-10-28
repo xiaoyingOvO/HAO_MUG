@@ -15,9 +15,11 @@
     <!-- 对局日期 -->
     <view class="rec-card">
       <view class="rec-label">对局日期</view>
-      <picker mode="date" value="{{game_date}}" end="{{today}}" bindchange="onDateChange">
+      <picker mode="date" value="{{game_date}}" start="{{minDate}}" end="{{today}}" bindchange="onDateChange">
         <view class="date-picker">📅 {{game_date}}</view>
       </picker>
+      <!-- 明细只留 30 天，再往前录会与已折算的累计值冲突，云端也会拒绝 -->
+      <view class="rec-note">只能录最近 {{retentionDays}} 天的对局，更早的已折算进战绩</view>
     </view>
 
     <!-- 4 个玩家位：填满 3 人记为三麻，填满 4 人记为四麻（自动判定） -->
