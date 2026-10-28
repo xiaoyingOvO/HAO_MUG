@@ -15,7 +15,7 @@ export const VALID_TITLE_KEYS = [
   'kokushi', 'kokushijuusanmen', 'shousuushii',
   'tsuuiisou', 'chinroutou', 'daisuushii',
   'chuuren', 'chuurenjunsei', 'ryuuiisou',
-  'suukantsu', 'kazoe', 'tenhou', 'chihou', 'nagashi', 'chonbo'
+  'suukantsu', 'tenhou', 'chihou', 'kazoe', 'nagashi', 'chonbo'
 ];
 
 const TITLES = [
@@ -32,11 +32,11 @@ const TITLES = [
   { key: 'chuurenjunsei',    name: '纯正九莲宝灯', img: '/images/titles/chuurenjunsei.png' },     // ★★
   { key: 'ryuuiisou',        name: '绿一色',       img: '/images/titles/ryuuiisou.png' },
   { key: 'suukantsu',        name: '四杠子',       img: '/images/titles/suukantsu.png' },
-  { key: 'kazoe',            name: '累计役满',     img: '/images/titles/kazoe.png' },
   { key: 'tenhou',           name: '天和',         img: '/images/titles/tenhou.png' },
   { key: 'chihou',           name: '地和',         img: '/images/titles/chihou.png' },
+  { key: 'kazoe',            name: '累计役满',     img: '/images/titles/kazoe.png' },
   { key: 'nagashi',          name: '流局满贯',     img: '/images/titles/nagashi.png' },
-  { key: 'chonbo',           name: '诈和',         img: '/images/titles/chonbo.png' },
+  { key: 'chonbo',           name: '炸和',         img: '/images/titles/chonbo.png' },
 ];
 
 const TITLE_MAP = {};

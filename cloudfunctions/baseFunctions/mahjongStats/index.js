@@ -16,7 +16,7 @@ const VALID_TITLE_KEYS = [
   'kokushi', 'kokushijuusanmen', 'shousuushii',
   'tsuuiisou', 'chinroutou', 'daisuushii',
   'chuuren', 'chuurenjunsei', 'ryuuiisou',
-  'suukantsu', 'kazoe', 'tenhou', 'chihou', 'nagashi', 'chonbo'
+  'suukantsu', 'tenhou', 'chihou', 'kazoe', 'nagashi', 'chonbo'
 ];
 
 /* ============================================================
