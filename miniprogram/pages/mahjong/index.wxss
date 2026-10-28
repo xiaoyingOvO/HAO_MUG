@@ -271,23 +271,44 @@
   display: flex;
   gap: 10rpx;
 }
+/* 20 局时格子窄，间距同步收一点，否则圆小得只剩点、间隙却比圆还大 */
+.trend-cells--dense { gap: 6rpx; }
 .trend-cell {
   flex: 1;
-  height: 40rpx;
+  min-width: 0;
+  position: relative;
+}
+/* 高度必须跟着宽度走，否则 border-radius: 50% 画出来的是椭圆。
+   padding-top 的百分比相对「包含块宽度」计算，伪元素宽度又等于格子宽度，
+   所以 padding-top: 100% 得到的就是正方形 —— 这是纯 CSS 做自适应正圆
+   的常规写法，比 aspect-ratio 兼容性好（老 iOS WebView 不认后者）。 */
+.trend-cell::before {
+  content: '';
+  display: block;
+  padding-top: 100%;
   border-radius: 50%;
   background: #eef5fb;
+}
+/* 顺位格：1位深 → 4位浅（淡蓝） */
+.trend-cell.c1::before { background: #6fb0e6; }
+.trend-cell.c2::before { background: #8fc4ef; }
+.trend-cell.c3::before { background: #aed6f7; }
+.trend-cell.c4::before { background: #cfe6fa; }
+/* 格内数字：绝对定位盖在圆上，不参与格子尺寸计算 */
+.trend-cell-num {
+  position: absolute;
+  left: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 22rpx;
+  line-height: 1;
   color: #fff;
   font-weight: 600;
 }
-/* 顺位格：1位深 → 4位浅（淡蓝） */
-.trend-cell.c1 { background: #6fb0e6; }
-.trend-cell.c2 { background: #8fc4ef; }
-.trend-cell.c3 { background: #aed6f7; }
-.trend-cell.c4 { background: #cfe6fa; }
 
 /* ---------- 空态 ---------- */
 .empty-card {

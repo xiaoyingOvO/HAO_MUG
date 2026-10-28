@@ -85,10 +85,12 @@
       <view class="trend-grid">
         <view class="trend-row" wx:for="{{trendRows}}" wx:key="rank" wx:for-item="row">
           <text class="trend-rank-label">{{row.rank}}位</text>
-          <view class="trend-cells">
+          <view class="trend-cells {{trendRange === 20 ? 'trend-cells--dense' : ''}}">
             <view wx:for="{{row.cells}}" wx:key="index" wx:for-item="cell" wx:for-index="ci"
                   class="trend-cell {{cell.filled ? 'c' + cell.rank : ''}}">
-              <text wx:if="{{cell.filled}}">{{cell.rank}}</text>
+              <!-- 20 局时格子直径只有 20rpx 出头，数字塞不下也不必要：
+                   行左侧已标了顺位，颜色深浅同样编码顺位 -->
+              <text wx:if="{{cell.filled && trendRange <= 10}}" class="trend-cell-num">{{cell.rank}}</text>
             </view>
           </view>
         </view>
