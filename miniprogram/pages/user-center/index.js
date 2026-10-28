@@ -1,6 +1,8 @@
 // pages/user-center/index.js
 import { checkBadge } from '../../messageBadge';
 import { add, toCents, toYuan } from '../../decimal';
+import cloudFcn from '../../cloudFcn.js';
+import { MOCK_ENABLED } from '../../mock/cloudMock.js';
 const app = getApp();
 
 Page({
@@ -88,6 +90,75 @@ Page({
     } finally {
       wx.hideNavigationBarLoading();
       wx.stopPullDownRefresh();
+    }
+  },
+
+  /**
+   * 点击头像更换（button open-type="chooseAvatar" 的回调）
+   *
+   * 微信给过来的是本地临时文件路径，**必须**先传到云存储换成 fileID 再落库 ——
+   * 临时路径在本次进程结束后就失效，直接存下来的话下次打开就是破图。
+   *
+   * 文件名带时间戳而不是用固定名：同名覆盖会让 CDN 继续命中旧缓存，
+   * 表现出来就是「换了头像但界面没变」。
+   */
+  async onChooseAvatar(e) {
+    const tempPath = e && e.detail && e.detail.avatarUrl;
+    if (!tempPath) return;
+
+    const userInfo = this.data.userInfo;
+    if (!this.data.isLoggedIn || !userInfo || !userInfo.openid) {
+      wx.showToast({ title: '请先登录', icon: 'none' });
+      return;
+    }
+    // 用户连点会并发上传多张，只放行第一次
+    if (this._uploadingAvatar) return;
+    this._uploadingAvatar = true;
+    wx.showLoading({ title: '正在上传', mask: true });
+
+    const openid = userInfo.openid;
+    const oldAvatar = userInfo.avatar;
+    try {
+      let newAvatar;
+      if (MOCK_ENABLED) {
+        // 模拟模式没有云存储，只把本地临时路径写进 mock 数据用于预览
+        newAvatar = tempPath;
+        await cloudFcn.modifyUsrInfo({ openid, avatar: newAvatar });
+      } else {
+        const suffix = (String(tempPath).match(/\.[a-zA-Z0-9]+$/) || ['.png'])[0];
+        const cloudPath = `avatar/${openid}_${Date.now()}${suffix}`;
+        const up = await wx.cloud.uploadFile({ cloudPath, filePath: tempPath });
+        if (!up || !up.fileID) throw new Error('头像上传失败');
+
+        const res = await cloudFcn.modifyUsrInfo({ openid, avatar: up.fileID });
+        if (!res || !res.result || !res.result.success) {
+          throw new Error((res && res.result && res.result.errMsg) || '头像保存失败');
+        }
+        newAvatar = up.fileID;
+      }
+
+      this.setData({ 'userInfo.avatar': newAvatar });
+      // 同步全局缓存，否则切到别的页面拿到的还是旧头像
+      if (app.globalData.userInfo) app.globalData.userInfo.avatar = newAvatar;
+
+      wx.hideLoading();
+      wx.showToast({ title: MOCK_ENABLED ? '已更新（模拟）' : '头像已更新', icon: 'none' });
+
+      // 清理旧图，避免云存储无限堆积。
+      // 只删 cloud:// 开头的（自己上传的），外链头像和历史默认图一律不动；
+      // 删除失败不影响已经成功的更换。
+      if (!MOCK_ENABLED && typeof oldAvatar === 'string' && oldAvatar.indexOf('cloud://') === 0) {
+        wx.cloud.deleteFile({ fileList: [oldAvatar] }).catch(function () {});
+      }
+    } catch (err) {
+      wx.hideLoading();
+      console.error('[avatar] 更换失败:', err);
+      const raw = (err && err.message) || '';
+      // toast 会截断长文案，超过一行就换成统一提示
+      const text = raw && raw.length <= 12 ? raw : '头像更换失败，请重试';
+      wx.showToast({ title: text, icon: 'none', duration: 2500 });
+    } finally {
+      this._uploadingAvatar = false;
     }
   },
 

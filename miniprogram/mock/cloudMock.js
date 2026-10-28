@@ -1333,6 +1333,11 @@ const baseFunctions = {
   modifyUsrInfo(p, s) {
     const target = allUsers(s).find((u) => u.openid === (p && p.openid)) || s.me;
     const updated = {};
+    // avatar 是字符串，不能走下面的 Number() 归一化（否则 fileID 会被转成 NaN）
+    if (p && typeof p.avatar !== 'undefined') {
+      target.avatar = p.avatar || null;
+      updated.avatar = target.avatar;
+    }
     ['exp', 'role', 'credit', 'real_point', 'extra_point', 'display_title'].forEach((k) => {
       if (!p || typeof p[k] === 'undefined') return;
       if (k === 'role') {

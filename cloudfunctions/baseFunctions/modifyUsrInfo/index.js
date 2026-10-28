@@ -56,6 +56,26 @@ exports.main = async (event, context) => {
     }
     update_data.display_title = dt || null
   }
+  if ('avatar' in event.params) {
+    const av = event.params.avatar
+    if (av !== null && av !== undefined) {
+      // 头像只接受两种来源：用户中心上传后拿到的云存储 fileID（cloud://...），
+      // 以及历史数据里的 https 外链。显式排除 data:/javascript: 这类可执行 scheme。
+      if (typeof av !== 'string' || av.length > 512) {
+        return {
+          success: false,
+          errMsg: "avatar must be a string shorter than 512...",
+        }
+      }
+      if (!/^(cloud:\/\/|https:\/\/)/.test(av)) {
+        return {
+          success: false,
+          errMsg: "unsupported avatar scheme...",
+        }
+      }
+    }
+    update_data.avatar = av || null
+  }
   if ('credit' in event.params) {
     if (!event.params.credit instanceof Number) {
       return {
