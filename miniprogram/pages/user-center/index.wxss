@@ -107,17 +107,27 @@ page {
 }
 
 /* 透明按钮铺满头像，不参与布局 */
+/*   注意：border-radius 只改外观，**不会**裁剪点击热区 —— 方形四角的透明区域
+     照样会响应点击，表现出来就是「点在头像外面也弹」。
+     要把热区真的裁成圆形，得用 clip-path（部分低版本内核不支持时，
+     会退化成方形热区，只是四角多一点点响应范围，不会坏）。 */
 .user-card__avatar-hit {
   position: absolute;
   left: 0;
   top: 0;
   z-index: 2;
+  display: block;
   width: 140rpx;
   height: 140rpx;
+  min-width: 0;
+  max-width: none;
   padding: 0;
   margin: 0;
   background: transparent;
   border-radius: 50%;
+  clip-path: circle(50% at 50% 50%);
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 /* button 默认的 1px ::after 边框 */
