@@ -85,27 +85,24 @@ page {
 }
 
 /* ===== 头像更换（透明 button 覆盖，只负责接收点击） ===== */
-/* 尺寸全部写死、不依赖百分比：
-   image 先绝对定位，wrap 的宽高就完全由这里的两行决定，不再受内容影响。
-   之前的写法里 image 用 100%+100%，而 wrap 的高度又被内容反推，结果两者对不上，
-   表现为头像偏小、缩在中间，角标「改」跑到头像外面。 */
+/* 这里的尺寸一律写死，任何一边都别用 100%：
+   wrap 若因故退化成 auto 宽度，image 用 100% 就会反过来撑大 wrap，两者互相依赖，
+   算出来的尺寸随渲染时机浮动 —— 表现出来就是头像偏小、左边凭空多出三四十 rpx。
+   现在 image 拿固定的 140rpx，wrap 即使 auto 也恰好等于 140rpx，闭环稳定。
+   内部元素全部用 left/top 固定值，不依赖 right/bottom:0，wrap 被撑大也不会跑位。 */
 .user-card__avatar-wrap {
   position: relative;
-  flex: none;
+  flex-shrink: 0;
   width: 140rpx;
   height: 140rpx;
-  margin: 0 30rpx 0 0;
-  padding: 0;
+  margin-right: 30rpx;
 }
 
 .user-card__avatar-wrap .user-card__avatar {
-  position: absolute;
-  left: 0;
-  top: 0;
   display: block;
   width: 140rpx;
   height: 140rpx;
-  margin: 0;
+  margin-right: 0;
   box-sizing: border-box;
 }
 
@@ -128,11 +125,11 @@ page {
   border: none;
 }
 
-/* 右下角角标。pointer-events:none 让点击穿透到底下的按钮 */
+/* 右下角角标：140 - 44 = 96rpx。pointer-events:none 让点击穿透到按钮 */
 .user-card__avatar-badge {
   position: absolute;
-  right: 0;
-  bottom: 0;
+  left: 96rpx;
+  top: 96rpx;
   z-index: 3;
   pointer-events: none;
   width: 44rpx;
