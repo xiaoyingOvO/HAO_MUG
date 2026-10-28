@@ -84,47 +84,29 @@ page {
   border: 4rpx solid rgba(255, 255, 255, 0.5);
 }
 
-/* ===== 头像更换（透明 button 覆盖，只负责接收点击） ===== */
-/* 这里的尺寸一律写死，任何一边都别用 100%：
-   wrap 若因故退化成 auto 宽度，image 用 100% 就会反过来撑大 wrap，两者互相依赖，
-   算出来的尺寸随渲染时机浮动 —— 表现出来就是头像偏小、左边凭空多出三四十 rpx。
-   现在 image 拿固定的 140rpx，wrap 即使 auto 也恰好等于 140rpx，闭环稳定。
-   内部元素全部用 left/top 固定值，不依赖 right/bottom:0，wrap 被撑大也不会跑位。 */
-.user-card__avatar-wrap {
-  position: relative;
-  flex-shrink: 0;
-  width: 140rpx;
-  height: 140rpx;
-  margin-right: 30rpx;
-}
-
-.user-card__avatar-wrap .user-card__avatar {
-  display: block;
-  width: 140rpx;
-  height: 140rpx;
-  margin-right: 0;
-  box-sizing: border-box;
-}
-
-/* 透明按钮铺满头像，不参与布局 */
-/*   注意：border-radius 只改外观，**不会**裁剪点击热区 —— 方形四角的透明区域
-     照样会响应点击，表现出来就是「点在头像外面也弹」。
-     要把热区真的裁成圆形，得用 clip-path（部分低版本内核不支持时，
-     会退化成方形热区，只是四角多一点点响应范围，不会坏）。 */
+/* ===== 头像更换（透明 button 覆盖在头像位置） ===== */
+/* button 直接挂在 .user-card__content 上定位（该容器已有 position:relative），
+   不再套一层头像容器 —— 容器宽度一旦被内容撑开，按钮就会跟着变宽，
+   横向盖住右侧的 QQ 号区域，出现「点 QQ 号也弹」。
+   这里 left/top 与尺寸全部写死，只覆盖头像那 140rpx 的圆形范围。 */
 .user-card__avatar-hit {
   position: absolute;
   left: 0;
-  top: 0;
-  z-index: 2;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 3;
   display: block;
   width: 140rpx;
   height: 140rpx;
   min-width: 0;
-  max-width: none;
+  max-width: 140rpx;
   padding: 0;
   margin: 0;
   background: transparent;
   border-radius: 50%;
+  /* border-radius 只改外观、不裁剪命中区；clip-path 才能把热区真的裁成圆形 */
+  /* 低版本 iOS WebView 只认带前缀的写法 */
+  -webkit-clip-path: circle(50% at 50% 50%);
   clip-path: circle(50% at 50% 50%);
   overflow: hidden;
   box-sizing: border-box;
