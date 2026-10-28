@@ -19,7 +19,11 @@ Page({
     trendRows: [],        // [{rank:1, cells:[{filled, rank}]}]
 
     /* ---------- 排行榜 ---------- */
-    ranking: [],
+    // 三个榜一次请求全拿到，切 tab 只做本地切换、零延迟
+    rankTab: 'coin',      // 'coin' 麻币 | 'power4' 四麻雀力 | 'power3' 三麻雀力
+    rankData: { coin: [], power3: [], power4: [] },
+    rankList: [],         // 当前 tab 的列表（wxml 直接遍历这个，避免模板里动态取键）
+    rankConfig: null,     // 云端下发的规则（门槛局数等），用于说明文案
 
     /* ---------- 全部对局 ---------- */
     games: [],
@@ -121,19 +125,37 @@ Page({
   async loadRanking() {
     try {
       const res = await cloudFcn.mahjongGetRanking();
-      const list = (res.result && res.result.data) || [];
+      const d = (res.result && res.result.data) || {};
+      // 统一加上名次/奖牌，并把展示称号 key 解析成图片对象
+      const decorate = (list) => (list || []).map((item, i) => ({
+        ...item,
+        medal: i < 3 ? ['🥇', '🥈', '🥉'][i] : '',
+        index: i + 1,
+        displayTitle: item.displayTitle ? getTitle(item.displayTitle) : null,
+      }));
+      const rankData = {
+        coin: decorate(d.coin),
+        power3: decorate(d.power3),
+        power4: decorate(d.power4),
+      };
       this.setData({
-        ranking: list.map((item, i) => ({
-          ...item,
-          medal: i < 3 ? ['🥇', '🥈', '🥉'][i] : '',
-          index: i + 1,
-          // 只显示用户设置的展示称号，没有设置则不显示
-          displayTitle: item.displayTitle ? getTitle(item.displayTitle) : null,
-        })),
+        rankData,
+        rankList: rankData[this.data.rankTab] || [],
+        rankConfig: d.config || null,
       });
     } catch (e) {
       console.error('加载排行榜失败', e);
     }
+  },
+
+  // 麻币 / 三麻雀力 / 四麻雀力 三档切换（数据已在内存，不发请求）
+  switchRankTab(e) {
+    const tab = e.currentTarget.dataset.tab;
+    if (!tab || tab === this.data.rankTab) return;
+    this.setData({
+      rankTab: tab,
+      rankList: this.data.rankData[tab] || [],
+    });
   },
 
   /* ================= 全部对局 ================= */
@@ -195,7 +217,7 @@ Page({
     this.setData({ activeTab: tab });
     if (tab === 'stats') {
       if (this.data.hasStats) this.buildTrend();
-    } else if (tab === 'rank' && !this.data.ranking.length) {
+    } else if (tab === 'rank' && !this.data.rankData.coin.length) {
       this.loadRanking();
     }
   },

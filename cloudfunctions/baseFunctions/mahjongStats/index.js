@@ -17,6 +17,60 @@ const VALID_TITLE_KEYS = [
 ];
 
 /* ============================================================
+ * 麻币 / 雀力规则
+ *
+ * 【麻币】按顺位发放，四麻比三麻多一个末位惩罚位：
+ *     四麻  1位 +2   2位 +1   3位 0    4位 -1
+ *     三麻  1位 +2   2位  0   3位 -1
+ *   「最低为 0」是**逐局钳制**，不是最后对总和钳制 —— 余额 0 时再输一局
+ *   应该是「扣不动」，而不是先欠 1 分、下次赢一局只补回 0 分。所以结算
+ *   必须按时间正序逐局推进。麻币不落库，每次都从对局记录实时重算，这样
+ *   管理员删除某局后，该局之后所有人的余额都会自动重新结算。
+ *
+ * 【雀力】用平均顺位换算，不累加、不落库：
+ *     雀力 = 1000 + (基准顺位 - 平均顺位) × 300
+ *     四麻基准顺位 2.5   三麻基准顺位 2.0
+ *   用「相对基准的偏离」而不是绝对顺位，三麻和四麻的雀力才可比：
+ *   四麻平均 2.0 与三麻平均 1.5 都偏离基准 0.5 位，都是 1150。
+ * ============================================================ */
+const COIN_BY_RANK = {
+  four: { 1: 2, 2: 1, 3: 0, 4: -1 },
+  three: { 1: 2, 2: 0, 3: -1 }
+};
+
+const POWER_BASE = 1000;
+const POWER_COEF = 300;
+const POWER_BASE_RANK = { four: 2.5, three: 2.0 };
+// 雀力榜最低局数门槛：平均顺位在小样本下噪声极大，3 局全胜就能刷到榜首
+const POWER_MIN_GAMES = 10;
+
+const MODE_LABEL = { four: '四麻', three: '三麻' };
+
+// 历史对局没有 mode 字段（那时只允许 4 人），一律按四麻处理
+function normalizeMode(game) {
+  return game && game.mode === 'three' ? 'three' : 'four';
+}
+
+function calcPower(mode, games, rankSum) {
+  if (!games) return null;
+  const avgRank = rankSum / games;
+  return Math.round(POWER_BASE + (POWER_BASE_RANK[mode] - avgRank) * POWER_COEF);
+}
+
+// 云开发单次 in 查询上限 100，超出会直接报错，统一在这里分块
+async function fetchUsersByOpenids(openids) {
+  const map = {};
+  if (!openids || openids.length === 0) return map;
+  const chunks = [];
+  for (let i = 0; i < openids.length; i += 100) chunks.push(openids.slice(i, i + 100));
+  for (const chunk of chunks) {
+    const res = await db.collection(db_user).where({ openid: db_cmd.in(chunk) }).get();
+    (res.data || []).forEach(u => { map[u.openid] = u; });
+  }
+  return map;
+}
+
+/* ============================================================
  * 麻将对局战绩模块（挂载在 baseFunctions 聚合函数下，通过 event.type 分发）：
  *   · mahjongAddGame    管理员录入一局（4 名玩家 + 点数，自动算顺位）
  *   · mahjongGetMyStats 我的战绩聚合（四率/平均顺位/最高点数/最近趋势）
@@ -62,9 +116,11 @@ async function addGameMain(event, context) {
   if (!game_date || !/^\d{4}-\d{2}-\d{2}$/.test(String(game_date))) {
     return { success: false, errMsg: '对局日期格式错误' };
   }
-  if (!Array.isArray(players) || players.length !== 4) {
-    return { success: false, errMsg: '一局需要恰好 4 名玩家' };
+  if (!Array.isArray(players) || (players.length !== 4 && players.length !== 3)) {
+    return { success: false, errMsg: '一局需要 3 名（三麻）或 4 名（四麻）玩家' };
   }
+  // 三麻 / 四麻由人数直接判定：3 人即三麻，4 人即四麻
+  const mode = players.length === 3 ? 'three' : 'four';
 
   // 校验 openid 与点数
   const seen = new Set();
@@ -99,6 +155,7 @@ async function addGameMain(event, context) {
 
   const doc = {
     game_date: game_date,
+    mode: mode,          // 'three' | 'four'，历史数据无此字段按四麻兜底
     players: parsed.map(p => {
       const u = userInfoMap[p.openid] || {};
       return {
@@ -194,7 +251,14 @@ async function getMyStatsMain(event, context) {
 }
 
 /**
- * 排行榜：所有用户按平均顺位升序，同平均顺位局数多者在前
+ * 排行榜：一次拉取，同时聚合出三个榜，前端切 tab 无需再请求
+ *   · coin    麻币榜（所有打过对局的人）
+ *   · power3  三麻雀力榜（≥ POWER_MIN_GAMES 局）
+ *   · power4  四麻雀力榜（≥ POWER_MIN_GAMES 局）
+ *
+ * 每条记录结构统一为：
+ *   { openid, nickname, avatar, value, games, avgRank, winRate, displayTitle }
+ * value 是该榜的主数值（麻币数 / 雀力）。
  */
 async function getRankingMain(event, context) {
   let res;
@@ -206,50 +270,105 @@ async function getRankingMain(event, context) {
     return { success: false, errMsg: '查询对局数据失败' };
   }
 
-  const games = res.data || [];
-  const agg = {};   // openid -> {games, rankSum, pointsSum, win}
-  games.forEach(g => {
+  const gamesDesc = res.data || [];
+  if (gamesDesc.length === 0) {
+    return { success: true, data: { coin: [], power3: [], power4: [], config: buildRankConfig() } };
+  }
+
+  /* ---- 麻币：必须按时间正序逐局推进，余额钳在 0 ---- */
+  // 拉取时是倒序，reverse 后即为正序（同一排序键，逆序取反即升序）
+  const coinBalance = {};
+  gamesDesc.slice().reverse().forEach(g => {
+    const table = COIN_BY_RANK[normalizeMode(g)];
     (g.players || []).forEach(p => {
       if (!p.openid) return;
-      if (!agg[p.openid]) agg[p.openid] = { games: 0, rankSum: 0, pointsSum: 0, win: 0 };
-      agg[p.openid].games += 1;
-      agg[p.openid].rankSum += Number(p.rank) || 0;
-      agg[p.openid].pointsSum += Number(p.points) || 0;
-      if (p.rank === 1) agg[p.openid].win += 1;
+      const delta = table[Number(p.rank)];
+      if (delta === undefined) return;   // 异常顺位（脏数据）直接跳过，不因一条坏数据整榜失败
+      const cur = coinBalance[p.openid] || 0;
+      coinBalance[p.openid] = Math.max(0, cur + delta);
+    });
+  });
+
+  /* ---- 局数 / 顺位和 / 一位数：分模式分别统计 ---- */
+  const agg = {};
+  gamesDesc.forEach(g => {
+    const mode = normalizeMode(g);
+    (g.players || []).forEach(p => {
+      if (!p.openid) return;
+      if (!agg[p.openid]) {
+        agg[p.openid] = {
+          four: { games: 0, rankSum: 0, win: 0 },
+          three: { games: 0, rankSum: 0, win: 0 },
+          all: { games: 0, rankSum: 0, win: 0 }
+        };
+      }
+      const a = agg[p.openid];
+      const rank = Number(p.rank) || 0;
+      [a[mode], a.all].forEach(box => {
+        box.games += 1;
+        box.rankSum += rank;
+        if (rank === 1) box.win += 1;
+      });
     });
   });
 
   const openids = Object.keys(agg);
-  if (openids.length === 0) return { success: true, data: [] };
-
-  // 批量补昵称头像
-  const usersRes = await db.collection(db_user).where({
-    openid: db_cmd.in(openids)
-  }).get();
-  const userInfoMap = {};
-  (usersRes.data || []).forEach(u => { userInfoMap[u.openid] = u; });
-
-  // 批量取称号
+  const userInfoMap = await fetchUsersByOpenids(openids);
   const titleMap = await fetchTitlesByOpenids(openids);
 
-  const list = openids.map(oid => {
-    const a = agg[oid];
+  // 三个榜共用的基础字段，value 由各榜自己补
+  const base = openids.map(oid => {
     const u = userInfoMap[oid] || {};
     return {
       openid: oid,
       nickname: u.nickname || '未知用户',
       avatar: u.avatar || '',
-      games: a.games,
-      win: a.win,
-      winRate: +(a.win * 100 / a.games).toFixed(2),
-      avgRank: +(a.rankSum / a.games).toFixed(2),
-      totalPoints: a.pointsSum,
-      titles: titleMap[oid] || [],
-      displayTitle: u.display_title || null
+      displayTitle: u.display_title || null,
+      titles: titleMap[oid] || []
     };
-  }).sort((x, y) => x.avgRank - y.avgRank || y.games - x.games);
+  });
 
-  return { success: true, data: list };
+  const statOf = (box) => ({
+    games: box.games,
+    avgRank: box.games ? +(box.rankSum / box.games).toFixed(2) : null,
+    winRate: box.games ? +(box.win * 100 / box.games).toFixed(2) : 0
+  });
+
+  const coin = base.map(b => Object.assign({}, b, statOf(agg[b.openid].all), {
+    value: coinBalance[b.openid] || 0
+  })).sort((x, y) => y.value - x.value || y.games - x.games);
+
+  const buildPower = (mode) => base
+    .filter(b => agg[b.openid][mode].games >= POWER_MIN_GAMES)
+    .map(b => {
+      const box = agg[b.openid][mode];
+      return Object.assign({}, b, statOf(box), {
+        value: calcPower(mode, box.games, box.rankSum)
+      });
+    })
+    .sort((x, y) => y.value - x.value || y.games - x.games);
+
+  return {
+    success: true,
+    data: {
+      coin: coin,
+      power3: buildPower('three'),
+      power4: buildPower('four'),
+      // 规则下发给前端做「≥10 局才入榜」之类的说明文案，避免前后端各写一份
+      config: buildRankConfig()
+    }
+  };
+}
+
+function buildRankConfig() {
+  return {
+    powerMinGames: POWER_MIN_GAMES,
+    powerBase: POWER_BASE,
+    powerCoef: POWER_COEF,
+    powerBaseRank: POWER_BASE_RANK,
+    coinByRank: COIN_BY_RANK,
+    modeLabel: MODE_LABEL
+  };
 }
 
 /**

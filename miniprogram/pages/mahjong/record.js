@@ -119,24 +119,61 @@ Page({
     if (this.data.submitting) return;
     const { slots, game_date } = this.data;
 
-    // 校验
-    for (let i = 0; i < 4; i++) {
-      if (!slots[i]) {
-        wx.showToast({ title: `第 ${i + 1} 位玩家未选择`, icon: 'none' });
-        return;
-      }
-      const v = Number(slots[i].points);
-      if (slots[i].points === '' || !Number.isFinite(v)) {
-        wx.showToast({ title: `第 ${i + 1} 位玩家点数未填或不是数字`, icon: 'none' });
+    // 已选的坑位必须从 1 号位起连续：「三麻」就是前 3 位填满、4 号位留空，
+    // 不允许 1、2、4 有值而 3 空着这种歧义状态
+    const firstEmpty = slots.findIndex(s => !s);
+    if (firstEmpty >= 0 && slots.slice(firstEmpty).some(Boolean)) {
+      wx.showToast({ title: '请从 1 号位开始依次填写', icon: 'none' });
+      return;
+    }
+
+    const filled = slots.filter(Boolean);
+    if (filled.length !== 3 && filled.length !== 4) {
+      wx.showToast({ title: '需要 3 名（三麻）或 4 名（四麻）玩家', icon: 'none' });
+      return;
+    }
+    for (let i = 0; i < filled.length; i++) {
+      const v = Number(filled[i].points);
+      if (filled[i].points === '' || !Number.isFinite(v)) {
+        wx.showToast({ title: `${i + 1} 号位点数未填或不是数字`, icon: 'none' });
         return;
       }
     }
+
+    // 三麻 / 四麻由人数自动判定，这里把判定结果连同顺位一起亮出来，
+    // 避免「本想录四麻、少填一人，被静默记成三麻」这种事后极难发现的问题
+    const mode = filled.length === 3 ? 'three' : 'four';
+    const modeLabel = mode === 'three' ? '三麻' : '四麻';
+    const ranked = filled
+      .map(s => ({ nickname: s.nickname, points: Number(s.points) }))
+      .sort((a, b) => b.points - a.points);
+
+    let preview = '';
+    let prevPoints = null, prevRank = 0;
+    ranked.forEach((p, idx) => {
+      // 同分同名次，与云端顺位算法保持一致
+      const rank = (prevPoints !== null && p.points === prevPoints) ? prevRank : idx + 1;
+      prevPoints = p.points;
+      prevRank = rank;
+      preview += `${rank}位  ${p.nickname}  ${p.points}\n`;
+    });
+
+    const confirmed = await new Promise((resolve) => {
+      wx.showModal({
+        title: `将记为【${modeLabel}】${filled.length} 人`,
+        content: preview.trim(),
+        confirmText: '确认录入',
+        success: (r) => resolve(!!r.confirm),
+        fail: () => resolve(false),
+      });
+    });
+    if (!confirmed) return;
 
     this.setData({ submitting: true });
     try {
       const res = await cloudFcn.mahjongAddGame({
         game_date,
-        players: slots.map(s => ({ openid: s.openid, points: Number(s.points) })),
+        players: filled.map(s => ({ openid: s.openid, points: Number(s.points) })),
       });
       const r = res.result || {};
       if (r.success) {

@@ -18,6 +18,12 @@
   color: #3d5871;
   margin-bottom: 20rpx;
 }
+.rec-label-sub {
+  font-size: 22rpx;
+  font-weight: 400;
+  color: #a8bfd4;
+  margin-left: 12rpx;
+}
 
 /* 无权限 */
 .no-auth {
@@ -98,6 +104,10 @@
   padding: 22rpx 0;
   color: #7fb4e0;
   font-size: 28rpx;
+}
+.slot-hint {
+  font-size: 22rpx;
+  color: #bdd3e6;
 }
 
 .rec-tip {

@@ -16,9 +16,9 @@
       </picker>
     </view>
 
-    <!-- 4 个玩家位 -->
+    <!-- 4 个玩家位：填满 3 人记为三麻，填满 4 人记为四麻（自动判定） -->
     <view class="rec-card">
-      <view class="rec-label">玩家与点数</view>
+      <view class="rec-label">玩家与点数<text class="rec-label-sub">三麻留空 4 号位</text></view>
       <view class="slot" wx:for="{{slots}}" wx:key="index" wx:for-index="index" wx:for-item="slot">
         <view class="slot-no">{{index + 1}}号位</view>
 
@@ -33,12 +33,12 @@
 
         <!-- 未选 -->
         <view wx:else class="slot-empty" data-index="{{index}}" bindtap="startSearch">
-          ＋ 点击选择玩家
+          ＋ 点击选择玩家<text wx:if="{{index === 3}}" class="slot-hint">（三麻不用填）</text>
         </view>
       </view>
     </view>
 
-    <view class="rec-tip">顺位按点数自动计算：点数相同者并列同名次</view>
+    <view class="rec-tip">填满 3 人记为三麻、4 人记为四麻；顺位按点数自动计算，同分并列同名次</view>
 
     <view class="rec-submit {{submitting ? 'disabled' : ''}}" bindtap="submit">
       {{submitting ? '提交中…' : '录入本局'}}

@@ -92,22 +92,35 @@
 
   <!-- ============ 排行榜 ============ -->
   <block wx:if="{{activeTab === 'rank'}}">
+    <!-- 三档切换：麻币 / 四麻雀力 / 三麻雀力 -->
+    <view class="rank-tabs">
+      <view class="rank-tab {{rankTab === 'coin' ? 'rank-tab-active' : ''}}" data-tab="coin" bindtap="switchRankTab">麻币</view>
+      <view class="rank-tab {{rankTab === 'power4' ? 'rank-tab-active' : ''}}" data-tab="power4" bindtap="switchRankTab">四麻雀力</view>
+      <view class="rank-tab {{rankTab === 'power3' ? 'rank-tab-active' : ''}}" data-tab="power3" bindtap="switchRankTab">三麻雀力</view>
+    </view>
+
+    <!-- 规则说明：数值怎么来的，让玩家看得懂 -->
+    <view class="rank-tip">
+      <text wx:if="{{rankTab === 'coin'}}">每局按顺位结算　四麻 1位+2 / 2位+1 / 3位0 / 4位-1　三麻 1位+2 / 2位0 / 3位-1　最低 0</text>
+      <text wx:else>1000 + ({{rankTab === 'power4' ? '2.5' : '2.0'}} − 平均顺位) × 300　满 {{rankConfig.powerMinGames || 10}} 局才入榜</text>
+    </view>
+
     <view class="mj-card rank-head-row">
       <text class="rh-col rh-index">名次</text>
       <text class="rh-col rh-user">用户</text>
-      <text class="rh-col rh-num">局数</text>
-      <text class="rh-col rh-num">平均顺位</text>
+      <text class="rh-col rh-num rh-main">{{rankTab === 'coin' ? '麻币' : '雀力'}}</text>
+      <text class="rh-col rh-num rh-games">局数</text>
       <text class="rh-col rh-title">称号</text>
     </view>
     <view class="mj-card rank-row"
-          wx:for="{{ranking}}" wx:key="openid" wx:for-item="p" wx:for-index="index">
+          wx:for="{{rankList}}" wx:key="openid" wx:for-item="p" wx:for-index="index">
       <text class="rh-col rh-index">{{p.medal || (index + 1)}}</text>
       <view class="rh-col rh-user">
         <image class="rh-avatar" src="{{p.avatar || '/images/default-avatar.png'}}" mode="aspectFill" />
         <text class="rh-name">{{p.nickname}}</text>
       </view>
-      <text class="rh-col rh-num">{{p.games}}</text>
-      <text class="rh-col rh-num">{{p.avgRank}}</text>
+      <text class="rh-col rh-num rh-main {{rankTab === 'coin' ? 'rh-value-coin' : 'rh-value-power'}}">{{p.value}}</text>
+      <text class="rh-col rh-num rh-games">{{p.games}}</text>
       <view class="rh-col rh-title">
         <view class="rh-title-badge-wrap" wx:if="{{p.displayTitle}}">
           <image class="rh-title-badge" src="{{p.displayTitle.img}}" mode="widthFix" />
@@ -115,8 +128,9 @@
         <text class="rh-title-none" wx:else>—</text>
       </view>
     </view>
-    <view wx:if="{{!ranking.length && !loading}}" class="mj-card empty-card">
-      <text>还没有排行榜数据</text>
+    <view wx:if="{{!rankList.length && !loading}}" class="mj-card empty-card">
+      <text wx:if="{{rankTab === 'coin'}}">还没有排行榜数据</text>
+      <text wx:else>还没有满 {{rankConfig.powerMinGames || 10}} 局{{rankTab === 'power4' ? '四麻' : '三麻'}}的玩家</text>
     </view>
   </block>
 
