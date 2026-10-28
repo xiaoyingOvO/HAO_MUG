@@ -12,8 +12,11 @@ const db_title = 'mahjong_title';
 
 // 合法称号 key 白名单（与前端 utils/mahjongTitles.js 保持一致）
 const VALID_TITLE_KEYS = [
-  'suankou', 'daisangen', 'kokushi', 'shousuushii', 'tsuuiisou', 'chinroutou',
-  'daisuushii', 'chuuren', 'ryuuiisou', 'suukantsu', 'tenhou', 'chihou', 'nagashi', 'chonbo'
+  'suankou', 'suankoutanki', 'daisangen',
+  'kokushi', 'kokushijuusanmen', 'shousuushii',
+  'tsuuiisou', 'chinroutou', 'daisuushii',
+  'chuuren', 'chuurenjunsei', 'ryuuiisou',
+  'suukantsu', 'tenhou', 'chihou', 'nagashi', 'chonbo'
 ];
 
 /* ============================================================
