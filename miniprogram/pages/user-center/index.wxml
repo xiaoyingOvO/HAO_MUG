@@ -4,16 +4,20 @@
   <!-- 头部用户信息卡片 -->
   <view class="user-card card card--header animation-slide-down">
     <view class="user-card__content {{ (currentLevel >= 4) ? 'glowing-effect glowing-effect--' + currentLevel : '' }}">
-      <!-- 头像：包一层 button 用 open-type="chooseAvatar" 唤起微信头像选择 -->
-      <button
-        class="user-card__avatar-btn"
-        open-type="chooseAvatar"
-        bindchooseavatar="onChooseAvatar"
-        hover-class="none"
-      >
+      <!-- 头像：image 保持原有布局，上面盖一层透明 button 接收点击 -->
+      <!--   不要用 button 直接包住 image —— flex 下 button 的高度由内容决定，
+           而 image 的 height:100% 又反过来依赖 button，互相依赖会让高度退回 auto，
+           宽度撑满、高度按原图比例走，正方形就被压成椭圆。 -->
+      <view class="user-card__avatar-wrap">
         <image class="user-card__avatar" src="{{userInfo.avatar || '/images/default-avatar.png'}}" mode="aspectFill" style="border-color: {{highlightColor}};" />
+        <button
+          class="user-card__avatar-hit"
+          open-type="chooseAvatar"
+          bindchooseavatar="onChooseAvatar"
+          hover-class="none"
+        ></button>
         <view class="user-card__avatar-badge">改</view>
-      </button>
+      </view>
       <!-- 用户信息区域 -->
       <view class="user-card__info">
         <!-- 昵称和等级 -->

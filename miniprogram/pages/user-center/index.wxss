@@ -84,28 +84,19 @@ page {
   border: 4rpx solid rgba(255, 255, 255, 0.5);
 }
 
-/* ===== 头像更换（button open-type="chooseAvatar"） ===== */
-/* 必须是 button 才能唤起微信头像选择，这里把它的默认外观全部抹掉 */
-.user-card__avatar-btn {
+/* ===== 头像更换（透明 button 覆盖，只负责接收点击） ===== */
+/* 外层给定确定的正方形尺寸，image 用 100%×100% 才有解析基准。
+   若让 button 直接包 image，flex 下两边高度互相依赖 → 退回 auto → 压成椭圆。 */
+.user-card__avatar-wrap {
   position: relative;
   flex-shrink: 0;
   width: 140rpx;
   height: 140rpx;
-  padding: 0;
-  margin: 0 30rpx 0 0;
-  background: transparent;
-  line-height: 1;
-  border-radius: 50%;
-  overflow: visible;
+  margin-right: 30rpx;
 }
 
-/* button 默认有 1px 的 ::after 边框，去掉 */
-.user-card__avatar-btn::after {
-  border: none;
-}
-
-/* 头像吃满按钮，右边距改由按钮承担（否则会多出 30rpx） */
-.user-card__avatar-btn .user-card__avatar {
+/* 右边距由外层承担，image 自身不再留白 */
+.user-card__avatar-wrap .user-card__avatar {
   display: block;
   width: 100%;
   height: 100%;
@@ -113,11 +104,32 @@ page {
   box-sizing: border-box;
 }
 
-/* 右下角角标：告诉用户可以点 */
+/* 透明按钮铺满头像，不参与布局 */
+.user-card__avatar-hit {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border-radius: 50%;
+}
+
+/* button 默认的 1px ::after 边框 */
+.user-card__avatar-hit::after {
+  border: none;
+}
+
+/* 右下角角标。pointer-events:none 让点击穿透到底下的按钮 */
 .user-card__avatar-badge {
   position: absolute;
   right: 0;
   bottom: 0;
+  z-index: 3;
+  pointer-events: none;
   width: 44rpx;
   height: 44rpx;
   border-radius: 50%;
