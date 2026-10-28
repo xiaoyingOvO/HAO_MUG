@@ -1,5 +1,5 @@
 /**
- * 麻将称号字典（17 种役满/满贯/罚符）
+ * 麻将称号字典（18 种役满/满贯/罚符）
  *
  * key 一旦上线就不要再改（已发出的称号记录会引用它）；可新增，勿删除/改名。
  *
@@ -15,7 +15,7 @@ export const VALID_TITLE_KEYS = [
   'kokushi', 'kokushijuusanmen', 'shousuushii',
   'tsuuiisou', 'chinroutou', 'daisuushii',
   'chuuren', 'chuurenjunsei', 'ryuuiisou',
-  'suukantsu', 'tenhou', 'chihou', 'nagashi', 'chonbo'
+  'suukantsu', 'kazoe', 'tenhou', 'chihou', 'nagashi', 'chonbo'
 ];
 
 const TITLES = [
@@ -23,7 +23,7 @@ const TITLES = [
   { key: 'suankoutanki',     name: '四暗刻单骑',   img: '/images/titles/suankoutanki.png' },      // ★★
   { key: 'daisangen',        name: '大三元',       img: '/images/titles/daisangen.png' },
   { key: 'kokushi',          name: '国士无双',     img: '/images/titles/kokushi.png' },
-  { key: 'kokushijuusanmen', name: '国士十三面',   img: '/images/titles/kokushijuusanmen.png' },  // ★★
+  { key: 'kokushijuusanmen', name: '国士无双十三面', img: '/images/titles/kokushijuusanmen.png' },  // ★★
   { key: 'shousuushii',      name: '小四喜',       img: '/images/titles/shousuushii.png' },
   { key: 'tsuuiisou',        name: '字一色',       img: '/images/titles/tsuuiisou.png' },
   { key: 'chinroutou',       name: '清老头',       img: '/images/titles/chinroutou.png' },
@@ -32,6 +32,7 @@ const TITLES = [
   { key: 'chuurenjunsei',    name: '纯正九莲宝灯', img: '/images/titles/chuurenjunsei.png' },     // ★★
   { key: 'ryuuiisou',        name: '绿一色',       img: '/images/titles/ryuuiisou.png' },
   { key: 'suukantsu',        name: '四杠子',       img: '/images/titles/suukantsu.png' },
+  { key: 'kazoe',            name: '累计役满',     img: '/images/titles/kazoe.png' },
   { key: 'tenhou',           name: '天和',         img: '/images/titles/tenhou.png' },
   { key: 'chihou',           name: '地和',         img: '/images/titles/chihou.png' },
   { key: 'nagashi',          name: '流局满贯',     img: '/images/titles/nagashi.png' },
