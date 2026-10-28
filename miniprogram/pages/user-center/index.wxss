@@ -85,22 +85,27 @@ page {
 }
 
 /* ===== 头像更换（透明 button 覆盖，只负责接收点击） ===== */
-/* 外层给定确定的正方形尺寸，image 用 100%×100% 才有解析基准。
-   若让 button 直接包 image，flex 下两边高度互相依赖 → 退回 auto → 压成椭圆。 */
+/* 尺寸全部写死、不依赖百分比：
+   image 先绝对定位，wrap 的宽高就完全由这里的两行决定，不再受内容影响。
+   之前的写法里 image 用 100%+100%，而 wrap 的高度又被内容反推，结果两者对不上，
+   表现为头像偏小、缩在中间，角标「改」跑到头像外面。 */
 .user-card__avatar-wrap {
   position: relative;
-  flex-shrink: 0;
+  flex: none;
   width: 140rpx;
   height: 140rpx;
-  margin-right: 30rpx;
+  margin: 0 30rpx 0 0;
+  padding: 0;
 }
 
-/* 右边距由外层承担，image 自身不再留白 */
 .user-card__avatar-wrap .user-card__avatar {
+  position: absolute;
+  left: 0;
+  top: 0;
   display: block;
-  width: 100%;
-  height: 100%;
-  margin-right: 0;
+  width: 140rpx;
+  height: 140rpx;
+  margin: 0;
   box-sizing: border-box;
 }
 
@@ -110,8 +115,8 @@ page {
   left: 0;
   top: 0;
   z-index: 2;
-  width: 100%;
-  height: 100%;
+  width: 140rpx;
+  height: 140rpx;
   padding: 0;
   margin: 0;
   background: transparent;
