@@ -21,7 +21,10 @@
         <view class="recipient-area">
           <!-- 已选定用户 -->
           <view class="recipient-display" wx:if="{{selectedUser}}">
-            <image class="avatar" src="{{selectedUser.avatar_url || '/images/default-avatar.png'}}" mode="aspectFill"></image>
+            <!-- selectedUser 来自搜索结果 dataset.user，字段是 avatar。
+                 原来这里写的 avatar_url 全项目没有任何地方产出，
+                 导致这块头像永远显示默认图。 -->
+            <image class="avatar" src="{{selectedUser.avatar || '/images/default-avatar.png'}}" mode="aspectFill"></image>
             <text class="nickname">{{selectedUser.nickname}}</text>
             <view class="change-btn" bindtap="changeUser">更换</view>
           </view>

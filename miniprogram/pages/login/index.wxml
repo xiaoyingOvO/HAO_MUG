@@ -19,7 +19,9 @@
         open-type="chooseAvatar"
         bindchooseavatar="onChooseAvatar"
     >
-        <image wx:if="{{avatarFileID}}" src="{{avatarFileID}}" class="avatar"  />
+        <!-- 优先用本地临时路径预览（选完立刻可见，且此时还没上传），
+             兜底才用已上传的 fileID -->
+        <image wx:if="{{avatarTempPath || avatarFileID}}" src="{{avatarTempPath || avatarFileID}}" class="avatar"  />
         <view wx:else class="avatar-default">
             <image src="/images/icon-camera.png" class="camera-icon"  />
         </view>

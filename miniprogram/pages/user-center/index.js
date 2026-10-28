@@ -140,9 +140,17 @@ Page({
         const up = await wx.cloud.uploadFile({ cloudPath, filePath: ready.path });
         if (!up || !up.fileID) throw new Error('头像上传失败');
 
-        const res = await cloudFcn.modifyUsrInfo({ openid, avatar: up.fileID });
-        if (!res || !res.result || !res.result.success) {
-          throw new Error((res && res.result && res.result.errMsg) || '头像保存失败');
+        // 落库失败就把刚传上去的这张删掉。否则它会变成没人引用的孤儿，
+        // 既占着云存储，又不会进入下面「删旧图」的逻辑（那里删的是
+        // 用户当前头像的上一张），永远清理不到。
+        try {
+          const res = await cloudFcn.modifyUsrInfo({ openid, avatar: up.fileID });
+          if (!res || !res.result || !res.result.success) {
+            throw new Error((res && res.result && res.result.errMsg) || '头像保存失败');
+          }
+        } catch (dbErr) {
+          wx.cloud.deleteFile({ fileList: [up.fileID] }).catch(function () {});
+          throw dbErr;
         }
         newAvatar = up.fileID;
       }

@@ -6,6 +6,7 @@ const app = getApp();
 Page({
     data: {
       nickName: '',         // 用户昵称
+      avatarTempPath: '',   // 压缩后的本地临时路径（仅用于预览，提交时才上传）
       avatarUuid: '',       // 头像云存储UUID
       avatarCloudPath: '',  // 头像云存储路径
       avatarFileID: '',     // 头像云存储ID
@@ -132,6 +133,13 @@ Page({
     },
   
     // 选择头像
+    //
+    // 这里只做「压缩 + 记下本地路径」，**不上传**，上传推迟到真正提交注册时
+    // （见 uploadAvatar / registerUser）。原因有两条：
+    //   1. 原来选一次传一次，用户来回改选几次，云存储里就多几个永远没人
+    //      引用的孤儿文件（avatarFileID 被覆盖，旧的从不删）；
+    //   2. 选完头像不提交注册直接退出，文件同样会永久留在云存储。
+    // 本地临时路径足够撑预览，等到提交时再传一次即可。
     async onChooseAvatar(e) {
       // 获取头像临时路径
       const avatarUrl = e && e.detail && e.detail.avatarUrl;
@@ -139,44 +147,42 @@ Page({
 
       wx.showLoading({ title: '处理中', mask: true });
 
-      // 先压缩再上传：头像在这个页面只显示 120rpx 左右，原图直传白耗
+      // 先压缩：头像在这个页面只显示 120rpx 左右，原图直传白耗
       // 云存储和 CDN 流量（流量按每次加载计费，才是真正的成本大头）
       const ready = await compressImage(avatarUrl, { maxEdge: 512 });
+      wx.hideLoading();
+
       if (ready.changed) {
         console.log('[avatar] 压缩 ' + Math.round(ready.sizeFrom / 1024) +
           'KB → ' + Math.round(ready.sizeTo / 1024) + 'KB');
       }
 
-      // 用正则取后缀。原来是 avatarUrl.substring(lastIndexOf('.'))：
-      // 路径没有扩展名时 lastIndexOf 返回 -1，而 substring(-1) 等价于
-      // substring(0)，会把**整条路径**拼进 cloudPath。
-      const suffix = (String(ready.path).match(/\.[a-zA-Z0-9]+$/) || ['.jpg'])[0];
-      // 生成头像云存储路径
+      this.setData({ avatarTempPath: ready.path }, () => {
+        this.validateForm();
+      });
+    },
+
+    /**
+     * 把本地图片传到云存储，返回 fileID
+     *
+     * 后缀取法：路径没有扩展名时 lastIndexOf('.') 返回 -1，而 substring(-1)
+     * 等价于 substring(0)，会把**整条路径**拼进 cloudPath。所以用正则兜底。
+     */
+    uploadAvatar(filePath) {
+      const suffix = (String(filePath).match(/\.[a-zA-Z0-9]+$/) || ['.jpg'])[0];
       const avatarUuid = this.genUuid();
       const avatarCloudPath = `avatar/${avatarUuid}${suffix}`;
-      // 上传云存储
-      wx.cloud.uploadFile({
+      return wx.cloud.uploadFile({
         cloudPath: avatarCloudPath,
-        filePath: ready.path,
+        filePath: filePath,
       }).then(res => {
-        // 获取资源ID
-        const avatarFileID = res.fileID;
-        // 本地保存参数
+        if (!res || !res.fileID) throw new Error('头像上传失败');
         this.setData({
+          avatarUuid: avatarUuid,
           avatarCloudPath: avatarCloudPath,
-          avatarFileID: avatarFileID
-        }, () => {
-            this.validateForm();
+          avatarFileID: res.fileID
         });
-        wx.hideLoading();
-      }).catch(error => {
-        // 报错
-        wx.hideLoading();
-        wx.showToast({
-          title: (error && error.errMsg) || '头像上传失败',
-          icon: 'none',
-          duration: 3000
-        });
+        return res.fileID;
       });
     },
 
@@ -236,7 +242,9 @@ Page({
       const valid = !!this.data.phone && 
                    !!this.data.qq && 
                    this.validateQQ(this.data.qq) &&
-                   !!this.data.avatarFileID &&
+                   // 头像只要「选过」就算填了 —— 选完之后文件还在本地，
+                   // 提交注册时才真正上传
+                   !!(this.data.avatarFileID || this.data.avatarTempPath) &&
                    !!this.data.nickName;
       this.setData({ formValid: valid });
       return valid;
@@ -306,12 +314,21 @@ Page({
 
     // 注册
     async registerUser() {
-        const { phone, qq, nickName, avatarFileID } = this.data;
+        const { phone, qq, nickName } = this.data;
         const currentOpenid = this.data.openid;
         if (!currentOpenid) {
           throw new Error('用户标识获取失败');
         }
         try {
+          // 头像在提交这一步才上传。选头像时只留本地临时路径，
+          // 这样「来回改选」和「选完不提交就退出」都不会在云存储留孤儿文件。
+          let avatarFileID = this.data.avatarFileID;
+          if (!avatarFileID) {
+            if (!this.data.avatarTempPath) throw new Error('请先选择头像');
+            avatarFileID = await this.uploadAvatar(this.data.avatarTempPath);
+            this._avatarUploadedInThisAttempt = true;
+          }
+
           const res = await wx.cloud.callFunction({
             name: 'baseFunctions',
             data: {
@@ -359,6 +376,17 @@ Page({
             throw new Error(res.result.errMsg || '注册失败');
           }
         } catch (err) {
+          // 这次刚传上去的头像，如果注册失败了就删掉并清掉 fileID：
+          // 否则每失败一次云存储就多一个没人引用的文件。
+          // 本地 avatarTempPath 保留着，用户重试时会重新走 uploadAvatar。
+          if (this._avatarUploadedInThisAttempt) {
+            this._avatarUploadedInThisAttempt = false;
+            const fid = this.data.avatarFileID;
+            if (fid && String(fid).indexOf('cloud://') === 0) {
+              wx.cloud.deleteFile({ fileList: [fid] }).catch(function () {});
+            }
+            this.setData({ avatarFileID: '', avatarCloudPath: '', avatarUuid: '' });
+          }
           wx.hideLoading();
           this.setData({ loading: false });
           this.handleError(err);
