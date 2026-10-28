@@ -1,6 +1,6 @@
 // pages/mahjong/index.js
 import cloudFcn from '../../cloudFcn.js';
-import { decorateTitles, getTitle } from '../../utils/mahjongTitles.js';
+import { decorateTitles, countUnknownTitles, getTitle } from '../../utils/mahjongTitles.js';
 
 /**
  * 空模式数据。结构与云函数 getMyStatsMain 里 buildMode() 的返回保持一致。
@@ -44,6 +44,8 @@ Page({
     myTitles: [],         // 我的称号（已装饰，含 img；不分模式）
     titleKinds: 0,        // 称号种类数（= myTitles.length，单独存一份供模板用）
     titleTotal: 0,        // 称号累计获得次数（各称号 count 求和）
+    unknownTitleCount: 0, // 后台有记录但本版本字典不认识的称号数（多半是前端包没更新）
+    titlesMissing: false, // 云端压根没返回 titles 字段（说明云函数还是旧版）
     mainTitle: null,      // 用户设置的展示称号（{key,name,img,count} 或 null）
     trendRange: 10,       // 趋势图显示 10 / 20 局
     trendRows: [],        // [{rank:1, cells:[{filled, rank}]}]（行数随模式：四麻 4 行、三麻 3 行）
@@ -104,7 +106,8 @@ Page({
       if (!stats || !stats.modes) {
         this.setData({
           stats: null, cur: emptyModeStats(this.data.statsTab), coin: 0,
-          myTitles: [], titleKinds: 0, titleTotal: 0, mainTitle: null,
+          myTitles: [], titleKinds: 0, titleTotal: 0, unknownTitleCount: 0,
+          titlesMissing: false, mainTitle: null,
         });
         this.buildTrend();
         return;
@@ -115,6 +118,16 @@ Page({
       // 种类数 / 总获得次数：重复发放会累加 count，两个数含义不同，要分开算
       const titleKinds = myTitles.length;
       const titleTotal = myTitles.reduce((sum, t) => sum + (Number(t.count) || 1), 0);
+      // 有多少条是字典里没有的（前端包没更新 / key 拼错 / 后台手填了中文名）
+      const unknownTitleCount = countUnknownTitles(stats.titles);
+      if (unknownTitleCount) {
+        console.warn('[称号] 有 %d 个称号本版本无法识别，请更新小程序', unknownTitleCount, stats.titles);
+      }
+      // 新云函数必定返回 titles（空也是 []）。拿不到说明线上跑的还是旧版云函数
+      const titlesMissing = !Array.isArray(stats.titles);
+      if (titlesMissing) {
+        console.warn('[称号] 云端未返回 titles 字段，请部署最新版 baseFunctions');
+      }
       // 从 userInfo 拿 display_title，匹配到我的称号列表里
       const userRes = await cloudFcn.getUsrInfo();
       const displayTitleKey = userRes.result?.data?.display_title;
@@ -133,6 +146,8 @@ Page({
         myTitles,
         titleKinds,
         titleTotal,
+        unknownTitleCount,
+        titlesMissing,
         mainTitle,
       });
       this.buildTrend();

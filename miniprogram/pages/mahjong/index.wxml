@@ -55,6 +55,10 @@
         <!-- 每种只拿过一次时不重复写「共 N 次」，避免 1 种 · 共 1 次的啰嗦 -->
         <text class="title-count-sub" wx:if="{{titleTotal > titleKinds}}">· 共 {{titleTotal}} 次</text>
       </view>
+      <!-- 后台有记录但本版本字典不认识：多半是新增称号后前端包没更新，不提示会让人以为是没发上 -->
+      <view class="title-unknown" wx:if="{{unknownTitleCount}}">
+        另有 {{unknownTitleCount}} 个称号本版本未识别，更新小程序后可见
+      </view>
       <view class="title-list">
         <view class="title-badge-wrap" wx:for="{{myTitles}}" wx:key="key">
           <image class="title-badge" src="{{item.img}}" mode="widthFix" />
@@ -67,7 +71,13 @@
     </view>
     <view class="mj-card title-card title-card-empty" wx:else>
       <view class="title-card-head">我的称号</view>
-      <view class="title-empty">胡出役满后找管理员领取称号</view>
+      <view class="title-unknown" wx:if="{{titlesMissing}}">
+        云端未返回称号数据，请部署最新版云函数
+      </view>
+      <view class="title-unknown" wx:elif="{{unknownTitleCount}}">
+        后台有 {{unknownTitleCount}} 个称号，但本版本小程序不认识，请更新后再看
+      </view>
+      <view class="title-empty" wx:else>胡出役满后找管理员领取称号</view>
     </view>
 
     <!-- 其他统计 -->

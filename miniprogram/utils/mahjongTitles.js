@@ -57,7 +57,7 @@ export function getTitle(key) {
  */
 export function decorateTitles(titles) {
   return (titles || []).map((item) => {
-    const key = typeof item === 'string' ? item : item.title;
+    const key = typeof item === 'string' ? item : (item && item.title);
     const t = TITLE_MAP[key];
     if (!t) return null;
     const count = (typeof item === 'object' && item != null && item.count) ? item.count : 1;
@@ -65,8 +65,22 @@ export function decorateTitles(titles) {
   }).filter(Boolean);
 }
 
+/**
+ * 统计「后台有记录、但本版本字典里没有」的称号数量。
+ *
+ * decorateTitles 会把这些条目静默丢掉，于是新增称号时如果前端包没更新
+ * （或 key 拼错、后台手填了中文名），表现就是「后台明明发了，页面上没有」，
+ * 光看界面完全查不出原因。把数量单独暴露出来，页面上直接提示即可自证。
+ */
+export function countUnknownTitles(titles) {
+  return (titles || []).filter((item) => {
+    const key = typeof item === 'string' ? item : item && item.title;
+    return !TITLE_MAP[key];
+  }).length;
+}
+
 export function getAllTitles() {
   return TITLES;
 }
 
-export default { TITLES, TITLE_MAP, getTitle, decorateTitles, getAllTitles };
+export default { TITLES, TITLE_MAP, getTitle, decorateTitles, countUnknownTitles, getAllTitles };

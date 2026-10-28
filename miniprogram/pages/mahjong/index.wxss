@@ -241,6 +241,16 @@
   text-align: center;
   padding: 20rpx 0;
 }
+/* 未识别称号提示：用警示色，和普通说明文字区分开 */
+.title-unknown {
+  margin-bottom: 16rpx;
+  padding: 12rpx 16rpx;
+  background: #fdf3e7;
+  border-radius: 10rpx;
+  color: #c47a2b;
+  font-size: 24rpx;
+  line-height: 34rpx;
+}
 
 /* ---------- 趋势格 ---------- */
 .trend-head {
