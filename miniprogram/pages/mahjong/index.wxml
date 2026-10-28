@@ -33,66 +33,66 @@
       <view class="rank-badge">🀄</view>
     </view>
 
-    <block wx:if="{{hasStats}}">
-      <!-- 顺位达成次数：三麻只有 1~3 位，不硬塞一个恒为 0 的四位率 -->
-      <view class="rate-grid">
-        <view class="rate-box rate-1"><view class="rate-name">一位率</view><view class="rate-val">{{cur.rankRates[1]}}%</view><view class="rate-sub">（{{cur.rankCounts[1]}}回）</view></view>
-        <view class="rate-box rate-2"><view class="rate-name">二位率</view><view class="rate-val">{{cur.rankRates[2]}}%</view><view class="rate-sub">（{{cur.rankCounts[2]}}回）</view></view>
-        <view class="rate-box rate-3"><view class="rate-name">三位率</view><view class="rate-val">{{cur.rankRates[3]}}%</view><view class="rate-sub">（{{cur.rankCounts[3]}}回）</view></view>
-        <view class="rate-box rate-4" wx:if="{{statsTab === 'four'}}"><view class="rate-name">四位率</view><view class="rate-val">{{cur.rankRates[4]}}%</view><view class="rate-sub">（{{cur.rankCounts[4]}}回）</view></view>
-      </view>
+    <!-- 该模式还没打过：只加一行说明，下面的指标骨架照常展示 -->
+    <view class="stats-hint" wx:if="{{!cur.games}}">
+      <text>还没有{{statsTab === 'four' ? '四麻' : '三麻'}}对局记录，录分后这里会自动填入</text>
+    </view>
 
-      <!-- 我的称号（不分模式） -->
-      <view class="mj-card title-card" wx:if="{{myTitles.length}}">
-        <view class="title-card-head">我的称号<text class="title-count">×{{myTitles.length}}</text></view>
-        <view class="title-list">
-          <view class="title-badge-wrap" wx:for="{{myTitles}}" wx:key="key">
-            <image class="title-badge" src="{{item.img}}" mode="widthFix" />
-            <text class="title-badge-count" wx:if="{{item.count > 1}}">×{{item.count}}</text>
-            <!-- 主称号高亮标记 + 设置按钮 -->
-            <view class="title-main-badge" wx:if="{{mainTitle && mainTitle.key === item.key}}">★展示</view>
-            <text class="title-set-main" data-key="{{item.key}}" bindtap="setMainTitle" wx:if="{{!mainTitle || mainTitle.key !== item.key}}">设为展示</text>
-          </view>
+    <!-- 顺位达成次数：三麻只有 1~3 位，不硬塞一个恒为 0 的四位率 -->
+    <!-- 没有对局时也照常渲染，数值显示 --，让用户看得到有哪些指标 -->
+    <view class="rate-grid">
+      <view class="rate-box rate-1"><view class="rate-name">一位率</view><view class="rate-val">{{cur.games ? cur.rankRates[1] + '%' : '--'}}</view><view class="rate-sub">（{{cur.rankCounts[1] || 0}}回）</view></view>
+      <view class="rate-box rate-2"><view class="rate-name">二位率</view><view class="rate-val">{{cur.games ? cur.rankRates[2] + '%' : '--'}}</view><view class="rate-sub">（{{cur.rankCounts[2] || 0}}回）</view></view>
+      <view class="rate-box rate-3"><view class="rate-name">三位率</view><view class="rate-val">{{cur.games ? cur.rankRates[3] + '%' : '--'}}</view><view class="rate-sub">（{{cur.rankCounts[3] || 0}}回）</view></view>
+      <view class="rate-box rate-4" wx:if="{{statsTab === 'four'}}"><view class="rate-name">四位率</view><view class="rate-val">{{cur.games ? cur.rankRates[4] + '%' : '--'}}</view><view class="rate-sub">（{{cur.rankCounts[4] || 0}}回）</view></view>
+    </view>
+
+    <!-- 我的称号（不分模式） -->
+    <view class="mj-card title-card" wx:if="{{myTitles.length}}">
+      <view class="title-card-head">我的称号<text class="title-count">×{{myTitles.length}}</text></view>
+      <view class="title-list">
+        <view class="title-badge-wrap" wx:for="{{myTitles}}" wx:key="key">
+          <image class="title-badge" src="{{item.img}}" mode="widthFix" />
+          <text class="title-badge-count" wx:if="{{item.count > 1}}">×{{item.count}}</text>
+          <!-- 主称号高亮标记 + 设置按钮 -->
+          <view class="title-main-badge" wx:if="{{mainTitle && mainTitle.key === item.key}}">★展示</view>
+          <text class="title-set-main" data-key="{{item.key}}" bindtap="setMainTitle" wx:if="{{!mainTitle || mainTitle.key !== item.key}}">设为展示</text>
         </view>
       </view>
-      <view class="mj-card title-card title-card-empty" wx:else>
-        <view class="title-card-head">我的称号</view>
-        <view class="title-empty">胡出役满后找管理员领取称号</view>
-      </view>
+    </view>
+    <view class="mj-card title-card title-card-empty" wx:else>
+      <view class="title-card-head">我的称号</view>
+      <view class="title-empty">胡出役满后找管理员领取称号</view>
+    </view>
 
-      <!-- 其他统计 -->
-      <view class="rate-grid">
-        <view class="rate-box plain"><view class="rate-name">末位率</view><view class="rate-val">{{cur.flyRate}}%</view></view>
-        <view class="rate-box plain"><view class="rate-name">最高点数</view><view class="rate-val">{{cur.maxPoints != null ? cur.maxPoints : '--'}}</view></view>
-        <view class="rate-box plain"><view class="rate-name">平均顺位</view><view class="rate-val">{{cur.avgRank != null ? cur.avgRank : '--'}}</view></view>
-        <view class="rate-box plain"><view class="rate-name">平均点数</view><view class="rate-val">{{cur.avgPoints != null ? cur.avgPoints : '--'}}</view></view>
-      </view>
+    <!-- 其他统计 -->
+    <view class="rate-grid">
+      <view class="rate-box plain"><view class="rate-name">末位率</view><view class="rate-val">{{cur.games ? cur.flyRate + '%' : '--'}}</view></view>
+      <view class="rate-box plain"><view class="rate-name">最高点数</view><view class="rate-val">{{cur.maxPoints != null ? cur.maxPoints : '--'}}</view></view>
+      <view class="rate-box plain"><view class="rate-name">平均顺位</view><view class="rate-val">{{cur.avgRank != null ? cur.avgRank : '--'}}</view></view>
+      <view class="rate-box plain"><view class="rate-name">平均点数</view><view class="rate-val">{{cur.avgPoints != null ? cur.avgPoints : '--'}}</view></view>
+    </view>
 
-      <!-- 最近对局顺位趋势 -->
-      <view class="mj-card trend-card">
-        <view class="trend-head">
-          <text class="trend-title">最近对局顺位趋势</text>
-          <view class="trend-range">
-            <text class="range-btn {{trendRange === 10 ? 'range-active' : ''}}" data-range="10" bindtap="switchTrendRange">10局</text>
-            <text class="range-btn {{trendRange === 20 ? 'range-active' : ''}}" data-range="20" bindtap="switchTrendRange">20局</text>
-          </view>
+    <!-- 最近对局顺位趋势 -->
+    <view class="mj-card trend-card">
+      <view class="trend-head">
+        <text class="trend-title">最近对局顺位趋势</text>
+        <view class="trend-range">
+          <text class="range-btn {{trendRange === 10 ? 'range-active' : ''}}" data-range="10" bindtap="switchTrendRange">10局</text>
+          <text class="range-btn {{trendRange === 20 ? 'range-active' : ''}}" data-range="20" bindtap="switchTrendRange">20局</text>
         </view>
-        <view class="trend-grid">
-          <view class="trend-row" wx:for="{{trendRows}}" wx:key="rank" wx:for-item="row">
-            <text class="trend-rank-label">{{row.rank}}位</text>
-            <view class="trend-cells">
-              <view wx:for="{{row.cells}}" wx:key="index" wx:for-item="cell" wx:for-index="ci"
-                    class="trend-cell {{cell.filled ? 'c' + cell.rank : ''}}">
-                <text wx:if="{{cell.filled}}">{{cell.rank}}</text>
-              </view>
+      </view>
+      <view class="trend-grid">
+        <view class="trend-row" wx:for="{{trendRows}}" wx:key="rank" wx:for-item="row">
+          <text class="trend-rank-label">{{row.rank}}位</text>
+          <view class="trend-cells">
+            <view wx:for="{{row.cells}}" wx:key="index" wx:for-item="cell" wx:for-index="ci"
+                  class="trend-cell {{cell.filled ? 'c' + cell.rank : ''}}">
+              <text wx:if="{{cell.filled}}">{{cell.rank}}</text>
             </view>
           </view>
         </view>
       </view>
-    </block>
-
-    <view wx:else class="mj-card empty-card">
-      <text>还没有{{statsTab === 'four' ? '四麻' : '三麻'}}对局记录</text>
     </view>
 
     <!-- 全部对局入口 -->

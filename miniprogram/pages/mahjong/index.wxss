@@ -295,6 +295,14 @@
   color: #8aa7c2;
   font-size: 28rpx;
 }
+/* 无对局时的说明行：不占卡片，避免在页面中段多插一块白底，
+   挡住下面本就存在的指标骨架 */
+.stats-hint {
+  text-align: center;
+  color: #8aa7c2;
+  font-size: 24rpx;
+  padding: 0 0 20rpx;
+}
 
 /* ---------- 按钮 ---------- */
 .mj-btn {

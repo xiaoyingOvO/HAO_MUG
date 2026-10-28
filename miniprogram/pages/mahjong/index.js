@@ -2,6 +2,32 @@
 import cloudFcn from '../../cloudFcn.js';
 import { decorateTitles, getTitle } from '../../utils/mahjongTitles.js';
 
+/**
+ * 空模式数据。结构与云函数 getMyStatsMain 里 buildMode() 的返回保持一致。
+ * 页面骨架始终渲染，没数据时靠这个占位 —— 否则新用户进来只能看到一句
+ * 「还没有对局记录」，连有哪些指标都不知道，像个坏页面。
+ */
+function emptyModeStats(mode) {
+  const three = mode === 'three';
+  const topRank = three ? 3 : 4;
+  const rankCounts = { 1: 0, 2: 0, 3: 0, 4: 0 };
+  const rankRates = {};
+  for (let r = 1; r <= topRank; r++) rankRates[r] = 0;
+  return {
+    mode: three ? 'three' : 'four',
+    topRank,
+    games: 0,
+    rankCounts,
+    rankRates,
+    flyRate: 0,
+    avgRank: null,
+    avgPoints: null,
+    maxPoints: null,
+    power: null,
+    recent: [],
+  };
+}
+
 Page({
   data: {
     activeTab: 'stats',   // 'stats' 我的战绩 | 'rank' 排行榜 | 'games' 全部对局
@@ -10,9 +36,10 @@ Page({
 
     /* ---------- 我的战绩（三麻四麻分开） ---------- */
     statsTab: 'four',     // 'four' 四麻 | 'three' 三麻
-    hasStats: false,      // 当前模式是否打过局
     stats: null,          // 云端原始返回 { coin, modes, titles }
-    cur: null,            // 当前模式的数据（stats.modes[statsTab]）
+    // 当前模式的数据（stats.modes[statsTab]）。初值是空结构而非 null，
+    // 保证首屏（云函数还没回来时）就能把整页骨架画出来，不会闪一下再长出来
+    cur: emptyModeStats('four'),
     coin: 0,              // 麻币（三麻四麻合并结算的一个账户）
     myTitles: [],         // 我的称号（已装饰，含 img；不分模式）
     mainTitle: null,      // 用户设置的展示称号（{key,name,img,count} 或 null）
@@ -74,9 +101,10 @@ Page({
       const stats = res.result && res.result.data;
       if (!stats || !stats.modes) {
         this.setData({
-          hasStats: false, stats: null, cur: null, coin: 0,
-          myTitles: [], mainTitle: null, trendRows: [],
+          stats: null, cur: emptyModeStats(this.data.statsTab), coin: 0,
+          myTitles: [], mainTitle: null,
         });
+        this.buildTrend();
         return;
       }
 
@@ -91,12 +119,12 @@ Page({
         if (found) mainTitle = found;
       }
 
-      const cur = stats.modes[this.data.statsTab] || stats.modes.four;
+      const tab = this.data.statsTab;
+      const cur = stats.modes[tab] || emptyModeStats(tab);
       this.setData({
         stats,
         cur,
         coin: stats.coin || 0,
-        hasStats: !!(cur && cur.games),
         myTitles,
         mainTitle,
       });
@@ -111,11 +139,9 @@ Page({
     const tab = e.currentTarget.dataset.tab;
     if (!tab || tab === this.data.statsTab) return;
     const modes = this.data.stats && this.data.stats.modes;
-    const cur = modes ? modes[tab] : null;
     this.setData({
       statsTab: tab,
-      cur: cur || null,
-      hasStats: !!(cur && cur.games),
+      cur: (modes && modes[tab]) || emptyModeStats(tab),
     });
     this.buildTrend();
   },
@@ -244,7 +270,7 @@ Page({
     if (tab === this.data.activeTab) return;
     this.setData({ activeTab: tab });
     if (tab === 'stats') {
-      if (this.data.hasStats) this.buildTrend();
+      this.buildTrend();
     } else if (tab === 'rank' && !this.data.rankData.coin.length) {
       this.loadRanking();
     }
