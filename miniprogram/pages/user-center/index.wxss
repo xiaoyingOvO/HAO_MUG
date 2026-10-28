@@ -125,25 +125,6 @@ page {
   border: none;
 }
 
-/* 右下角角标：140 - 44 = 96rpx。pointer-events:none 让点击穿透到按钮 */
-.user-card__avatar-badge {
-  position: absolute;
-  left: 96rpx;
-  top: 96rpx;
-  z-index: 3;
-  pointer-events: none;
-  width: 44rpx;
-  height: 44rpx;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.55);
-  border: 2rpx solid rgba(255, 255, 255, 0.9);
-  color: #fff;
-  font-size: 22rpx;
-  line-height: 40rpx;
-  text-align: center;
-  box-sizing: border-box;
-}
-
 .user-card__info {
   flex: 1;
   min-width: 0;

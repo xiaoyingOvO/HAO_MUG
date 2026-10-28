@@ -16,7 +16,6 @@
           bindchooseavatar="onChooseAvatar"
           hover-class="none"
         ></button>
-        <view class="user-card__avatar-badge">改</view>
       </view>
       <!-- 用户信息区域 -->
       <view class="user-card__info">
