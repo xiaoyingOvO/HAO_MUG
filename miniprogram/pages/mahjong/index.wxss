@@ -269,6 +269,9 @@
 .trend-cells {
   flex: 1;
   display: flex;
+  /* 圆有最大直径后行宽会有剩余，靠 space-between 摊开，
+     否则 10 局时整排挤在左边、右边空一大块 */
+  justify-content: space-between;
   gap: 10rpx;
 }
 /* 20 局时格子窄，间距同步收一点，否则圆小得只剩点、间隙却比圆还大 */
@@ -276,15 +279,27 @@
 .trend-cell {
   flex: 1;
   min-width: 0;
+  /* 行高固定：10 局和 20 局的圆直径本来不同，但每行高度必须一致，
+     否则在 10/20 局之间切换时会看到整张卡片高度跳一下 */
+  height: 40rpx;
+  /* 圆的最大直径 = 行高。格子更宽（10 局）时不再继续放大，
+     多出来的空间交给 space-between 分配 */
+  max-width: 40rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   position: relative;
 }
 /* 高度必须跟着宽度走，否则 border-radius: 50% 画出来的是椭圆。
    padding-top 的百分比相对「包含块宽度」计算，伪元素宽度又等于格子宽度，
    所以 padding-top: 100% 得到的就是正方形 —— 这是纯 CSS 做自适应正圆
-   的常规写法，比 aspect-ratio 兼容性好（老 iOS WebView 不认后者）。 */
+   的常规写法，比 aspect-ratio 兼容性好（老 iOS WebView 不认后者）。
+   格子有固定行高，圆靠 align-items 垂直居中，直径小于行高也不影响行高。 */
 .trend-cell::before {
   content: '';
   display: block;
+  flex: none;
+  width: 100%;
   padding-top: 100%;
   border-radius: 50%;
   background: #eef5fb;
