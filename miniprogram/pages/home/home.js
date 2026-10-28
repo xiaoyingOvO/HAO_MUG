@@ -250,22 +250,44 @@ Page({
   //   forceRefresh=true 时跳过本地缓存（下拉刷新、入店/离店等需要最新数据的场景用）
   async getEnterInfo(forceRefresh) {
     // 命中缓存（3 秒内）→ 直接套用，不再打云函数
+    //   注意：不传 t0/t1，避免用 3 秒前的 serverNow 去校准现在的时钟（那样会凭空偏 3 秒）
     if (!forceRefresh && _enterInfoCache &&
         Date.now() - _enterInfoCache.ts < ENTER_INFO_CACHE_MS) {
       this.applyEnterInfo(_enterInfoCache.data)
       return Promise.resolve()
     }
+    // 记录请求往返区间，用来抵消一半网络延迟（见 applyEnterInfo 里的时钟校准）
+    const t0 = Date.now()
     return cloudFcn.getEnterInfo().then(res => {
       if (!res.result.success) return Promise.reject(res)
 
+      const t1 = Date.now()
       var data = res.result.data
-      _enterInfoCache = { data, ts: Date.now() }   // 写缓存
-      this.applyEnterInfo(data)
+      _enterInfoCache = { data, ts: t1 }   // 写缓存
+      this.applyEnterInfo(data, t0, t1)
     }).catch(console.error)
   },
 
+  // 校准后的「当前时间」：手机时钟 + 与服务器的偏移量。
+  //   偏移量在拿到 getEnterInfo 的 serverNow 时更新一次；
+  //   没拿到（老版本云函数 / 缓存命中）时偏移为 0，退化成 Date.now()，行为与改动前一致。
+  _now() {
+    return Date.now() + (this._serverOffset || 0)
+  },
+
   // 把入店状态数据套用到页面（getEnterInfo 缓存命中/网络返回都走这里）
-  applyEnterInfo(data) {
+  //   t0 / t1：本次请求的发出与收到时刻（毫秒）。只有真实请求才传，
+  //   用于把「服务器时间 - 服务器时间」的偏移对齐到往返中点。
+  applyEnterInfo(data, t0, t1) {
+    // 时钟校准：入店时间是服务器写的，页面却用手机时钟去减，两边不同源就会出现
+    // 「越看越差几秒」。这里记录一次偏移，之后所有当前时间都用 _now()。
+    //   用往返中点而不是收到时刻：serverNow 是服务器处理请求那一刻的时间，
+    //   若直接用 Date.now() 相减，会把这趟网络延迟整个算成偏差。
+    if (data && typeof data.serverNow === 'number' && data.serverNow > 0 &&
+        typeof t0 === 'number' && typeof t1 === 'number' && t1 >= t0) {
+      const localAtServer = t0 + (t1 - t0) / 2
+      this._serverOffset = data.serverNow - localAtServer
+    }
     remainPoint = (data.real_point ?? 0) + (data.extra_point ?? 0)
     var businessStatus = data.business_status ?? true
     var relaxNum = data.relax_num ?? 0
@@ -284,7 +306,7 @@ Page({
       ['woStatus.area']: area,
       ['woStatus.areaName']: area === 'board' ? '桌游区' : '音游区',
       ['woStatus.enterTime.time']: time,
-      ['woStatus.enterTime.show']: calcEnterTime(time) // 在店时长（首次渲染，避免空白）
+      ['woStatus.enterTime.show']: calcEnterTime(time, this._now()) // 在店时长（首次渲染，避免空白）
     })
     // 先清旧定时器，再起新的（避免重复计时）
     this.stopEnterTimer()
@@ -323,7 +345,9 @@ Page({
       }
 
       let time = that.data.woStatus.enterTime.time
-      let nowTime = new Date().getTime()
+      // 用校准后的当前时间（手机时钟 + 与服务器的偏移），否则手机时钟的秒级偏差
+      // 会原样体现在「已入店时长」上
+      let nowTime = that._now()
       // 基准时间无效（0 / NaN）说明数据还没到，跳过这一拍，别显示成 00:00 或乱码
       if (!time || isNaN(time)) return
 

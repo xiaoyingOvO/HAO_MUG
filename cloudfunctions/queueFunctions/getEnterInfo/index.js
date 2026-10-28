@@ -60,6 +60,11 @@ exports.main = async (event, context) => {
   res.play_num = res.board_num + res.arcade_num
   res.business_status = business_status
   res.area = res.area === 'board' ? 'board' : 'arcade'
+  // 服务器当前时间（毫秒）。入店时间是本函数同环境的服务器时钟写的，
+  // 而页面每秒用手机时钟去减 —— 两个时钟不同源，手机慢/快几秒、iOS 后台
+  // 自动校时跳变，都会让「已入店时长」出现秒级偏差。
+  // 把这个值带给前端，让它算一个偏移量再显示，两边就对齐了。
+  res.serverNow = Date.now()
   return {
     success: true,
     data: res,
