@@ -156,10 +156,17 @@
 /* ---------- 我的称号 ---------- */
 .title-card { padding: 24rpx 28rpx; }
 .title-card-head {
+  display: flex;
+  align-items: baseline;      /* 标题 / 种数 / 次数 字号不同，按基线对齐才不会高低错位 */
   font-size: 30rpx;
   font-weight: 600;
   color: #3d5871;
   margin-bottom: 20rpx;
+}
+.title-head-label {
+  font-size: 30rpx;
+  font-weight: 600;
+  color: #3d5871;
 }
 .title-list {
   display: flex;
@@ -216,10 +223,17 @@
   border: 1rpx solid #6fb0e6;
 }
 .title-count {
-  margin-left: 12rpx;
+  margin-left: 14rpx;
   font-size: 26rpx;
   color: #6fb0e6;
   font-weight: 600;
+}
+/* 「· 共 N 次」比种类数弱一档，避免两个数字抢注意力 */
+.title-count-sub {
+  margin-left: 6rpx;
+  font-size: 24rpx;
+  color: #8aa6bf;
+  font-weight: 500;
 }
 .title-empty {
   color: #aabfd2;

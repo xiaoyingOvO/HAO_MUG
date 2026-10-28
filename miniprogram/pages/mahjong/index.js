@@ -42,6 +42,8 @@ Page({
     cur: emptyModeStats('four'),
     coin: 0,              // 麻币（三麻四麻合并结算的一个账户）
     myTitles: [],         // 我的称号（已装饰，含 img；不分模式）
+    titleKinds: 0,        // 称号种类数（= myTitles.length，单独存一份供模板用）
+    titleTotal: 0,        // 称号累计获得次数（各称号 count 求和）
     mainTitle: null,      // 用户设置的展示称号（{key,name,img,count} 或 null）
     trendRange: 10,       // 趋势图显示 10 / 20 局
     trendRows: [],        // [{rank:1, cells:[{filled, rank}]}]（行数随模式：四麻 4 行、三麻 3 行）
@@ -102,7 +104,7 @@ Page({
       if (!stats || !stats.modes) {
         this.setData({
           stats: null, cur: emptyModeStats(this.data.statsTab), coin: 0,
-          myTitles: [], mainTitle: null,
+          myTitles: [], titleKinds: 0, titleTotal: 0, mainTitle: null,
         });
         this.buildTrend();
         return;
@@ -110,6 +112,9 @@ Page({
 
       // 称号不分三麻四麻，一次拿到即可
       const myTitles = decorateTitles(stats.titles);
+      // 种类数 / 总获得次数：重复发放会累加 count，两个数含义不同，要分开算
+      const titleKinds = myTitles.length;
+      const titleTotal = myTitles.reduce((sum, t) => sum + (Number(t.count) || 1), 0);
       // 从 userInfo 拿 display_title，匹配到我的称号列表里
       const userRes = await cloudFcn.getUsrInfo();
       const displayTitleKey = userRes.result?.data?.display_title;
@@ -126,6 +131,8 @@ Page({
         cur,
         coin: stats.coin || 0,
         myTitles,
+        titleKinds,
+        titleTotal,
         mainTitle,
       });
       this.buildTrend();
