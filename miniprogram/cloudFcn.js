@@ -416,6 +416,38 @@ const mahjongDeleteGame = async function(params) {
   })
 }
 
+// 管理员修改历史对局（日期 / 各玩家点数）
+const mahjongUpdateGame = async function(params) {
+  return wx.cloud.callFunction({
+    name: 'baseFunctions',
+    data: {
+      type: 'mahjongUpdateGame',
+      params
+    }
+  })
+}
+
+// 取单局详情（编辑页回填）
+const mahjongGetGameDetail = async function(params) {
+  return wx.cloud.callFunction({
+    name: 'baseFunctions',
+    data: {
+      type: 'mahjongGetGameDetail',
+      params
+    }
+  })
+}
+
+// 管理员全量重建玩家统计（兜底用）
+const mahjongRebuildStats = async function() {
+  return wx.cloud.callFunction({
+    name: 'baseFunctions',
+    data: {
+      type: 'mahjongRebuildStats'
+    }
+  })
+}
+
 /**
  * 点数充值
  *
@@ -498,6 +530,9 @@ export default {
   mahjongRevokeTitle,
   mahjongGetPlayerTitles,
   mahjongDeleteGame,
+  mahjongUpdateGame,
+  mahjongGetGameDetail,
+  mahjongRebuildStats,
   createPointOrder,
   queryPointOrder,
   getPointPayStatus

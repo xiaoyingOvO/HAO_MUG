@@ -81,8 +81,12 @@ Page({
   },
 
   async refresh() {
-    this.setData({ loading: true });
+    this.setData({ loading: true, gamesLoaded: false });
     await Promise.all([this.loadMyStats(), this.loadRanking(), this.loadMyRole()]);
+    // 正停在「全部对局」页时直接重拉，否则等下次切过去再拉
+    if (this.data.activeTab === 'games') {
+      await this.loadGames(false);
+    }
     this.setData({ loading: false });
   },
 
@@ -284,6 +288,15 @@ Page({
         }
       },
     });
+  },
+
+  // 管理员修改一局（只能改日期和点数，不能换人）
+  editGame(e) {
+    if (!this.data.isAdmin) return;
+    const gameId = e.currentTarget.dataset.id;
+    if (!gameId) return;
+    wx.navigateTo({ url: '/pages/mahjong/record?game_id=' + gameId });
+    this._needRefresh = true;
   },
 
   /* ================= 交互 ================= */

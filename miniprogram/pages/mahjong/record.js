@@ -33,13 +33,60 @@ Page({
     searching: false,
 
     submitting: false,
+
+    // 编辑模式：从「对局记录」里点「修改」带 game_id 进来
+    // 只允许改日期和点数，不允许换人（换人 = 删了重建，且原/新玩家统计都要动）
+    editMode: false,
+    gameId: '',
+    loading: false,
   },
 
-  onLoad() {
+  onLoad(options) {
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    this.setData({ today, game_date: today });
+    const gameId = (options && options.game_id) || '';
+    this.setData({ today, game_date: today, editMode: !!gameId, gameId });
+    if (gameId) {
+      wx.setNavigationBarTitle({ title: '修改对局' });
+      this.loadGameDetail(gameId);
+    }
     this.checkAdmin();
+  },
+
+  /** 编辑模式：按 _id 取回这一局，回填日期与四个点数 */
+  async loadGameDetail(gameId) {
+    this.setData({ loading: true });
+    try {
+      const res = await cloudFcn.mahjongGetGameDetail({ game_id: gameId });
+      const r = res.result || {};
+      if (!r.success || !r.data) {
+        wx.showModal({
+          title: '打不开这局',
+          content: r.errMsg || '对局不存在或已被删除',
+          showCancel: false,
+          success: () => wx.navigateBack(),
+        });
+        return;
+      }
+      const g = r.data;
+      const slots = [null, null, null, null];
+      (g.players || []).forEach((p, i) => {
+        if (i > 3) return;
+        slots[i] = {
+          openid: p.openid,
+          nickname: p.nickname,
+          avatar: p.avatar,
+          points: String(p.points),
+        };
+      });
+      this.setData({ game_date: g.game_date || this.data.game_date, slots });
+      this.updateTotal();
+    } catch (e) {
+      console.error('加载对局详情失败', e);
+      wx.showToast({ title: '加载失败，请重试', icon: 'none' });
+    } finally {
+      this.setData({ loading: false });
+    }
   },
 
   // 校验管理员身份（与 admin 页一致的 role 字段）
@@ -65,6 +112,10 @@ Page({
 
   /* ---------- 玩家搜索与选择 ---------- */
   startSearch(e) {
+    if (this.data.editMode) {
+      wx.showToast({ title: '修改对局不能换人', icon: 'none' });
+      return;
+    }
     const index = Number(e.currentTarget.dataset.index);
     this.setData({ searchIndex: index, keyword: '', suggestions: [] });
   },
@@ -113,6 +164,10 @@ Page({
   },
 
   removePlayer(e) {
+    if (this.data.editMode) {
+      wx.showToast({ title: '修改对局不能换人', icon: 'none' });
+      return;
+    }
     const index = Number(e.currentTarget.dataset.index);
     const slots = this.data.slots.slice();
     slots[index] = null;
@@ -223,35 +278,60 @@ Page({
     // 合计也放进确认框：这是最后一次能发现「少打一位数字」的机会
     preview += `\n合计 ${totalPoints} / ${expectedTotal}`;
 
+    const isEdit = this.data.editMode;
     const confirmed = await new Promise((resolve) => {
       wx.showModal({
-        title: `将记为【${modeLabel}】${filled.length} 人`,
-        content: preview.trim(),
-        confirmText: '确认录入',
+        title: isEdit
+          ? `改为【${modeLabel}】${filled.length} 人`
+          : `将记为【${modeLabel}】${filled.length} 人`,
+        content: preview.trim() + (isEdit ? '\n\n保存后这几位玩家的战绩与麻币会按新结果重算。' : ''),
+        confirmText: isEdit ? '确认修改' : '确认录入',
         success: (r) => resolve(!!r.confirm),
         fail: () => resolve(false),
       });
     });
     if (!confirmed) return;
 
+    const payload = {
+      game_date,
+      players: filled.map(s => ({ openid: s.openid, points: Number(s.points) })),
+    };
+
     this.setData({ submitting: true });
     try {
-      const res = await cloudFcn.mahjongAddGame({
-        game_date,
-        players: filled.map(s => ({ openid: s.openid, points: Number(s.points) })),
-      });
+      const res = isEdit
+        ? await cloudFcn.mahjongUpdateGame({ game_id: this.data.gameId, ...payload })
+        : await cloudFcn.mahjongAddGame(payload);
       const r = res.result || {};
       if (r.success) {
-        wx.showToast({ title: '录入成功', icon: 'success' });
-        setTimeout(() => wx.navigateBack(), 800);
+        if (r.warn) {
+          // 主体改成功了，只是统计没同步干净，必须让管理员看到
+          wx.showModal({
+            title: isEdit ? '已修改' : '已录入',
+            content: r.warn,
+            showCancel: false,
+            success: () => wx.navigateBack(),
+          });
+        } else {
+          wx.showToast({ title: isEdit ? '已修改' : '录入成功', icon: 'success' });
+          setTimeout(() => wx.navigateBack(), 800);
+        }
       } else {
-        wx.showModal({ title: '录入失败', content: r.errMsg || '未知错误', showCancel: false });
+        wx.showModal({
+          title: isEdit ? '修改失败' : '录入失败',
+          content: r.errMsg || '未知错误',
+          showCancel: false,
+        });
         // 权限失败时同步更新本地状态
         if (r.errMsg && r.errMsg.indexOf('权限') >= 0) this.setData({ isAdmin: false });
       }
     } catch (e) {
-      console.error('录入对局异常', e);
-      wx.showModal({ title: '录入失败', content: '网络异常，请重试', showCancel: false });
+      console.error('提交对局异常', e);
+      wx.showModal({
+        title: isEdit ? '修改失败' : '录入失败',
+        content: '网络异常，请重试',
+        showCancel: false,
+      });
     } finally {
       this.setData({ submitting: false });
     }

@@ -493,9 +493,28 @@
   align-items: center;
   margin-bottom: 12rpx;
 }
+.game-left { display: flex; align-items: center; }
+.game-mode {
+  font-size: 22rpx;
+  padding: 2rpx 12rpx;
+  margin-right: 12rpx;
+  border-radius: 6rpx;
+  background: #eef5fb;
+  color: #6fb0e6;
+}
+.game-mode-three { background: #eaf6ef; color: #4fa877; }
 .game-date {
   font-size: 26rpx;
   color: #8aa7c2;
+}
+.game-ops { display: flex; align-items: center; }
+.game-edit {
+  font-size: 24rpx;
+  color: #6fb0e6;
+  padding: 4rpx 16rpx;
+  margin-right: 12rpx;
+  border: 1rpx solid #b8d8f0;
+  border-radius: 24rpx;
 }
 .game-del {
   font-size: 24rpx;

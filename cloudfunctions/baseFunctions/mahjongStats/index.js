@@ -9,6 +9,7 @@ const db_cmd = db.command;
 const db_game = 'mahjong_game';
 const db_user = 'user';
 const db_title = 'mahjong_title';
+const db_player = 'mahjong_player';   // 玩家统计汇总（一人一条，_id = openid）
 
 // 合法称号 key 白名单（与前端 utils/mahjongTitles.js 保持一致）
 const VALID_TITLE_KEYS = [
@@ -61,48 +62,224 @@ function normalizeMode(game) {
   return game && game.mode === 'three' ? 'three' : 'four';
 }
 
+/**
+ * 日期合法性。只校验 `${yyyy}-${mm}-${dd}` 的格式是不够的：
+ * 2026-13-99 照样能过正则，而 game_date 参与字符串排序，
+ * 一条这种数据会把整条时间轴排错，麻币的顺序也就跟着错。
+ */
+function isValidDate(str) {
+  const s = String(str || '');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const parts = s.split('-').map(Number);
+  const y = parts[0], mo = parts[1], d = parts[2];
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return false;
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
+}
+
+/**
+ * 顺位计算：点数降序，同分同名次（竞赛排名，跳过后续名次）。
+ *   例：80/80/40/10 → 1,1,3,4
+ * 录分和改分共用这一份，避免两处口径走偏。
+ */
+function computeRankMap(list) {
+  const sorted = list.slice().sort((a, b) => b.points - a.points);
+  const rankMap = {};
+  sorted.forEach((p, idx) => {
+    if (idx > 0 && p.points === sorted[idx - 1].points) {
+      rankMap[p.openid] = rankMap[sorted[idx - 1].openid];   // 同分同名次
+    } else {
+      rankMap[p.openid] = idx + 1;
+    }
+  });
+  return rankMap;
+}
+
 function calcPower(mode, games, rankSum) {
   if (!games) return null;
   const avgRank = rankSum / games;
   return Math.round(POWER_BASE + (POWER_BASE_RANK[mode] - avgRank) * POWER_COEF);
 }
 
-/**
- * 全员麻币结算。
- * gamesDesc 必须按 game_date/create_time **倒序**（数据库查询的默认顺序）。
+/* ============================================================
+ * 玩家统计汇总（集合 mahjong_player，一人一条，_id = openid）
  *
- * 麻币是三麻四麻**统一**计算的一个账户（它本质是积分，玩家只关心总额），
- * 但结算必须逐局钳制在 0：余额为 0 时输一局是「扣不动」，不是先欠 1 分。
- * 所以要把倒序列表反转成正序再推进。
- */
-function computeCoinBalances(gamesDesc) {
-  const bal = {};
-  gamesDesc.slice().reverse().forEach(g => {
-    const table = COIN_BY_RANK[normalizeMode(g)];
-    (g.players || []).forEach(p => {
-      if (!p.openid) return;
-      const delta = table[Number(p.rank)];
-      if (delta === undefined) return;   // 脏顺位（如 5 位）跳过，不让一条坏数据拖垮整榜
-      bal[p.openid] = Math.max(0, (bal[p.openid] || 0) + delta);
-    });
-  });
-  return bal;
+ * 为什么要有这张表：明细 mahjong_game 只有一个集合，而云函数端单次
+ * get() 最多返回 1000 条。原来「排行榜」每次都把全表拉下来在内存里
+ * 重算，一旦总对局数超过 1000，最早的一批就被静默丢弃 —— 麻币是逐局
+ * 正序推进的，丢掉开头等于把余额基数抹成 0，真值会系统性偏低，而且
+ * 每多录一局就再挤掉一局历史，误差随时间持续漂移。
+ *
+ * 汇总表把「算」这一步从读路径挪到写路径：录分/改分/删分时更新，
+ * 读的时候直接排序返回。明细表仍然是唯一真相源，汇总表只是它的缓存，
+ * 任何时候都可以用 rebuildAllStats() 全量重来。
+ *
+ * 只存原始累加量（局数、顺位和、点数和、最大点数），**不存派生值**
+ * （平均顺位、雀力、各种比率）。雀力公式以后要调的话，派生值全部作废，
+ * 而顺位和还在，换公式重算一遍即可 —— 这是这张表能长期用下去的前提。
+ * ============================================================ */
+
+function emptyModeBox() {
+  return {
+    games: 0,                             // 该模式对局数
+    rankCounts: { 1: 0, 2: 0, 3: 0, 4: 0 }, // 各顺位次数
+    rankSum: 0,                           // 顺位和（算平均顺位、雀力用）
+    pointsSum: 0,                         // 点数和（算平均得点用）
+    maxPoints: null                       // 单局最高点
+  };
+}
+
+function emptyPlayerStat(openid) {
+  return {
+    _id: openid,
+    openid: openid,
+    four: emptyModeBox(),
+    three: emptyModeBox(),
+    coin: 0,                 // 麻币（三麻四麻统一账户）
+    gamesTotal: 0,           // 跨模式总对局数
+    lastGameDate: '',        // 已纳入统计的最新一局日期，用于判断新局是否追加
+    updated_at: new Date()
+  };
+}
+
+/** 把一局结算进某个玩家的统计（增量）。调用方保证 game 是按时间正序的下一局。 */
+function applyGameToStat(stat, game, openid) {
+  const mine = (game.players || []).find(p => p.openid === openid);
+  if (!mine) return stat;
+
+  const mode = normalizeMode(game);
+  const rank = Number(mine.rank) || 0;
+  const box = stat[mode];
+
+  box.games += 1;
+  if (rank >= 1 && rank <= 4) box.rankCounts[rank] = (box.rankCounts[rank] || 0) + 1;
+  box.rankSum += rank;
+
+  const pts = Number(mine.points) || 0;
+  box.pointsSum += pts;
+  if (box.maxPoints === null || pts > box.maxPoints) box.maxPoints = pts;
+
+  stat.gamesTotal = (stat.gamesTotal || 0) + 1;
+
+  // 麻币逐局钳制：余额为 0 时输一局是「扣不动」，不是先欠 1 分
+  const delta = COIN_BY_RANK[mode][rank];
+  if (delta !== undefined) stat.coin = Math.max(0, (stat.coin || 0) + delta);
+
+  const date = game.game_date || '';
+  if (date > (stat.lastGameDate || '')) stat.lastGameDate = date;
+
+  stat.updated_at = new Date();
+  return stat;
+}
+
+/** 从该玩家的全部对局（倒序）一次性算出完整统计 */
+function summarizePlayer(openid, gamesDesc) {
+  const stat = emptyPlayerStat(openid);
+  // 麻币有顺序依赖，必须从最早一局往最新一局推进
+  for (let i = gamesDesc.length - 1; i >= 0; i -= 1) {
+    applyGameToStat(stat, gamesDesc[i], openid);
+  }
+  stat.lastGameDate = gamesDesc.length ? (gamesDesc[0].game_date || '') : '';
+  return stat;
+}
+
+/** 分页拉某个玩家的全部对局（倒序）。云函数单次上限 1000 条。 */
+async function fetchAllGamesOfPlayer(openid) {
+  const PAGE = 1000;
+  const out = [];
+  for (let skip = 0; skip < 50000; skip += PAGE) {
+    const res = await db.collection(db_game)
+      .where({ 'players.openid': openid })
+      .orderBy('game_date', 'desc').orderBy('create_time', 'desc')
+      .skip(skip).limit(PAGE).get();
+    const list = res.data || [];
+    out.push.apply(out, list);
+    if (list.length < PAGE) break;
+  }
+  return out;
+}
+
+/** 分页拉全表对局（倒序），仅重建时使用 */
+async function fetchAllGames() {
+  const PAGE = 1000;
+  const out = [];
+  for (let skip = 0; skip < 50000; skip += PAGE) {
+    const res = await db.collection(db_game)
+      .orderBy('game_date', 'desc').orderBy('create_time', 'desc')
+      .skip(skip).limit(PAGE).get();
+    const list = res.data || [];
+    out.push.apply(out, list);
+    if (list.length < PAGE) break;
+  }
+  return out;
+}
+
+async function getPlayerStat(openid) {
+  const res = await db.collection(db_player).where({ openid: openid }).limit(1).get();
+  return (res.data && res.data[0]) || null;
+}
+
+async function savePlayerStat(stat) {
+  const doc = Object.assign({}, stat);
+  delete doc._id;                    // _id 由 doc(openid) 指定，不能出现在 data 里
+  await db.collection(db_player).doc(stat.openid).set({ data: doc });
+}
+
+/** 重算单个玩家（删局、改分、补录历史局之后用） */
+async function rebuildPlayerStat(openid) {
+  const games = await fetchAllGamesOfPlayer(openid);
+  const stat = summarizePlayer(openid, games);
+  await savePlayerStat(stat);
+  return stat;
 }
 
 /**
- * 单个玩家的麻币结算，口径与 computeCoinBalances 完全一致。
- * 个人页只查到自己参与的对局就够了 —— 麻币只取决于本人每局的顺位。
+ * 全量重建：一次读完所有对局，在内存里按玩家聚合，再批量写回。
+ * 只给「首次上线回填」和「数据对不上时兜底」用，日常不走这里。
  */
-function settleCoinForPlayer(openid, gamesDesc) {
-  let bal = 0;
-  gamesDesc.slice().reverse().forEach(g => {
-    const mine = (g.players || []).find(p => p.openid === openid);
-    if (!mine) return;
-    const delta = COIN_BY_RANK[normalizeMode(g)][Number(mine.rank)];
-    if (delta === undefined) return;
-    bal = Math.max(0, bal + delta);
-  });
-  return bal;
+async function rebuildAllStats() {
+  const games = await fetchAllGames();     // 倒序
+  const map = {};
+  for (let i = games.length - 1; i >= 0; i -= 1) {
+    const g = games[i];
+    (g.players || []).forEach(p => {
+      if (!p || !p.openid) return;
+      if (!map[p.openid]) map[p.openid] = emptyPlayerStat(p.openid);
+      applyGameToStat(map[p.openid], g, p.openid);
+    });
+  }
+  const ids = Object.keys(map);
+  for (let i = 0; i < ids.length; i += 10) {
+    await Promise.all(ids.slice(i, i + 10).map(id => savePlayerStat(map[id])));
+  }
+  return ids.length;
+}
+
+/**
+ * 录分后的同步：新局一定是最新一局，可以增量；
+ * 但如果补录的是历史日期（早于该玩家已纳入统计的最新一局），
+ * 它在时间轴上不落在末尾，麻币的推进顺序会变，只能整人重算。
+ */
+async function syncStatAfterAdd(game, openid) {
+  const cur = await getPlayerStat(openid);
+  if (!cur || (game.game_date || '') < (cur.lastGameDate || '')) {
+    return await rebuildPlayerStat(openid);
+  }
+  applyGameToStat(cur, game, openid);
+  await savePlayerStat(cur);
+  return cur;
+}
+
+/**
+ * 汇总表是否为空。为空说明是首次部署（或集合被清过），
+ * 排行榜在这种情况下先全量回填一次，否则会返回空榜。
+ */
+async function ensureStatsReady() {
+  const res = await db.collection(db_player).limit(1).get();
+  if (res.data && res.data.length) return false;
+  const n = await rebuildAllStats();
+  console.log('[mahjong_player] 汇总表为空，已全量回填 %d 人', n);
+  return true;
 }
 
 // 云开发单次 in 查询上限 100，超出会直接报错，统一在这里分块
@@ -162,7 +339,7 @@ async function addGameMain(event, context) {
   const params = event.params || {};
   const game_date = params.game_date;
   const players = params.players;
-  if (!game_date || !/^\d{4}-\d{2}-\d{2}$/.test(String(game_date))) {
+  if (!isValidDate(game_date)) {
     return { success: false, errMsg: '对局日期格式错误' };
   }
   if (!Array.isArray(players) || (players.length !== 4 && players.length !== 3)) {
@@ -207,15 +384,7 @@ async function addGameMain(event, context) {
   (usersRes.data || []).forEach(u => { userInfoMap[u.openid] = u; });
 
   // 计算顺位：点数降序，同分同名次（竞赛排名）
-  const sorted = parsed.slice().sort((a, b) => b.points - a.points);
-  const rankMap = {};   // openid -> rank
-  sorted.forEach((p, idx) => {
-    if (idx > 0 && p.points === sorted[idx - 1].points) {
-      rankMap[p.openid] = rankMap[sorted[idx - 1].openid]; // 同分同名次
-    } else {
-      rankMap[p.openid] = idx + 1;
-    }
-  });
+  const rankMap = computeRankMap(parsed);
 
   const doc = {
     game_date: game_date,
@@ -234,12 +403,176 @@ async function addGameMain(event, context) {
     create_time: new Date()
   };
 
+  let gameId = '';
   try {
     const res = await db.collection(db_game).add({ data: doc });
-    return { success: true, data: { game_id: res._id } };
+    gameId = res._id;
   } catch (err) {
     console.error('录入对局失败:', err);
     return { success: false, errMsg: '录入失败，请重试' };
+  }
+
+  // 明细写成功后再同步汇总。汇总失败就把刚写入的对局删掉并报错，
+  // 保证「明细里有这局」和「统计里含这局」永远同时成立 —— 否则
+  // 明细多一局、汇总少一局，事后从数据本身看不出来。
+  try {
+    const added = Object.assign({}, doc, { _id: gameId });
+    for (let i = 0; i < doc.players.length; i += 1) {
+      await syncStatAfterAdd(added, doc.players[i].openid);
+    }
+  } catch (err) {
+    console.error('同步玩家统计失败，回滚本局:', err);
+    try {
+      await db.collection(db_game).doc(gameId).remove();
+    } catch (e2) {
+      console.error('回滚对局失败，需手动重建统计:', e2);
+      return { success: false, errMsg: '统计同步失败且回滚未完成，请到管理入口执行一次「重建统计」' };
+    }
+    return { success: false, errMsg: '统计同步失败，本局已撤销，请重试' };
+  }
+
+  return { success: true, data: { game_id: gameId } };
+}
+
+/**
+ * 修改历史对局（仅 admin / master）
+ * params: { game_id, game_date?, players?: [{ openid, points }] }
+ *
+ * 只允许改「对局日期」和「各玩家点数」，不允许换人 —— 换人等于删了重建，
+ * 而且原玩家和新玩家的统计都要动，界面上也说不清到底改了什么。要换人
+ * 请删掉这局重新录入。
+ *
+ * 改点数会改变顺位，所以这局的每一位玩家都必须整人重算，不能增量。
+ */
+async function updateGameMain(event, context) {
+  const wxContext = cloud.getWXContext();
+  const opOpenid = wxContext != null && 'OPENID' in wxContext ?
+    wxContext.OPENID : event?.params?.openid;
+  if (!opOpenid) return { success: false, errMsg: '无法获取操作者身份' };
+
+  const me = await db.collection(db_user).where({ openid: opOpenid }).get();
+  if (!me.data || me.data.length === 0) return { success: false, errMsg: '未查询到操作者信息' };
+  const role = me.data[0].role;
+  if (role !== 'admin' && role !== 'master') {
+    return { success: false, errMsg: '无权限，仅管理员可修改对局' };
+  }
+
+  const params = event.params || {};
+  const game_id = params.game_id;
+  if (!game_id) return { success: false, errMsg: '未指定对局' };
+
+  let game = null;
+  try {
+    const gRes = await db.collection(db_game).doc(game_id).get();
+    game = gRes.data;
+  } catch (err) {
+    return { success: false, errMsg: '对局不存在或已被删除' };
+  }
+  if (!game) return { success: false, errMsg: '对局不存在或已被删除' };
+
+  const oldPlayers = game.players || [];
+  if (!oldPlayers.length) return { success: false, errMsg: '这局没有玩家记录，无法修改' };
+
+  // 日期：不传就沿用原日期
+  const game_date = params.game_date || game.game_date;
+  if (!isValidDate(game_date)) {
+    return { success: false, errMsg: '对局日期格式错误' };
+  }
+
+  const mode = normalizeMode(game);
+  const expectedTotal = POINTS_TOTAL[mode];
+
+  // 点数：不传就沿用原点数（只改日期时用）
+  const pointsMap = {};
+  const submitted = Array.isArray(params.players) ? params.players : [];
+  if (submitted.length) {
+    if (submitted.length !== oldPlayers.length) {
+      return { success: false, errMsg: '不能增删玩家，只能修改点数' };
+    }
+    const oldSet = new Set(oldPlayers.map(p => p.openid));
+    const seen = new Set();
+    for (const p of submitted) {
+      const pid = p && p.openid ? String(p.openid) : '';
+      if (!pid || !oldSet.has(pid)) return { success: false, errMsg: '不能增删玩家，只能修改点数' };
+      if (seen.has(pid)) return { success: false, errMsg: '同一玩家重复出现' };
+      seen.add(pid);
+      const points = Number(p.points);
+      if (!Number.isFinite(points)) return { success: false, errMsg: '点数必须为数字' };
+      pointsMap[pid] = points;
+    }
+  } else {
+    oldPlayers.forEach(p => { pointsMap[p.openid] = Number(p.points) || 0; });
+  }
+
+  // 点数守恒：与录分同一条规则，改完也不能把总量改歪
+  const parsed = oldPlayers.map(p => ({
+    openid: p.openid,
+    nickname: p.nickname,
+    avatar: p.avatar,
+    points: pointsMap[p.openid]
+  }));
+  const totalPoints = parsed.reduce((sum, p) => sum + p.points, 0);
+  if (Math.abs(totalPoints - expectedTotal) > 0.5) {
+    const diff = totalPoints - expectedTotal;
+    return {
+      success: false,
+      errMsg: `点数合计应为 ${expectedTotal}（${mode === 'three' ? '三麻每人 35000' : '四麻每人 25000'}），` +
+        `当前 ${totalPoints}，${diff > 0 ? '多' : '少'} ${Math.abs(diff)}`
+    };
+  }
+
+  const rankMap = computeRankMap(parsed);
+  const newPlayers = parsed.map(p => ({
+    openid: p.openid,
+    nickname: p.nickname,
+    avatar: p.avatar,
+    points: p.points,
+    rank: rankMap[p.openid]
+  }));
+
+  try {
+    await db.collection(db_game).doc(game_id).update({
+      data: {
+        game_date: game_date,
+        players: newPlayers,
+        update_time: new Date(),
+        update_by: opOpenid
+      }
+    });
+  } catch (err) {
+    console.error('修改对局失败:', err);
+    return { success: false, errMsg: '修改失败，请重试' };
+  }
+
+  const failed = [];
+  for (let i = 0; i < newPlayers.length; i += 1) {
+    try {
+      await rebuildPlayerStat(newPlayers[i].openid);
+    } catch (err) {
+      console.error('重算玩家统计失败:', newPlayers[i].openid, err);
+      failed.push(newPlayers[i].openid);
+    }
+  }
+
+  return {
+    success: true,
+    data: { game_id: game_id },
+    warn: failed.length ? `${failed.length} 名玩家的统计未能同步，请执行一次「重建统计」` : ''
+  };
+}
+
+/** 取单局详情（编辑页回填用） */
+async function getGameDetailMain(event, context) {
+  const params = event.params || {};
+  const game_id = params.game_id;
+  if (!game_id) return { success: false, errMsg: '未指定对局' };
+  try {
+    const res = await db.collection(db_game).doc(game_id).get();
+    if (!res.data) return { success: false, errMsg: '对局不存在或已被删除' };
+    return { success: true, data: res.data };
+  } catch (err) {
+    console.error('查询对局详情失败:', err);
+    return { success: false, errMsg: '对局不存在或已被删除' };
   }
 }
 
@@ -266,38 +599,46 @@ async function getMyStatsMain(event, context) {
     wxContext.OPENID : event?.params?.openid;
   if (!openid) return { success: false, errMsg: '无法获取用户身份' };
 
-  let res;
+  // 读汇总表。第一次访问（新玩家、或还没回填过）时表里没有记录，就地补算一次
+  let stat = null;
   try {
-    res = await db.collection(db_game).where({
-      'players.openid': openid
-    }).orderBy('game_date', 'desc').orderBy('create_time', 'desc').limit(1000).get();
+    stat = await getPlayerStat(openid);
   } catch (err) {
-    console.error('查询对局失败:', err);
-    return { success: false, errMsg: '查询对局数据失败' };
+    console.error('读取玩家统计失败:', err);
+  }
+  if (!stat) {
+    try {
+      stat = await rebuildPlayerStat(openid);
+    } catch (err) {
+      console.error('重建玩家统计失败:', err);
+      return { success: false, errMsg: '查询战绩失败，请稍后重试' };
+    }
   }
 
-  const games = res.data || [];   // 按时间倒序
+  // 趋势图只画最近 20 格，这里取 200 条明细再按模式分配。
+  // 不能直接 where({ mode }) —— 历史对局没有 mode 字段，会被全部漏掉。
+  let recentSource = [];
+  try {
+    const rRes = await db.collection(db_game)
+      .where({ 'players.openid': openid })
+      .orderBy('game_date', 'desc').orderBy('create_time', 'desc')
+      .limit(200).get();
+    recentSource = rRes.data || [];
+  } catch (err) {
+    console.error('查询最近对局失败:', err);
+  }
 
   const buildMode = (mode) => {
-    const list = games.filter(g => normalizeMode(g) === mode);
-    const total = list.length;
+    const box = stat[mode] || emptyModeBox();
+    const total = box.games || 0;
     const topRank = mode === 'three' ? 3 : 4;
 
     const rankCounts = { 1: 0, 2: 0, 3: 0, 4: 0 };
-    let pointsSum = 0, rankSum = 0, maxPoints = null;
-    list.forEach(g => {
-      const mine = (g.players || []).find(p => p.openid === openid);
-      if (!mine) return;
-      const rank = Number(mine.rank) || 0;
-      if (rankCounts[rank] !== undefined) rankCounts[rank] += 1;
-      pointsSum += Number(mine.points) || 0;
-      rankSum += rank;
-      if (maxPoints === null || mine.points > maxPoints) maxPoints = mine.points;
-    });
+    for (let r = 1; r <= 4; r += 1) rankCounts[r] = Number((box.rankCounts || {})[r]) || 0;
 
     // 只给该模式真实存在的名次出率；三麻没有 4 位，不硬塞一个 0
     const rankRates = {};
-    for (let r = 1; r <= topRank; r++) {
+    for (let r = 1; r <= topRank; r += 1) {
       rankRates[r] = total ? +(rankCounts[r] * 100 / total).toFixed(2) : 0;
     }
 
@@ -309,20 +650,24 @@ async function getMyStatsMain(event, context) {
       rankRates: rankRates,
       // 末位率（原「被飞率」）：四麻看 4 位，三麻看 3 位，两种模式语义一致
       flyRate: total ? +(rankCounts[topRank] * 100 / total).toFixed(2) : 0,
-      avgRank: total ? +(rankSum / total).toFixed(2) : null,
-      avgPoints: total ? +(pointsSum / total).toFixed(1) : null,
-      maxPoints: total ? maxPoints : null,
-      power: calcPower(mode, total, rankSum),
+      avgRank: total ? +((box.rankSum || 0) / total).toFixed(2) : null,
+      avgPoints: total ? +((box.pointsSum || 0) / total).toFixed(1) : null,
+      maxPoints: total ? box.maxPoints : null,
+      power: calcPower(mode, total, box.rankSum || 0),
       // 最近 20 局，从旧到新（最新在右），与趋势图方向一致
-      recent: list.slice(0, 20).reverse().map(g => {
-        const mine = (g.players || []).find(p => p.openid === openid);
-        return {
-          game_id: g._id,
-          game_date: g.game_date,
-          rank: mine ? mine.rank : null,
-          points: mine ? mine.points : null
-        };
-      })
+      recent: recentSource
+        .filter(g => normalizeMode(g) === mode)
+        .slice(0, 20)
+        .reverse()
+        .map(g => {
+          const mine = (g.players || []).find(p => p.openid === openid);
+          return {
+            game_id: g._id,
+            game_date: g.game_date,
+            rank: mine ? mine.rank : null,
+            points: mine ? mine.points : null
+          };
+        })
     };
   };
 
@@ -331,7 +676,7 @@ async function getMyStatsMain(event, context) {
   return {
     success: true,
     data: {
-      coin: settleCoinForPlayer(openid, games),
+      coin: stat.coin || 0,
       modes: {
         four: buildMode('four'),
         three: buildMode('three')
@@ -355,78 +700,84 @@ async function getMyStatsMain(event, context) {
  * value 是该榜的主数值（麻币数 / 雀力）。
  */
 async function getRankingMain(event, context) {
-  let res;
+  // 首次部署（或集合被清过）时汇总表是空的，先全量回填一次，
+  // 否则玩家明明打过对局，这里却返回空榜
   try {
-    res = await db.collection(db_game).orderBy('game_date', 'desc')
-      .orderBy('create_time', 'desc').limit(1000).get();
+    await ensureStatsReady();
   } catch (err) {
-    console.error('查询对局失败:', err);
-    return { success: false, errMsg: '查询对局数据失败' };
+    console.error('初始化玩家统计失败:', err);
   }
 
-  const gamesDesc = res.data || [];
-  if (gamesDesc.length === 0) {
+  // 汇总表一人一条，玩家量级几十人，分页拉完
+  const statList = [];
+  try {
+    for (let skip = 0; skip < 5000; skip += 100) {
+      const res = await db.collection(db_player).skip(skip).limit(100).get();
+      const list = res.data || [];
+      statList.push.apply(statList, list);
+      if (list.length < 100) break;
+    }
+  } catch (err) {
+    console.error('查询玩家统计失败:', err);
+    return { success: false, errMsg: '查询排行榜失败' };
+  }
+
+  if (statList.length === 0) {
     return { success: true, data: { coin: [], power3: [], power4: [], config: buildRankConfig() } };
   }
 
-  /* ---- 麻币：统一账户，逐局钳制在 0 ---- */
-  const coinBalance = computeCoinBalances(gamesDesc);
-
-  /* ---- 局数 / 顺位和 / 一位数：分模式分别统计 ---- */
-  const agg = {};
-  gamesDesc.forEach(g => {
-    const mode = normalizeMode(g);
-    (g.players || []).forEach(p => {
-      if (!p.openid) return;
-      if (!agg[p.openid]) {
-        agg[p.openid] = {
-          four: { games: 0, rankSum: 0, win: 0 },
-          three: { games: 0, rankSum: 0, win: 0 },
-          all: { games: 0, rankSum: 0, win: 0 }
-        };
-      }
-      const a = agg[p.openid];
-      const rank = Number(p.rank) || 0;
-      [a[mode], a.all].forEach(box => {
-        box.games += 1;
-        box.rankSum += rank;
-        if (rank === 1) box.win += 1;
-      });
-    });
-  });
-
-  const openids = Object.keys(agg);
+  const openids = statList.map(s => s.openid).filter(Boolean);
   const userInfoMap = await fetchUsersByOpenids(openids);
   const titleMap = await fetchTitlesByOpenids(openids);
 
-  // 三个榜共用的基础字段，value 由各榜自己补
-  const base = openids.map(oid => {
-    const u = userInfoMap[oid] || {};
+  const rows = statList.map((s) => {
+    if (!s.openid) return null;
+    const u = userInfoMap[s.openid] || {};
+    const four = s.four || emptyModeBox();
+    const three = s.three || emptyModeBox();
+    const gamesAll = s.gamesTotal || 0;
+    const winAll = Number((four.rankCounts || {})[1] || 0) + Number((three.rankCounts || {})[1] || 0);
+    const rankSumAll = (four.rankSum || 0) + (three.rankSum || 0);
     return {
-      openid: oid,
+      openid: s.openid,
       nickname: u.nickname || '未知用户',
       avatar: u.avatar || '',
       displayTitle: u.display_title || null,
-      titles: titleMap[oid] || []
+      titles: titleMap[s.openid] || [],
+      coin: s.coin || 0,
+      gamesAll: gamesAll,
+      winAll: winAll,
+      rankSumAll: rankSumAll,
+      four: four,
+      three: three
     };
+  }).filter(Boolean);
+
+  // 三个榜共用的展示字段
+  const publicOf = (r) => ({
+    openid: r.openid,
+    nickname: r.nickname,
+    avatar: r.avatar,
+    displayTitle: r.displayTitle,
+    titles: r.titles
   });
 
-  const statOf = (box) => ({
-    games: box.games,
-    avgRank: box.games ? +(box.rankSum / box.games).toFixed(2) : null,
-    winRate: box.games ? +(box.win * 100 / box.games).toFixed(2) : 0
-  });
-
-  const coin = base.map(b => Object.assign({}, b, statOf(agg[b.openid].all), {
-    value: coinBalance[b.openid] || 0
+  const coin = rows.map(r => Object.assign(publicOf(r), {
+    value: r.coin,
+    games: r.gamesAll,
+    avgRank: r.gamesAll ? +(r.rankSumAll / r.gamesAll).toFixed(2) : null,
+    winRate: r.gamesAll ? +(r.winAll * 100 / r.gamesAll).toFixed(2) : 0
   })).sort((x, y) => y.value - x.value || y.games - x.games);
 
-  const buildPower = (mode) => base
-    .filter(b => agg[b.openid][mode].games >= POWER_MIN_GAMES)
-    .map(b => {
-      const box = agg[b.openid][mode];
-      return Object.assign({}, b, statOf(box), {
-        value: calcPower(mode, box.games, box.rankSum)
+  const buildPower = (mode) => rows
+    .filter(r => (r[mode].games || 0) >= POWER_MIN_GAMES)
+    .map((r) => {
+      const box = r[mode];
+      return Object.assign(publicOf(r), {
+        value: calcPower(mode, box.games, box.rankSum || 0),
+        games: box.games,
+        avgRank: +(box.rankSum / box.games).toFixed(2),
+        winRate: +(Number((box.rankCounts || {})[1] || 0) * 100 / box.games).toFixed(2)
       });
     })
     .sort((x, y) => y.value - x.value || y.games - x.games);
@@ -608,13 +959,40 @@ async function deleteGameMain(event, context) {
 
   if (!game_id) return { success: false, errMsg: '未指定对局' };
 
+  // 先取出这局有谁，删完才知道要重算哪几位
+  let players = [];
+  try {
+    const gRes = await db.collection(db_game).doc(game_id).get();
+    players = (gRes.data && gRes.data.players) || [];
+  } catch (err) {
+    return { success: false, errMsg: '对局不存在或已被删除' };
+  }
+
   try {
     await db.collection(db_game).doc(game_id).remove();
-    return { success: true };
   } catch (err) {
     console.error('删除对局失败:', err);
     return { success: false, errMsg: '删除失败，请重试' };
   }
+
+  // 删局不能靠加减回滚：麻币是逐局钳制推进的，少掉中间一局，
+  // 后面所有局的钳制状态都可能变，只能把这几位玩家的全部对局重算。
+  const failed = [];
+  for (let i = 0; i < players.length; i += 1) {
+    const oid = players[i] && players[i].openid;
+    if (!oid) continue;
+    try {
+      await rebuildPlayerStat(oid);
+    } catch (err) {
+      console.error('重算玩家统计失败:', oid, err);
+      failed.push(oid);
+    }
+  }
+
+  if (failed.length) {
+    return { success: true, warn: `${failed.length} 名玩家的统计未能同步，请执行一次「重建统计」` };
+  }
+  return { success: true };
 }
 
 /**
@@ -650,15 +1028,47 @@ async function getGamesMain(event, context) {
       .orderBy('game_date', 'desc').orderBy('create_time', 'desc')
       .skip(page_no * page_size).limit(page_size)
       .get();
-    return { success: true, data: res.data || [] };
+    // 历史对局没有 mode 字段，统一补一个，前端才好显示三麻/四麻标签
+    const list = (res.data || []).map(g => Object.assign({}, g, { mode: normalizeMode(g) }));
+    return { success: true, data: list };
   } catch (err) {
     console.error('查询对局列表失败:', err);
     return { success: false, errMsg: '查询对局列表失败' };
   }
 }
 
+/**
+ * 全量重建玩家统计（仅管理员）
+ *
+ * 汇总表是缓存，明细才是真相。这个入口用于：首次上线回填、
+ * 手动改过数据库之后对齐、以及怀疑汇总漂了的时候兜底重来。
+ */
+async function rebuildPlayerStatsMain(event, context) {
+  const wxContext = cloud.getWXContext();
+  const openid = wxContext != null && 'OPENID' in wxContext ?
+    wxContext.OPENID : event?.params?.openid;
+  if (!openid) return { success: false, errMsg: '无法获取操作者身份' };
+
+  const me = await db.collection(db_user).where({ openid }).get();
+  if (!me.data || me.data.length === 0) return { success: false, errMsg: '未查询到操作者信息' };
+  const role = me.data[0].role;
+  if (role !== 'admin' && role !== 'master') {
+    return { success: false, errMsg: '无权限，仅管理员可重建统计' };
+  }
+
+  try {
+    const count = await rebuildAllStats();
+    return { success: true, data: { players: count } };
+  } catch (err) {
+    console.error('重建玩家统计失败:', err);
+    return { success: false, errMsg: '重建失败：' + (err.message || '未知错误') };
+  }
+}
+
 module.exports = {
   addGameMain,
+  updateGameMain,
+  getGameDetailMain,
   getMyStatsMain,
   getRankingMain,
   getGamesMain,
@@ -666,5 +1076,6 @@ module.exports = {
   revokeTitleMain,
   getPlayerTitlesMain,
   deleteGameMain,
+  rebuildPlayerStatsMain,
   fetchTitlesByOpenids
 };

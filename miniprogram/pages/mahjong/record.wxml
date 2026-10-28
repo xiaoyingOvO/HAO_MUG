@@ -4,10 +4,14 @@
   <!-- 无权限 -->
   <view wx:if="{{checkDone && !isAdmin}}" class="rec-card no-auth">
     <view class="no-auth-icon">🔒</view>
-    <view>仅管理员可录入对局</view>
+    <view>仅管理员可{{editMode ? '修改' : '录入'}}对局</view>
   </view>
 
-  <block wx:if="{{checkDone && isAdmin}}">
+  <view wx:if="{{checkDone && isAdmin && loading}}" class="rec-card no-auth">
+    <view>加载中…</view>
+  </view>
+
+  <block wx:if="{{checkDone && isAdmin && !loading}}">
     <!-- 对局日期 -->
     <view class="rec-card">
       <view class="rec-label">对局日期</view>
@@ -18,7 +22,7 @@
 
     <!-- 4 个玩家位：填满 3 人记为三麻，填满 4 人记为四麻（自动判定） -->
     <view class="rec-card">
-      <view class="rec-label">玩家与点数<text class="rec-label-sub">三麻留空 4 号位</text></view>
+      <view class="rec-label">玩家与点数<text class="rec-label-sub">{{editMode ? '修改对局不能换人' : '三麻留空 4 号位'}}</text></view>
       <view class="slot" wx:for="{{slots}}" wx:key="index" wx:for-index="index" wx:for-item="slot">
         <view class="slot-no">{{index + 1}}号位</view>
 
@@ -28,7 +32,7 @@
           <text class="slot-name">{{slot.nickname}}</text>
           <input class="slot-points" type="digit" placeholder="点数"
                  value="{{slot.points}}" data-index="{{index}}" bindinput="onPointsInput" />
-          <view class="slot-remove" data-index="{{index}}" bindtap="removePlayer">✕</view>
+          <view wx:if="{{!editMode}}" class="slot-remove" data-index="{{index}}" bindtap="removePlayer">✕</view>
         </view>
 
         <!-- 未选 -->
@@ -49,10 +53,10 @@
       </view>
     </view>
 
-    <view class="rec-tip">填满 3 人记为三麻、4 人记为四麻；顺位按点数自动计算，同分并列同名次</view>
+    <view class="rec-tip">{{editMode ? '只改点数或日期，玩家名单不能变；保存后这局的顺位会重新计算' : '填满 3 人记为三麻、4 人记为四麻；顺位按点数自动计算，同分并列同名次'}}</view>
 
     <view class="rec-submit {{submitting ? 'disabled' : ''}}" bindtap="submit">
-      {{submitting ? '提交中…' : '录入本局'}}
+      {{submitting ? '提交中…' : (editMode ? '保存修改' : '录入本局')}}
     </view>
   </block>
 

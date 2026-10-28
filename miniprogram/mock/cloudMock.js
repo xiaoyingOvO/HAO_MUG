@@ -1298,6 +1298,50 @@ const baseFunctions = {
     return { success: true };
   },
 
+  // 单局详情（编辑页回填）
+  mahjongGetGameDetail(p, s) {
+    const { game_id } = p || {};
+    const g = s.mahjongGames.find((x) => x._id === game_id);
+    if (!g) return { success: false, errMsg: '对局不存在或已被删除' };
+    return { success: true, data: Object.assign({}, g, { mode: g.mode === 'three' ? 'three' : 'four' }) };
+  },
+
+  // 修改历史对局：只改日期和点数，不换人
+  mahjongUpdateGame(p, s) {
+    const { game_id, game_date, players } = p || {};
+    const g = s.mahjongGames.find((x) => x._id === game_id);
+    if (!g) return { success: false, errMsg: '对局不存在或已被删除' };
+
+    const mode = g.mode === 'three' ? 'three' : 'four';
+    const expected = mode === 'three' ? 105000 : 100000;
+    const pointsMap = {};
+    (Array.isArray(players) ? players : g.players).forEach((pl) => {
+      pointsMap[pl.openid] = Number(pl.points);
+    });
+    const next = g.players.map((pl) => Object.assign({}, pl, { points: pointsMap[pl.openid] }));
+    if (next.some((pl) => !Number.isFinite(pl.points))) {
+      return { success: false, errMsg: '点数必须为数字' };
+    }
+    const total = next.reduce((sum, pl) => sum + pl.points, 0);
+    if (Math.abs(total - expected) > 0.5) {
+      return { success: false, errMsg: `点数合计应为 ${expected}，当前 ${total}` };
+    }
+    const sorted = next.slice().sort((a, b) => b.points - a.points);
+    const rankMap = {};
+    sorted.forEach((pl, idx) => {
+      rankMap[pl.openid] = idx > 0 && pl.points === sorted[idx - 1].points
+        ? rankMap[sorted[idx - 1].openid] : idx + 1;
+    });
+    g.game_date = game_date || g.game_date;
+    g.players = next.map((pl) => Object.assign({}, pl, { rank: rankMap[pl.openid] }));
+    return { success: true, data: { game_id } };
+  },
+
+  // mock 没有汇总表，统计本来就实时算，重建无实际操作
+  mahjongRebuildStats() {
+    return { success: true, data: { players: 0 } };
+  },
+
   addUsrInfo(p, s) {
     s.me.nickname = (p && p.nickname) || s.me.nickname;
     s.me.phone = (p && p.phone) || s.me.phone;

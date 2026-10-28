@@ -118,6 +118,12 @@ exports.main = async (event, context) => {
       return await mahjongStats.getPlayerTitlesMain(event, context);
     case 'mahjongDeleteGame':
       return await mahjongStats.deleteGameMain(event, context);
+    case 'mahjongUpdateGame':
+      return await mahjongStats.updateGameMain(event, context);
+    case 'mahjongGetGameDetail':
+      return await mahjongStats.getGameDetailMain(event, context);
+    case 'mahjongRebuildStats':
+      return await mahjongStats.rebuildPlayerStatsMain(event, context);
   }
 };
         

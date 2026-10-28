@@ -165,8 +165,14 @@
     <view class="mj-back" bindtap="backToStats">‹ 返回战绩</view>
     <view class="mj-card game-card" wx:for="{{games}}" wx:key="_id" wx:for-item="g">
       <view class="game-head">
-        <view class="game-date">{{g.game_date}}</view>
-        <text class="game-del" wx:if="{{isAdmin}}" data-id="{{g._id}}" bindtap="deleteGame">删除</text>
+        <view class="game-left">
+          <text class="game-mode {{g.mode === 'three' ? 'game-mode-three' : ''}}">{{g.mode === 'three' ? '三麻' : '四麻'}}</text>
+          <text class="game-date">{{g.game_date}}</text>
+        </view>
+        <view class="game-ops" wx:if="{{isAdmin}}">
+          <text class="game-edit" data-id="{{g._id}}" bindtap="editGame">修改</text>
+          <text class="game-del" data-id="{{g._id}}" bindtap="deleteGame">删除</text>
+        </view>
       </view>
       <view class="game-player {{'gp' + p.rank}}" wx:for="{{g.players}}" wx:key="openid" wx:for-item="p">
         <text class="gp-rank">{{p.rank}}位</text>
