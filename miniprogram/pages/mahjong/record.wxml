@@ -36,6 +36,17 @@
           ＋ 点击选择玩家<text wx:if="{{index === 3}}" class="slot-hint">（三麻不用填）</text>
         </view>
       </view>
+
+      <!-- 点数合计：人数到 3 人才显示（3 人即三麻、4 人即四麻）。
+           边填边对账，差 1000 当场就能看出来，不用等提交 -->
+      <view wx:if="{{totalInfo}}" class="total-bar {{totalInfo.ok ? 'total-bar-ok' : ''}}">
+        <text class="total-label">{{totalInfo.count}} 人合计</text>
+        <text class="total-value">{{totalInfo.sum === null ? '--' : totalInfo.sum}}</text>
+        <text class="total-sep">/</text>
+        <text class="total-expect">{{totalInfo.expected}}</text>
+        <text wx:if="{{totalInfo.hint}}" class="total-hint">{{totalInfo.hint}}</text>
+        <text wx:else class="total-hint">✓</text>
+      </view>
     </view>
 
     <view class="rec-tip">填满 3 人记为三麻、4 人记为四麻；顺位按点数自动计算，同分并列同名次</view>

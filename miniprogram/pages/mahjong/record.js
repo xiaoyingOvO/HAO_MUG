@@ -1,6 +1,13 @@
 // pages/mahjong/record.js —— 管理员录入一局麻将对局
 import cloudFcn from '../../cloudFcn.js';
 
+// 一局的点数总量（原点 × 人数），与云函数 mahjongStats 里的 POINTS_TOTAL 一致。
+// 云端是最终裁判，这里只是为了在点「录入」之前就把差额指出来。
+const POINTS_TOTAL = {
+  three: 105000,   // 三麻 35000 × 3
+  four: 100000     // 四麻 25000 × 4
+};
+
 Page({
   data: {
     // 权限
@@ -14,6 +21,10 @@ Page({
     // 4 个玩家位：null 表示未选
     // { openid, nickname, avatar, points }
     slots: [null, null, null, null],
+
+    // 合计行：人数到 3 人才有意义（3 人即三麻、4 人即四麻）
+    // { count, sum, expected, ok, hint }
+    totalInfo: null,
 
     // 玩家搜索
     searchIndex: -1,      // 正在为第几个位置搜索（-1 无）
@@ -98,6 +109,7 @@ Page({
     const slots = this.data.slots.slice();
     slots[index] = { openid: u.openid, nickname: u.nickname, avatar: u.avatar, points: '' };
     this.setData({ slots, searchIndex: -1, keyword: '', suggestions: [] });
+    this.updateTotal();
   },
 
   removePlayer(e) {
@@ -105,6 +117,7 @@ Page({
     const slots = this.data.slots.slice();
     slots[index] = null;
     this.setData({ slots });
+    this.updateTotal();
   },
 
   onPointsInput(e) {
@@ -112,6 +125,39 @@ Page({
     const slots = this.data.slots.slice();
     slots[index] = { ...slots[index], points: e.detail.value };
     this.setData({ slots });
+    this.updateTotal();
+  },
+
+  /**
+   * 实时合计：边填边看到「合计多少 / 应该是多少」，
+   * 比等到点「录入」才报错好 —— 差 1000 这种错，当场就能发现。
+   * 人数不足 3 人时不显示（这时还算不出一局的期望值）。
+   */
+  updateTotal() {
+    const filled = this.data.slots.filter(Boolean);
+    if (filled.length < 3) {
+      this.setData({ totalInfo: null });
+      return;
+    }
+    const expected = filled.length === 3 ? POINTS_TOTAL.three : POINTS_TOTAL.four;
+    let sum = 0;
+    let valid = true;
+    filled.forEach((s) => {
+      const v = Number(s.points);
+      if (s.points === '' || !Number.isFinite(v)) valid = false;
+      else sum += v;
+    });
+    const diff = sum - expected;
+    const ok = valid && Math.abs(diff) < 0.5;
+    this.setData({
+      totalInfo: {
+        count: filled.length,
+        sum: valid ? sum : null,
+        expected,
+        ok,
+        hint: !valid ? '点数未填完' : (ok ? '' : (diff > 0 ? `多 ${diff}` : `少 ${-diff}`)),
+      },
+    });
   },
 
   /* ---------- 提交 ---------- */
@@ -140,6 +186,23 @@ Page({
       }
     }
 
+    // 点数总和守恒：三麻 105000（每人 35000）、四麻 100000（每人 25000）。
+    // 云端也会拦，这里先拦是为了把差额直接讲清楚 —— 少打一位数字是最常见的
+    // 录入错误，而它不会让任何单条数据看起来「不对劲」，只会让所有人的成绩
+    // 慢慢失真，事后几乎查不出来。
+    const totalPoints = filled.reduce((sum, s) => sum + Number(s.points), 0);
+    const expectedTotal = filled.length === 3 ? POINTS_TOTAL.three : POINTS_TOTAL.four;
+    const totalDiff = totalPoints - expectedTotal;
+    if (Math.abs(totalDiff) > 0.5) {
+      wx.showModal({
+        title: '点数合计不对',
+        content: `${filled.length === 3 ? '三麻' : '四麻'} ${filled.length} 人的点数合计应为 ${expectedTotal}，` +
+          `当前 ${totalPoints}，${totalDiff > 0 ? '多' : '少'} ${Math.abs(totalDiff)}。\n\n请核对是否少填或多打了一位数字。`,
+        showCancel: false,
+      });
+      return;
+    }
+
     // 三麻 / 四麻由人数自动判定，这里把判定结果连同顺位一起亮出来，
     // 避免「本想录四麻、少填一人，被静默记成三麻」这种事后极难发现的问题
     const mode = filled.length === 3 ? 'three' : 'four';
@@ -157,6 +220,8 @@ Page({
       prevRank = rank;
       preview += `${rank}位  ${p.nickname}  ${p.points}\n`;
     });
+    // 合计也放进确认框：这是最后一次能发现「少打一位数字」的机会
+    preview += `\n合计 ${totalPoints} / ${expectedTotal}`;
 
     const confirmed = await new Promise((resolve) => {
       wx.showModal({

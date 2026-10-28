@@ -38,6 +38,13 @@ const COIN_BY_RANK = {
   three: { 1: 2, 2: 0, 3: -1 }
 };
 
+// 一局的点数总量（原点 × 人数）。录分时校验总和守恒，
+// 与前端 pages/mahjong/record.js 里的 POINTS_TOTAL 保持一致。
+const POINTS_TOTAL = {
+  three: 105000,   // 三麻 35000 × 3
+  four: 100000     // 四麻 25000 × 4
+};
+
 const POWER_BASE = 1000;
 const POWER_COEF = 300;
 const POWER_BASE_RANK = { four: 2.5, three: 2.0 };
@@ -172,6 +179,21 @@ async function addGameMain(event, context) {
     const points = Number(p.points);
     if (!Number.isFinite(points)) return { success: false, errMsg: '点数必须为数字' };
     parsed.push({ openid: pid, points });
+  }
+
+  // 点数总和必须守恒：三麻原点 35000（3 人合计 105000）、四麻原点 25000
+  // （4 人合计 100000）。
+  // 这一条不校验的话，管理员少打或多打一位数字也能存进去，而且事后无法
+  // 从数据本身看出哪一局是错的 —— 它只会让所有人的雀力和麻币慢慢失真。
+  const totalPoints = parsed.reduce((sum, p) => sum + p.points, 0);
+  const expectedTotal = POINTS_TOTAL[mode];
+  if (Math.abs(totalPoints - expectedTotal) > 0.5) {
+    const diff = totalPoints - expectedTotal;
+    return {
+      success: false,
+      errMsg: `点数合计应为 ${expectedTotal}（${mode === 'three' ? '三麻每人 35000' : '四麻每人 25000'}），` +
+        `当前 ${totalPoints}，${diff > 0 ? '多' : '少'} ${Math.abs(diff)}`
+    };
   }
 
   // 补全昵称头像（一次 in 查询）

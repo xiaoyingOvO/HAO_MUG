@@ -110,6 +110,39 @@
   color: #bdd3e6;
 }
 
+/* ---------- 点数合计 ---------- */
+.total-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10rpx;
+  margin-top: 20rpx;
+  padding: 16rpx 20rpx;
+  border-radius: 16rpx;
+  background: #fdf0ef;
+  border: 2rpx solid #f3c9c5;
+  font-size: 26rpx;
+  color: #cc6a5f;
+}
+/* 合计对上时整条转成主色调，不用再让用户去读数字 */
+.total-bar-ok {
+  background: #eef7ff;
+  border-color: #cfe6fa;
+  color: #4a8ec9;
+}
+.total-label { color: #8aa7c2; }
+.total-value {
+  font-weight: 700;
+  font-size: 30rpx;
+}
+.total-sep { color: #c2d2e2; }
+.total-expect { color: #8aa7c2; }
+.total-hint {
+  font-weight: 600;
+  margin-left: 4rpx;
+}
+
 .rec-tip {
   text-align: center;
   font-size: 24rpx;
