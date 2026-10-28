@@ -338,6 +338,12 @@ Page({
     wx.navigateTo({ url: '/pages/mahjong/grantTitle' });
   },
 
+  // 管理员手改玩家战绩（覆盖值与对局明细分开存，不会被重算洗掉）
+  goAdjustPlayer() {
+    this._needRefresh = true;
+    wx.navigateTo({ url: '/pages/mahjong/adjustPlayer' });
+  },
+
   // 用户设置主称号
   async setMainTitle(e) {
     const key = e.currentTarget.dataset.key;

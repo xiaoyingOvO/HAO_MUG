@@ -536,6 +536,7 @@ function seed() {
       { _id: 'mt-2', openid: ME_OPENID, title: 'daisangen', count: 1, grant_by: 'mock-admin', create_time: new Date(now - 2 * DAY) },
       { _id: 'mt-3', openid: 'mock-openid-04', title: 'suankou', count: 1, grant_by: 'mock-admin', create_time: new Date(now - 3 * DAY) },
     ],
+    mahjongAdjust: {},
     users: others,
     machines,
     queues,
@@ -658,6 +659,80 @@ function allUsers(s) {
 function infoOf(s, openid) {
   const u = allUsers(s).find((x) => x.openid === openid);
   return { openid, avatar: u ? u.avatar : AVATAR_OTHER, nickname: u ? u.nickname : '未知用户' };
+}
+
+/* ---- 覆盖值（管理员手改）相关的小工具，与云函数同口径 ---- */
+
+function mockEmptyBox() {
+  return { games: 0, rankCounts: { 1: 0, 2: 0, 3: 0, 4: 0 }, rankSum: 0, pointsSum: 0, maxPoints: null };
+}
+
+/** 从明细现算一份某玩家的自动统计（形状与云端 mahjong_player 一致） */
+function mockStatOf(s, openid) {
+  const four = mockEmptyBox();
+  const three = mockEmptyBox();
+  const games = (s.mahjongGames || [])
+    .filter((g) => (g.players || []).some((pl) => pl.openid === openid))
+    .slice()
+    .sort((a, b) => (a.game_date < b.game_date ? -1 : 1));   // 正序，麻币要按时间推进
+  let coin = 0;
+  let total = 0;
+  games.forEach((g) => {
+    const mine = g.players.find((pl) => pl.openid === openid);
+    const mode = g.mode === 'three' ? 'three' : 'four';
+    const box = mode === 'three' ? three : four;
+    box.games += 1;
+    if (box.rankCounts[mine.rank] !== undefined) box.rankCounts[mine.rank] += 1;
+    box.rankSum += Number(mine.rank) || 0;
+    box.pointsSum += Number(mine.points) || 0;
+    if (box.maxPoints === null || mine.points > box.maxPoints) box.maxPoints = Number(mine.points) || 0;
+    const table = mode === 'three' ? { 1: 2, 2: 0, 3: -1 } : { 1: 2, 2: 1, 3: 0, 4: -1 };
+    const delta = table[mine.rank];
+    if (delta !== undefined) coin = Math.max(0, coin + delta);
+    total += 1;
+  });
+  return { openid, four, three, coin, gamesTotal: total };
+}
+
+function mockFlatten(fields) {
+  const out = [];
+  if (!fields) return out;
+  if (fields.coin !== undefined) out.push({ path: 'coin', value: fields.coin });
+  if (fields.gamesTotal !== undefined) out.push({ path: 'gamesTotal', value: fields.gamesTotal });
+  ['four', 'three'].forEach((mode) => {
+    const f = fields[mode];
+    if (!f) return;
+    ['games', 'rankSum', 'pointsSum', 'maxPoints'].forEach((k) => {
+      if (f[k] !== undefined) out.push({ path: mode + '.' + k, value: f[k] });
+    });
+    if (f.rankCounts) {
+      Object.keys(f.rankCounts).forEach((r) => {
+        out.push({ path: mode + '.rankCounts.' + r, value: f.rankCounts[r] });
+      });
+    }
+  });
+  return out;
+}
+
+function mockSetPath(obj, path, value) {
+  const keys = String(path).split('.');
+  let cur = obj;
+  for (let i = 0; i < keys.length - 1; i += 1) {
+    if (!cur[keys[i]] || typeof cur[keys[i]] !== 'object') cur[keys[i]] = {};
+    cur = cur[keys[i]];
+  }
+  cur[keys[keys.length - 1]] = value;
+  return obj;
+}
+
+function mockValueAt(obj, path) {
+  return String(path).split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+}
+
+function mockMerge(fields, base) {
+  const out = JSON.parse(JSON.stringify(base || {}));
+  mockFlatten(fields).forEach((x) => mockSetPath(out, x.path, x.value));
+  return out;
 }
 
 function totalPoints(u) {
@@ -1340,6 +1415,79 @@ const baseFunctions = {
   // mock 没有汇总表，统计本来就实时算，重建无实际操作
   mahjongRebuildStats() {
     return { success: true, data: { players: 0 } };
+  },
+
+  /* ---- 管理员手改覆盖值（mock 版：只存覆盖值和历史，不参与统计合并） ---- */
+
+  mahjongGetPlayerStatDetail(p, s) {
+    const openid = p && p.openid;
+    if (!openid) return { success: false, errMsg: '未指定玩家' };
+    s.mahjongAdjust = s.mahjongAdjust || {};
+    const rec = s.mahjongAdjust[openid] || { fields: {}, logs: [] };
+    return {
+      success: true,
+      data: {
+        auto: mockStatOf(s, openid),
+        fields: rec.fields || {},
+        merged: mockMerge(rec.fields || {}, mockStatOf(s, openid)),
+        logs: rec.logs || [],
+      },
+    };
+  },
+
+  mahjongSetPlayerOverride(p, s) {
+    const openid = p && p.openid;
+    if (!openid) return { success: false, errMsg: '未指定玩家' };
+    const incoming = (p && p.fields) || {};
+    if (!Object.keys(incoming).length) return { success: false, errMsg: '没有需要修改的字段' };
+    s.mahjongAdjust = s.mahjongAdjust || {};
+    const rec = s.mahjongAdjust[openid] || { fields: {}, logs: [] };
+    const before = mockMerge(rec.fields || {}, mockStatOf(s, openid));
+    const now = new Date();
+    const logs = (rec.logs || []).slice();
+    mockFlatten(incoming).forEach((item) => {
+      logs.unshift({
+        at: now,
+        by: (s.me && s.me.nickname) || '管理员',
+        field: item.path,
+        before: mockValueAt(before, item.path),
+        after: item.value,
+        note: String((p && p.note) || '').slice(0, 200),
+      });
+    });
+    rec.fields = mockFlatten(incoming).reduce((acc, item) => mockSetPath(acc, item.path, item.value), Object.assign({}, rec.fields));
+    rec.logs = logs.slice(0, 100);
+    s.mahjongAdjust[openid] = rec;
+    return { success: true, data: { fields: rec.fields, merged: mockMerge(rec.fields, mockStatOf(s, openid)) } };
+  },
+
+  mahjongClearPlayerOverride(p, s) {
+    const openid = p && p.openid;
+    if (!openid) return { success: false, errMsg: '未指定玩家' };
+    s.mahjongAdjust = s.mahjongAdjust || {};
+    const rec = s.mahjongAdjust[openid] || { fields: {}, logs: [] };
+    const before = mockMerge(rec.fields || {}, mockStatOf(s, openid));
+    const paths = Array.isArray(p && p.paths) && p.paths.length
+      ? p.paths
+      : mockFlatten(rec.fields || {}).map((x) => x.path);
+    const now = new Date();
+    const logs = (rec.logs || []).slice();
+    paths.forEach((path) => {
+      logs.unshift({
+        at: now,
+        by: (s.me && s.me.nickname) || '管理员',
+        field: path,
+        before: mockValueAt(before, path),
+        after: null,
+        note: '撤销覆盖',
+      });
+    });
+    rec.fields = mockFlatten(rec.fields || {})
+      .filter((x) => paths.indexOf(x.path) < 0)
+      .reduce((acc, x) => mockSetPath(acc, x.path, x.value), {});
+    rec.logs = logs.slice(0, 100);
+    s.mahjongAdjust[openid] = rec;
+    return { success: true, data: { fields: rec.fields, merged: mockMerge(rec.fields, mockStatOf(s, openid)) } };
   },
 
   addUsrInfo(p, s) {

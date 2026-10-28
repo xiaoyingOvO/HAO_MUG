@@ -449,6 +449,48 @@ const mahjongRebuildStats = async function() {
 }
 
 /**
+ * 管理员：读取玩家统计详情
+ * 返回 { auto: 自动算出的一份, fields: 当前覆盖值, merged: 叠加后的展示值, logs: 变更历史 }
+ */
+const mahjongGetPlayerStatDetail = async function(params) {
+  return wx.cloud.callFunction({
+    name: 'baseFunctions',
+    data: {
+      type: 'mahjongGetPlayerStatDetail',
+      params
+    }
+  })
+}
+
+/**
+ * 管理员：设置覆盖值
+ * params: { openid, fields: { coin, gamesTotal, four: {games,rankSum,pointsSum,maxPoints,rankCounts}, three: {...} }, note }
+ */
+const mahjongSetPlayerOverride = async function(params) {
+  return wx.cloud.callFunction({
+    name: 'baseFunctions',
+    data: {
+      type: 'mahjongSetPlayerOverride',
+      params
+    }
+  })
+}
+
+/**
+ * 管理员：撤销覆盖，还原为自动计算值
+ * params: { openid, paths: ['four.games', ...] }，paths 为空表示全部还原
+ */
+const mahjongClearPlayerOverride = async function(params) {
+  return wx.cloud.callFunction({
+    name: 'baseFunctions',
+    data: {
+      type: 'mahjongClearPlayerOverride',
+      params
+    }
+  })
+}
+
+/**
  * 点数充值
  *
  * ⚠️ 下面三个函数是「小程序虚拟支付」通道的封装，**当前已停用**。
@@ -533,6 +575,9 @@ export default {
   mahjongUpdateGame,
   mahjongGetGameDetail,
   mahjongRebuildStats,
+  mahjongGetPlayerStatDetail,
+  mahjongSetPlayerOverride,
+  mahjongClearPlayerOverride,
   createPointOrder,
   queryPointOrder,
   getPointPayStatus

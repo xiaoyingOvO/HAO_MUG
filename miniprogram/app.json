@@ -9,6 +9,7 @@
     "pages/mahjong/index",
     "pages/mahjong/record",
     "pages/mahjong/grantTitle",
+    "pages/mahjong/adjustPlayer",
     "pages/play-log/log",
     "pages/notice/index",
     "pages/user-center/other-page/card",

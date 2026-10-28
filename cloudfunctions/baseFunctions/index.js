@@ -124,6 +124,12 @@ exports.main = async (event, context) => {
       return await mahjongStats.getGameDetailMain(event, context);
     case 'mahjongRebuildStats':
       return await mahjongStats.rebuildPlayerStatsMain(event, context);
+    case 'mahjongGetPlayerStatDetail':
+      return await mahjongStats.getPlayerStatDetailMain(event, context);
+    case 'mahjongSetPlayerOverride':
+      return await mahjongStats.setPlayerOverrideMain(event, context);
+    case 'mahjongClearPlayerOverride':
+      return await mahjongStats.clearPlayerOverrideMain(event, context);
   }
 };
         

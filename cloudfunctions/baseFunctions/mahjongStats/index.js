@@ -10,6 +10,7 @@ const db_game = 'mahjong_game';
 const db_user = 'user';
 const db_title = 'mahjong_title';
 const db_player = 'mahjong_player';   // 玩家统计汇总（一人一条，_id = openid）
+const db_adjust = 'mahjong_adjust';   // 管理员手改覆盖值（一人一条，_id = openid）
 
 // 合法称号 key 白名单（与前端 utils/mahjongTitles.js 保持一致）
 const VALID_TITLE_KEYS = [
@@ -28,8 +29,9 @@ const VALID_TITLE_KEYS = [
  *     三麻  1位 +2   2位  0   3位 -1
  *   「最低为 0」是**逐局钳制**，不是最后对总和钳制 —— 余额 0 时再输一局
  *   应该是「扣不动」，而不是先欠 1 分、下次赢一局只补回 0 分。所以结算
- *   必须按时间正序逐局推进。麻币不落库，每次都从对局记录实时重算，这样
- *   管理员删除某局后，该局之后所有人的余额都会自动重新结算。
+ *   必须按时间正序逐局推进。
+ *   钳制带来一个后果：删掉中间某一局之后，后面每一局的余额状态都可能变，
+ *   没法用「余额 - 该局增减」回滚，只能对该玩家整人重算（见 rebuildPlayerStat）。
  *
  * 【雀力】用平均顺位换算，不累加、不落库：
  *     雀力 = 1000 + (基准顺位 - 平均顺位) × 300
@@ -280,6 +282,210 @@ async function ensureStatsReady() {
   const n = await rebuildAllStats();
   console.log('[mahjong_player] 汇总表为空，已全量回填 %d 人', n);
   return true;
+}
+
+/* ============================================================
+ * 管理员手改覆盖层（集合 mahjong_adjust，一人一条，_id = openid）
+ *
+ * 有些数字没法从对局记录推导：补偿一局录错、活动奖励、线下局补记。
+ * 但直接改 mahjong_player 里的数字有个致命问题 —— 删局/改分会触发
+ * 整人重算，重算用 set() 整体覆盖那条记录，手改的值当场消失，而且
+ * 没有任何痕迹说明它曾经存在过。
+ *
+ * 所以覆盖值单独放一张表，与自动统计完全隔离：
+ *   mahjong_player   只由明细算出，随时可以被 rebuild 覆盖
+ *   mahjong_adjust   只由管理员写入，rebuild 永远不碰
+ * 读取时 mergeOverride() 把覆盖值叠上去。
+ *
+ * 覆盖粒度是「字段」而不是「整条记录」：只改了麻币的人，局数、顺位率
+ * 仍然跟着明细自动变，不会因为改了某一个数被整体冻结。
+ * ============================================================ */
+
+const OVERRIDE_MODE_INT = ['games', 'rankSum', 'maxPoints'];
+
+/** 把覆盖值叠到自动统计上；返回新对象，不修改入参 */
+function mergeOverride(stat, fields) {
+  if (!stat || !fields) return stat;
+  const out = Object.assign({}, stat);
+  if (fields.coin !== undefined) out.coin = fields.coin;
+  if (fields.gamesTotal !== undefined) out.gamesTotal = fields.gamesTotal;
+
+  ['four', 'three'].forEach((mode) => {
+    const f = fields[mode];
+    if (!f) return;
+    const base = out[mode] || emptyModeBox();
+    const box = Object.assign({}, base);
+    box.rankCounts = Object.assign({}, base.rankCounts || {});
+    ['games', 'rankSum', 'pointsSum', 'maxPoints'].forEach((k) => {
+      if (f[k] !== undefined) box[k] = f[k];
+    });
+    if (f.rankCounts) {
+      Object.keys(f.rankCounts).forEach((r) => {
+        const v = Number(f.rankCounts[r]);
+        if (Number.isFinite(v)) box.rankCounts[r] = v;
+      });
+    }
+    out[mode] = box;
+  });
+  return out;
+}
+
+/** 批量读覆盖值，返回 openid -> fields。集合没建时降级为「无覆盖」，不能拖垮排行榜 */
+async function fetchOverrides(openids) {
+  const map = {};
+  if (!openids || openids.length === 0) return map;
+  const chunks = [];
+  for (let i = 0; i < openids.length; i += 100) chunks.push(openids.slice(i, i + 100));
+  for (const chunk of chunks) {
+    try {
+      const res = await db.collection(db_adjust).where({ openid: db_cmd.in(chunk) }).get();
+      (res.data || []).forEach((d) => { map[d.openid] = d.fields || {}; });
+    } catch (err) {
+      console.warn('[mahjong_adjust] 读取覆盖值失败，按无覆盖处理:', err && err.errMsg);
+      return map;
+    }
+  }
+  return map;
+}
+
+/** 读单个玩家的覆盖文档；不存在或集合未建都返回空结构 */
+async function readOverrideDoc(openid) {
+  try {
+    const res = await db.collection(db_adjust).doc(openid).get();
+    if (res && res.data) {
+      return { fields: res.data.fields || {}, logs: res.data.logs || [] };
+    }
+  } catch (err) {
+    // 文档不存在会抛错，属于正常情况
+  }
+  return { fields: {}, logs: [] };
+}
+
+/** 把嵌套的覆盖结构拍平成 path -> value，便于逐字段比对与记日志 */
+function flattenOverride(fields) {
+  const out = {};
+  if (!fields) return out;
+  if (fields.coin !== undefined) out.coin = fields.coin;
+  if (fields.gamesTotal !== undefined) out.gamesTotal = fields.gamesTotal;
+  ['four', 'three'].forEach((mode) => {
+    const f = fields[mode];
+    if (!f) return;
+    OVERRIDE_MODE_INT.forEach((k) => {
+      if (f[k] !== undefined) out[mode + '.' + k] = f[k];
+    });
+    if (f.pointsSum !== undefined) out[mode + '.pointsSum'] = f.pointsSum;
+    if (f.rankCounts) {
+      Object.keys(f.rankCounts).forEach((r) => {
+        out[mode + '.rankCounts.' + r] = f.rankCounts[r];
+      });
+    }
+  });
+  return out;
+}
+
+/** 按 path 取值（path 形如 four.rankCounts.1） */
+function valueAtPath(obj, path) {
+  return String(path).split('.').reduce((o, k) => (o == null ? undefined : o[k]), obj);
+}
+
+/** 把 path 写进嵌套结构，值传 null 表示删除该覆盖 */
+function writeAtPath(fields, path, value) {
+  const keys = String(path).split('.');
+  let cur = fields;
+  for (let i = 0; i < keys.length - 1; i += 1) {
+    const k = keys[i];
+    if (!cur[k] || typeof cur[k] !== 'object') cur[k] = {};
+    cur = cur[k];
+  }
+  const last = keys[keys.length - 1];
+  if (value === null) delete cur[last];
+  else cur[last] = value;
+}
+
+/**
+ * 校验并规整管理员提交的覆盖值。
+ * 只做「数学上必须成立」的检查，不做业务偏好判断 —— 剩下的交给管理员。
+ */
+function normalizeOverrideFields(input) {
+  const fields = {};
+  if (!input || typeof input !== 'object') return { fields, errMsg: '' };
+
+  const pick = (v, label, integer) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) throw new Error(label + ' 必须是数字');
+    if (n < 0) throw new Error(label + ' 不能为负数');
+    if (integer && !Number.isInteger(n)) throw new Error(label + ' 必须是整数');
+    return n;
+  };
+  const has = (v) => v !== undefined && v !== null && v !== '';
+
+  try {
+    if (has(input.coin)) fields.coin = pick(input.coin, '麻币', true);
+    if (has(input.gamesTotal)) fields.gamesTotal = pick(input.gamesTotal, '总对局数', true);
+
+    ['four', 'three'].forEach((mode) => {
+      const src = input[mode];
+      if (!src || typeof src !== 'object') return;
+      const label = MODE_LABEL[mode];
+      const box = {};
+      if (has(src.games)) box.games = pick(src.games, label + '局数', true);
+      if (has(src.rankSum)) box.rankSum = pick(src.rankSum, label + '顺位和', true);
+      if (has(src.maxPoints)) box.maxPoints = pick(src.maxPoints, label + '最高点数', false);
+      if (has(src.pointsSum)) box.pointsSum = pick(src.pointsSum, label + '点数和', false);
+      if (src.rankCounts && typeof src.rankCounts === 'object') {
+        const rc = {};
+        Object.keys(src.rankCounts).forEach((r) => {
+          if (!has(src.rankCounts[r])) return;
+          rc[r] = pick(src.rankCounts[r], label + r + '位次数', true);
+        });
+        if (Object.keys(rc).length) box.rankCounts = rc;
+      }
+      if (Object.keys(box).length) fields[mode] = box;
+    });
+  } catch (err) {
+    return { fields: {}, errMsg: err.message };
+  }
+  return { fields, errMsg: '' };
+}
+
+/**
+ * 自洽性校验：局数、顺位和、顺位次数三者必须能对上，
+ * 否则页面上会出现「平均顺位 0.83」或「一位率 130%」这种明显荒谬的值。
+ */
+function validateOverrideConsistency(merged) {
+  const errors = [];
+  ['four', 'three'].forEach((mode) => {
+    const box = merged[mode] || emptyModeBox();
+    const label = MODE_LABEL[mode];
+    const topRank = mode === 'three' ? 3 : 4;
+    const games = Number(box.games) || 0;
+    const rankSum = Number(box.rankSum) || 0;
+    let countSum = 0;
+    for (let r = 1; r <= topRank; r += 1) {
+      countSum += Number((box.rankCounts || {})[r]) || 0;
+    }
+    if (games > 0) {
+      if (rankSum < games || rankSum > games * topRank) {
+        errors.push(`${label}：${games} 局的顺位和应在 ${games}~${games * topRank} 之间，当前 ${rankSum}`);
+      }
+      if (countSum > games) {
+        errors.push(`${label}：顺位次数合计 ${countSum} 超过局数 ${games}`);
+      }
+    } else if (rankSum > 0 || countSum > 0) {
+      errors.push(`${label}：局数为 0 时，顺位和与顺位次数都必须为 0`);
+    }
+  });
+  return errors.length ? errors.join('；') : '';
+}
+
+/** 把两套覆盖值深合并（新值覆盖旧值） */
+function mergeOverrideFields(base, patch) {
+  const out = JSON.parse(JSON.stringify(base || {}));
+  const flat = flattenOverride(patch);
+  Object.keys(flat).forEach((path) => {
+    writeAtPath(out, path, flat[path]);
+  });
+  return out;
 }
 
 // 云开发单次 in 查询上限 100，超出会直接报错，统一在这里分块
@@ -615,6 +821,15 @@ async function getMyStatsMain(event, context) {
     }
   }
 
+  // 管理员手改的覆盖值叠在上面。注意叠的是「读出来的视图」，
+  // 不动 mahjong_player 本身，所以下次重算不会把手改的值洗掉。
+  try {
+    const ov = await readOverrideDoc(openid);
+    if (Object.keys(ov.fields).length) stat = mergeOverride(stat, ov.fields);
+  } catch (err) {
+    console.warn('[mahjong_adjust] 合并覆盖值失败:', err && err.errMsg);
+  }
+
   // 趋势图只画最近 20 格，这里取 200 条明细再按模式分配。
   // 不能直接 where({ mode }) —— 历史对局没有 mode 字段，会被全部漏掉。
   let recentSource = [];
@@ -729,9 +944,11 @@ async function getRankingMain(event, context) {
   const openids = statList.map(s => s.openid).filter(Boolean);
   const userInfoMap = await fetchUsersByOpenids(openids);
   const titleMap = await fetchTitlesByOpenids(openids);
+  const overrideMap = await fetchOverrides(openids);
 
-  const rows = statList.map((s) => {
-    if (!s.openid) return null;
+  const rows = statList.map((raw) => {
+    if (!raw.openid) return null;
+    const s = mergeOverride(raw, overrideMap[raw.openid]);
     const u = userInfoMap[s.openid] || {};
     const four = s.four || emptyModeBox();
     const three = s.three || emptyModeBox();
@@ -1065,6 +1282,167 @@ async function rebuildPlayerStatsMain(event, context) {
   }
 }
 
+/* ============================================================
+ * 管理员手改玩家数据
+ *   · mahjongGetPlayerStatDetail 读自动值 + 覆盖值 + 变更历史
+ *   · mahjongSetPlayerOverride   设置覆盖值（逐字段记日志）
+ *   · mahjongClearPlayerOverride 撤销覆盖（还原为自动值）
+ * ============================================================ */
+
+/** 校验操作者身份与权限，返回 { openid, user, errMsg } */
+async function requireAdmin(event) {
+  const wxContext = cloud.getWXContext();
+  const openid = wxContext != null && 'OPENID' in wxContext ?
+    wxContext.OPENID : event?.params?.openid;
+  if (!openid) return { openid: '', user: null, errMsg: '无法获取操作者身份' };
+
+  let me = null;
+  try {
+    me = await db.collection(db_user).where({ openid }).get();
+  } catch (err) {
+    return { openid, user: null, errMsg: '查询操作者信息失败' };
+  }
+  if (!me.data || me.data.length === 0) return { openid, user: null, errMsg: '未查询到操作者信息' };
+  const role = me.data[0].role;
+  if (role !== 'admin' && role !== 'master') {
+    return { openid, user: me.data[0], errMsg: '无权限，仅管理员可修改玩家数据' };
+  }
+  return { openid, user: me.data[0], errMsg: '' };
+}
+
+/** 取某玩家的自动统计（没有记录就现算；从没打过牌的返回空统计） */
+async function loadAutoStat(openid) {
+  let auto = null;
+  try {
+    auto = await getPlayerStat(openid);
+  } catch (err) {
+    auto = null;
+  }
+  if (!auto) {
+    try {
+      auto = await rebuildPlayerStat(openid);
+    } catch (err) {
+      auto = emptyPlayerStat(openid);
+    }
+  }
+  return auto;
+}
+
+async function getPlayerStatDetailMain(event, context) {
+  const auth = await requireAdmin(event);
+  if (auth.errMsg) return { success: false, errMsg: auth.errMsg };
+
+  const params = event.params || {};
+  const openid = params.openid;
+  if (!openid) return { success: false, errMsg: '未指定玩家' };
+
+  const auto = await loadAutoStat(openid);
+  const ov = await readOverrideDoc(openid);
+
+  return {
+    success: true,
+    data: {
+      auto: auto,
+      fields: ov.fields,
+      merged: mergeOverride(auto, ov.fields),
+      logs: ov.logs
+    }
+  };
+}
+
+async function setPlayerOverrideMain(event, context) {
+  const auth = await requireAdmin(event);
+  if (auth.errMsg) return { success: false, errMsg: auth.errMsg };
+
+  const params = event.params || {};
+  const openid = params.openid;
+  if (!openid) return { success: false, errMsg: '未指定玩家' };
+
+  const normalized = normalizeOverrideFields(params.fields);
+  if (normalized.errMsg) return { success: false, errMsg: normalized.errMsg };
+  const incoming = normalized.fields;
+  if (!Object.keys(incoming).length) return { success: false, errMsg: '没有需要修改的字段' };
+
+  const auto = await loadAutoStat(openid);
+  const ov = await readOverrideDoc(openid);
+  const nextFields = mergeOverrideFields(ov.fields, incoming);
+
+  // 自洽性：局数改小了但顺位次数没跟着改，会算出 130% 的一位率
+  const merged = mergeOverride(auto, nextFields);
+  const bad = validateOverrideConsistency(merged);
+  if (bad) return { success: false, errMsg: bad };
+
+  // 日志：before 取「改之前的展示值」（有覆盖就是覆盖值，没有就是自动值）
+  const flatNew = flattenOverride(incoming);
+  const mergedBefore = mergeOverride(auto, ov.fields);
+  const note = String(params.note || '').slice(0, 200);
+  const by = (auth.user && auth.user.nickname) || auth.openid;
+  const now = new Date();
+  const entries = Object.keys(flatNew).map(path => ({
+    at: now,
+    by: by,
+    field: path,
+    before: valueAtPath(mergedBefore, path),
+    after: flatNew[path],
+    note: note
+  }));
+  const logs = entries.concat(ov.logs).slice(0, 100);   // 只留最近 100 条，避免文档无限膨胀
+
+  try {
+    await db.collection(db_adjust).doc(openid).set({
+      data: { openid, fields: nextFields, logs, updated_at: now }
+    });
+  } catch (err) {
+    console.error('保存覆盖值失败:', err);
+    return { success: false, errMsg: '保存失败，请确认已创建 mahjong_adjust 集合' };
+  }
+
+  return { success: true, data: { fields: nextFields, merged, changes: entries } };
+}
+
+async function clearPlayerOverrideMain(event, context) {
+  const auth = await requireAdmin(event);
+  if (auth.errMsg) return { success: false, errMsg: auth.errMsg };
+
+  const params = event.params || {};
+  const openid = params.openid;
+  if (!openid) return { success: false, errMsg: '未指定玩家' };
+
+  const paths = Array.isArray(params.paths) ? params.paths.filter(p => typeof p === 'string') : [];
+  const auto = await loadAutoStat(openid);
+  const ov = await readOverrideDoc(openid);
+  const before = mergeOverride(auto, ov.fields);
+
+  const nextFields = JSON.parse(JSON.stringify(ov.fields || {}));
+  const targets = paths.length ? paths : Object.keys(flattenOverride(ov.fields));
+  if (!targets.length) return { success: true, data: { fields: {}, merged: before, changes: [] } };
+
+  const now = new Date();
+  const by = (auth.user && auth.user.nickname) || auth.openid;
+  const entries = targets.map(path => ({
+    at: now,
+    by: by,
+    field: path,
+    before: valueAtPath(before, path),
+    after: null,          // null = 还原为自动计算值
+    note: '撤销覆盖'
+  }));
+  targets.forEach(path => writeAtPath(nextFields, path, null));
+
+  const logs = entries.concat(ov.logs).slice(0, 100);
+
+  try {
+    await db.collection(db_adjust).doc(openid).set({
+      data: { openid, fields: nextFields, logs, updated_at: now }
+    });
+  } catch (err) {
+    console.error('清除覆盖值失败:', err);
+    return { success: false, errMsg: '保存失败，请确认已创建 mahjong_adjust 集合' };
+  }
+
+  return { success: true, data: { fields: nextFields, merged: mergeOverride(auto, nextFields), changes: entries } };
+}
+
 module.exports = {
   addGameMain,
   updateGameMain,
@@ -1074,6 +1452,9 @@ module.exports = {
   getGamesMain,
   grantTitleMain,
   revokeTitleMain,
+  getPlayerStatDetailMain,
+  setPlayerOverrideMain,
+  clearPlayerOverrideMain,
   getPlayerTitlesMain,
   deleteGameMain,
   rebuildPlayerStatsMain,

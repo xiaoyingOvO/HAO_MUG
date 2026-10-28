@@ -187,4 +187,5 @@
   <!-- 录入入口（所有人可见，云端会校验管理员权限；仅管理员能提交成功） -->
   <view class="mj-record-fab" bindtap="goRecord">＋ 录入</view>
   <view class="mj-record-fab mj-title-fab" bindtap="goGrantTitle">🏅 发称号</view>
+  <view class="mj-record-fab mj-adjust-fab" wx:if="{{isAdmin}}" bindtap="goAdjustPlayer">✏ 改数据</view>
 </view>

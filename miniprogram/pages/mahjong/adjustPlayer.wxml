@@ -1,0 +1,81 @@
+<!-- pages/mahjong/adjustPlayer.wxml —— 管理员手改玩家战绩 -->
+<view class="ap-page">
+
+  <view wx:if="{{checkDone && !isAdmin}}" class="ap-card ap-noauth">
+    <text>🔒 仅管理员可修改玩家数据</text>
+  </view>
+
+  <block wx:if="{{checkDone && isAdmin}}">
+    <!-- 选择玩家 -->
+    <view class="ap-card">
+      <view class="ap-label">选择玩家</view>
+      <block wx:if="{{player}}">
+        <view class="ap-player">
+          <image class="ap-avatar" src="{{player.avatar || '/images/default-avatar.png'}}" mode="aspectFill" />
+          <text class="ap-name">{{player.nickname}}</text>
+          <text class="ap-clear" bindtap="clearPlayer">✕</text>
+        </view>
+      </block>
+      <block wx:else>
+        <input class="ap-input" placeholder="输入昵称搜索玩家" value="{{keyword}}" bindinput="onKeywordInput" />
+        <view class="ap-suggest" wx:if="{{keyword}}">
+          <view class="ap-item" wx:for="{{suggestions}}" wx:key="openid" wx:for-item="u" data-user="{{u}}" bindtap="pickPlayer">
+            <image class="ap-avatar" src="{{u.avatar || '/images/default-avatar.png'}}" mode="aspectFill" />
+            <text class="ap-name">{{u.nickname}}</text>
+          </view>
+          <view wx:if="{{!suggestions.length}}" class="ap-empty">{{searching ? '搜索中…' : '没有找到该用户'}}</view>
+        </view>
+      </block>
+    </view>
+
+    <block wx:if="{{player && loaded}}">
+      <view class="ap-hint">
+        自动值是按对局记录算出来的。填入的数字会覆盖对应字段，且不会因为以后删局、改分被重算覆盖；
+        清空输入框即恢复自动值。
+      </view>
+
+      <view class="ap-card" wx:for="{{groups}}" wx:key="title" wx:for-item="g" wx:for-index="gi">
+        <view class="ap-group-head">
+          <text class="ap-group-title">{{g.title}}</text>
+          <text class="ap-group-sub" wx:if="{{g.mode}}">平均顺位 {{g.stat.avgRankText}} · 一位率 {{g.stat.winRateText}} · 雀力 {{g.stat.powerText}}</text>
+        </view>
+
+        <view class="ap-row" wx:for="{{g.rows}}" wx:key="path" wx:for-item="r" wx:for-index="ri">
+          <view class="ap-row-label">
+            <text class="ap-row-name">{{r.label}}</text>
+            <text class="ap-row-auto">自动 {{r.autoText}}</text>
+          </view>
+          <input class="ap-row-input {{r.overridden ? 'ap-row-input-on' : ''}}"
+                 type="{{r.integral ? 'number' : 'digit'}}"
+                 placeholder="不改"
+                 value="{{r.value}}"
+                 data-gi="{{gi}}" data-ri="{{ri}}" bindinput="onInput" />
+          <text class="ap-row-reset" wx:if="{{r.overridden}}" data-path="{{r.path}}" bindtap="clearOne">还原</text>
+        </view>
+
+        <view class="ap-warn" wx:if="{{g.warn}}">{{g.warn}}</view>
+      </view>
+
+      <view class="ap-card">
+        <view class="ap-label">修改原因<text class="ap-label-sub">（会记进修改历史）</text></view>
+        <input class="ap-note" placeholder="例如：10/20 那局点数录错，补回 2 币"
+               value="{{note}}" bindinput="onNoteInput" maxlength="200" />
+        <view class="ap-submit {{submitting ? 'disabled' : ''}}" bindtap="save">
+          {{submitting ? '保存中…' : '保存修改'}}
+        </view>
+        <view class="ap-reset-all" bindtap="clearAll">还原该玩家的全部手动设置</view>
+      </view>
+
+      <view class="ap-card" wx:if="{{logs.length}}">
+        <view class="ap-label">修改历史<text class="ap-label-sub">（最近 100 条，新的在上）</text></view>
+        <view class="ap-log" wx:for="{{logs}}" wx:key="index">
+          <view class="ap-log-line">
+            <text class="ap-log-field">{{item.fieldText}}</text>
+            <text class="ap-log-diff">{{item.beforeText}} → {{item.afterText}}</text>
+          </view>
+          <view class="ap-log-sub">{{item.atText}} · {{item.by}}{{item.note ? ' · ' + item.note : ''}}</view>
+        </view>
+      </view>
+    </block>
+  </block>
+</view>

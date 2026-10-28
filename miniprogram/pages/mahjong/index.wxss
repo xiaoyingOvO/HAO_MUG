@@ -555,3 +555,10 @@
   background: linear-gradient(135deg, #f2a51a, #e6940c);
   box-shadow: 0 8rpx 24rpx rgba(230, 148, 12, 0.45);
 }
+/* 「发称号」左侧留出的位置：右边缘在 200rpx，宽度约 190rpx，
+   所以这一颗从 404rpx 起排，两者不会叠在一起 */
+.mj-adjust-fab {
+  right: 404rpx;
+  background: linear-gradient(135deg, #b58ee8, #9b6fd8);
+  box-shadow: 0 8rpx 24rpx rgba(155, 111, 216, 0.45);
+}
