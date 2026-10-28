@@ -1,6 +1,5 @@
 // pages/mahjong/index.js
 import cloudFcn from '../../cloudFcn.js';
-import { computeRank } from '../../utils/mahjongRank.js';
 import { decorateTitles, getTitle } from '../../utils/mahjongTitles.js';
 
 Page({
@@ -9,14 +8,16 @@ Page({
     loading: true,
     isAdmin: false,       // 是否管理员（决定是否显示删除/撤销入口）
 
-    /* ---------- 我的战绩 ---------- */
-    hasStats: false,      // 是否打过局
-    stats: null,
-    rankInfo: null,       // computeRank 结果（段位框架）
-    myTitles: [],         // 我的称号（已装饰，含 img）
+    /* ---------- 我的战绩（三麻四麻分开） ---------- */
+    statsTab: 'four',     // 'four' 四麻 | 'three' 三麻
+    hasStats: false,      // 当前模式是否打过局
+    stats: null,          // 云端原始返回 { coin, modes, titles }
+    cur: null,            // 当前模式的数据（stats.modes[statsTab]）
+    coin: 0,              // 麻币（三麻四麻合并结算的一个账户）
+    myTitles: [],         // 我的称号（已装饰，含 img；不分模式）
     mainTitle: null,      // 用户设置的展示称号（{key,name,img,count} 或 null）
     trendRange: 10,       // 趋势图显示 10 / 20 局
-    trendRows: [],        // [{rank:1, cells:[{filled, rank}]}]
+    trendRows: [],        // [{rank:1, cells:[{filled, rank}]}]（行数随模式：四麻 4 行、三麻 3 行）
 
     /* ---------- 排行榜 ---------- */
     // 三个榜一次请求全拿到，切 tab 只做本地切换、零延迟
@@ -71,10 +72,15 @@ Page({
     try {
       const res = await cloudFcn.mahjongGetMyStats();
       const stats = res.result && res.result.data;
-      if (!stats || !stats.total) {
-        this.setData({ hasStats: false, stats: null, rankInfo: computeRank(null), myTitles: [], mainTitle: null });
+      if (!stats || !stats.modes) {
+        this.setData({
+          hasStats: false, stats: null, cur: null, coin: 0,
+          myTitles: [], mainTitle: null, trendRows: [],
+        });
         return;
       }
+
+      // 称号不分三麻四麻，一次拿到即可
       const myTitles = decorateTitles(stats.titles);
       // 从 userInfo 拿 display_title，匹配到我的称号列表里
       const userRes = await cloudFcn.getUsrInfo();
@@ -84,10 +90,13 @@ Page({
         const found = myTitles.find(t => t.key === displayTitleKey);
         if (found) mainTitle = found;
       }
+
+      const cur = stats.modes[this.data.statsTab] || stats.modes.four;
       this.setData({
-        hasStats: true,
         stats,
-        rankInfo: computeRank(stats),
+        cur,
+        coin: stats.coin || 0,
+        hasStats: !!(cur && cur.games),
         myTitles,
         mainTitle,
       });
@@ -97,13 +106,32 @@ Page({
     }
   },
 
-  // 生成顺位趋势格：4 行（1~4 位），列 = 最近 N 局（最新在右）
+  // 四麻 / 三麻 切换：数据已在内存里，只换展示，不发请求
+  switchStatsTab(e) {
+    const tab = e.currentTarget.dataset.tab;
+    if (!tab || tab === this.data.statsTab) return;
+    const modes = this.data.stats && this.data.stats.modes;
+    const cur = modes ? modes[tab] : null;
+    this.setData({
+      statsTab: tab,
+      cur: cur || null,
+      hasStats: !!(cur && cur.games),
+    });
+    this.buildTrend();
+  },
+
+  // 生成顺位趋势格：每行一个名次，列 = 最近 N 局（最新在右）
   buildTrend() {
-    const { stats, trendRange } = this.data;
-    const recent = (stats.recent || []).slice(-trendRange);
+    const { cur, trendRange } = this.data;
+    // 三麻只有 1~3 位，多画一行 4 位只会是一条永远空的线
+    const topRank = (cur && cur.topRank) || 4;
+    const ranks = [];
+    for (let r = 1; r <= topRank; r++) ranks.push(r);
+
+    const recent = ((cur && cur.recent) || []).slice(-trendRange);
     // 前面补空，让局数不足时格子从右侧开始（与雀魂一致）
     const pad = trendRange - recent.length;
-    const rows = [1, 2, 3, 4].map((rank) => {
+    const rows = ranks.map((rank) => {
       const cells = [];
       for (let i = 0; i < pad; i++) cells.push({ filled: false, rank: 0 });
       recent.forEach((g) => {

@@ -57,6 +57,44 @@ function calcPower(mode, games, rankSum) {
   return Math.round(POWER_BASE + (POWER_BASE_RANK[mode] - avgRank) * POWER_COEF);
 }
 
+/**
+ * 全员麻币结算。
+ * gamesDesc 必须按 game_date/create_time **倒序**（数据库查询的默认顺序）。
+ *
+ * 麻币是三麻四麻**统一**计算的一个账户（它本质是积分，玩家只关心总额），
+ * 但结算必须逐局钳制在 0：余额为 0 时输一局是「扣不动」，不是先欠 1 分。
+ * 所以要把倒序列表反转成正序再推进。
+ */
+function computeCoinBalances(gamesDesc) {
+  const bal = {};
+  gamesDesc.slice().reverse().forEach(g => {
+    const table = COIN_BY_RANK[normalizeMode(g)];
+    (g.players || []).forEach(p => {
+      if (!p.openid) return;
+      const delta = table[Number(p.rank)];
+      if (delta === undefined) return;   // 脏顺位（如 5 位）跳过，不让一条坏数据拖垮整榜
+      bal[p.openid] = Math.max(0, (bal[p.openid] || 0) + delta);
+    });
+  });
+  return bal;
+}
+
+/**
+ * 单个玩家的麻币结算，口径与 computeCoinBalances 完全一致。
+ * 个人页只查到自己参与的对局就够了 —— 麻币只取决于本人每局的顺位。
+ */
+function settleCoinForPlayer(openid, gamesDesc) {
+  let bal = 0;
+  gamesDesc.slice().reverse().forEach(g => {
+    const mine = (g.players || []).find(p => p.openid === openid);
+    if (!mine) return;
+    const delta = COIN_BY_RANK[normalizeMode(g)][Number(mine.rank)];
+    if (delta === undefined) return;
+    bal = Math.max(0, bal + delta);
+  });
+  return bal;
+}
+
 // 云开发单次 in 查询上限 100，超出会直接报错，统一在这里分块
 async function fetchUsersByOpenids(openids) {
   const map = {};
@@ -72,15 +110,16 @@ async function fetchUsersByOpenids(openids) {
 
 /* ============================================================
  * 麻将对局战绩模块（挂载在 baseFunctions 聚合函数下，通过 event.type 分发）：
- *   · mahjongAddGame    管理员录入一局（4 名玩家 + 点数，自动算顺位）
- *   · mahjongGetMyStats 我的战绩聚合（四率/平均顺位/最高点数/最近趋势）
- *   · mahjongGetRanking 排行榜（按平均顺位升序，同平均顺位局数多者在前）
+ *   · mahjongAddGame    管理员录入一局（3 人三麻 / 4 人四麻，自动算顺位与模式）
+ *   · mahjongGetMyStats 我的战绩聚合（三麻四麻分开：顺位次数/率/平均顺位/雀力/趋势，麻币统一）
+ *   · mahjongGetRanking 排行榜（麻币 / 三麻雀力 / 四麻雀力 三榜一次返回）
  *   · mahjongGetGames   全部对局（分页）
  *
  * 数据集合 mahjong_game 文档结构：
  * {
  *   _id,
  *   game_date: 'YYYY-MM-DD',            // 对局日期（业务日期，非录入时间）
+ *   mode: 'three' | 'four',              // 三麻 / 四麻；历史数据无此字段，按四麻兜底
  *   players: [{ openid, nickname, avatar, points, rank }],
  *   recorder_openid,                     // 录入人
  *   create_time: Date
@@ -180,8 +219,21 @@ async function addGameMain(event, context) {
 }
 
 /**
- * 我的战绩聚合
- * 返回：总局数、1~4 位次数与率、被飞率、平均顺位、平均点数、最高点数、最近 20 局趋势
+ * 我的战绩聚合 —— 三麻与四麻**完全分开统计**，麻币统一
+ *
+ * 返回：
+ * {
+ *   coin,                    // 麻币总额（三麻四麻合并结算的一个账户）
+ *   modes: {
+ *     four:  { mode, topRank, games, rankCounts, rankRates, flyRate,
+ *              avgRank, avgPoints, maxPoints, power, recent },
+ *     three: { 同上 }
+ *   },
+ *   titles: [{ title, count }]   // 称号不分模式
+ * }
+ *
+ * 为什么必须分开：三麻只有 1~3 位，混在一起算的话「四位率」恒被稀释、
+ * 平均顺位也会被拉低，两个模式的战绩互相污染，看不出一项真实水平。
  */
 async function getMyStatsMain(event, context) {
   const wxContext = cloud.getWXContext();
@@ -199,55 +251,72 @@ async function getMyStatsMain(event, context) {
     return { success: false, errMsg: '查询对局数据失败' };
   }
 
-  const games = res.data || [];
-  // games 是按时间倒序的；最近 20 局趋势要「从旧到新」（最新在右）
-  const recentGames = games.slice(0, 20).reverse();
+  const games = res.data || [];   // 按时间倒序
 
-  const rankCounts = { 1: 0, 2: 0, 3: 0, 4: 0 };
-  let pointsSum = 0, rankSum = 0, maxPoints = null, total = 0;
-  games.forEach(g => {
-    const mine = (g.players || []).find(p => p.openid === openid);
-    if (!mine) return;
-    total += 1;
-    if (rankCounts[mine.rank] !== undefined) rankCounts[mine.rank] += 1;
-    pointsSum += Number(mine.points) || 0;
-    rankSum += Number(mine.rank) || 0;
-    if (maxPoints === null || mine.points > maxPoints) maxPoints = mine.points;
-  });
+  const buildMode = (mode) => {
+    const list = games.filter(g => normalizeMode(g) === mode);
+    const total = list.length;
+    const topRank = mode === 'three' ? 3 : 4;
 
-  const stats = {
-    total: total,
-    rankCounts: rankCounts,
-    rankRates: {
-      1: total ? +(rankCounts[1] * 100 / total).toFixed(2) : 0,
-      2: total ? +(rankCounts[2] * 100 / total).toFixed(2) : 0,
-      3: total ? +(rankCounts[3] * 100 / total).toFixed(2) : 0,
-      4: total ? +(rankCounts[4] * 100 / total).toFixed(2) : 0
-    },
-    // 被飞率 = 末位率（4 位率）
-    flyRate: total ? +(rankCounts[4] * 100 / total).toFixed(2) : 0,
-    avgRank: total ? +(rankSum / total).toFixed(2) : null,
-    avgPoints: total ? +(pointsSum / total).toFixed(1) : null,
-    maxPoints: total ? maxPoints : null,
-    recent: recentGames.map(g => {
+    const rankCounts = { 1: 0, 2: 0, 3: 0, 4: 0 };
+    let pointsSum = 0, rankSum = 0, maxPoints = null;
+    list.forEach(g => {
       const mine = (g.players || []).find(p => p.openid === openid);
-      return {
-        game_id: g._id,
-        game_date: g.game_date,
-        rank: mine ? mine.rank : null,
-        points: mine ? mine.points : null
-      };
-    })
+      if (!mine) return;
+      const rank = Number(mine.rank) || 0;
+      if (rankCounts[rank] !== undefined) rankCounts[rank] += 1;
+      pointsSum += Number(mine.points) || 0;
+      rankSum += rank;
+      if (maxPoints === null || mine.points > maxPoints) maxPoints = mine.points;
+    });
+
+    // 只给该模式真实存在的名次出率；三麻没有 4 位，不硬塞一个 0
+    const rankRates = {};
+    for (let r = 1; r <= topRank; r++) {
+      rankRates[r] = total ? +(rankCounts[r] * 100 / total).toFixed(2) : 0;
+    }
+
+    return {
+      mode: mode,
+      topRank: topRank,
+      games: total,
+      rankCounts: rankCounts,
+      rankRates: rankRates,
+      // 末位率（原「被飞率」）：四麻看 4 位，三麻看 3 位，两种模式语义一致
+      flyRate: total ? +(rankCounts[topRank] * 100 / total).toFixed(2) : 0,
+      avgRank: total ? +(rankSum / total).toFixed(2) : null,
+      avgPoints: total ? +(pointsSum / total).toFixed(1) : null,
+      maxPoints: total ? maxPoints : null,
+      power: calcPower(mode, total, rankSum),
+      // 最近 20 局，从旧到新（最新在右），与趋势图方向一致
+      recent: list.slice(0, 20).reverse().map(g => {
+        const mine = (g.players || []).find(p => p.openid === openid);
+        return {
+          game_id: g._id,
+          game_date: g.game_date,
+          rank: mine ? mine.rank : null,
+          points: mine ? mine.points : null
+        };
+      })
+    };
   };
 
-  // 我的称号（每个称号带获得次数 count）
   const titleRes = await db.collection(db_title).where({ openid }).get();
-  stats.titles = (titleRes.data || []).map(t => ({
-    title: t.title,
-    count: t.count || 1
-  }));
 
-  return { success: true, data: stats };
+  return {
+    success: true,
+    data: {
+      coin: settleCoinForPlayer(openid, games),
+      modes: {
+        four: buildMode('four'),
+        three: buildMode('three')
+      },
+      titles: (titleRes.data || []).map(t => ({
+        title: t.title,
+        count: t.count || 1
+      }))
+    }
+  };
 }
 
 /**
@@ -275,19 +344,8 @@ async function getRankingMain(event, context) {
     return { success: true, data: { coin: [], power3: [], power4: [], config: buildRankConfig() } };
   }
 
-  /* ---- 麻币：必须按时间正序逐局推进，余额钳在 0 ---- */
-  // 拉取时是倒序，reverse 后即为正序（同一排序键，逆序取反即升序）
-  const coinBalance = {};
-  gamesDesc.slice().reverse().forEach(g => {
-    const table = COIN_BY_RANK[normalizeMode(g)];
-    (g.players || []).forEach(p => {
-      if (!p.openid) return;
-      const delta = table[Number(p.rank)];
-      if (delta === undefined) return;   // 异常顺位（脏数据）直接跳过，不因一条坏数据整榜失败
-      const cur = coinBalance[p.openid] || 0;
-      coinBalance[p.openid] = Math.max(0, cur + delta);
-    });
-  });
+  /* ---- 麻币：统一账户，逐局钳制在 0 ---- */
+  const coinBalance = computeCoinBalances(gamesDesc);
 
   /* ---- 局数 / 顺位和 / 一位数：分模式分别统计 ---- */
   const agg = {};

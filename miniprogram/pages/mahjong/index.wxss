@@ -37,12 +37,63 @@
   flex-shrink: 0;
 }
 
-/* ---------- 段位卡 ---------- */
+/* ---------- 麻币卡 ---------- */
+/* 麻币是三麻四麻合并的一个账户，所以放在模式切换之上，不随 tab 变化 */
+.coin-card {
+  display: flex;
+  align-items: center;
+  padding: 24rpx 28rpx;
+}
+.coin-left { flex: 1; }
+.coin-label {
+  font-size: 28rpx;
+  font-weight: 600;
+  color: #3d5871;
+}
+.coin-note {
+  margin-top: 4rpx;
+  font-size: 22rpx;
+  color: #a8bfd4;
+}
+.coin-value {
+  font-size: 46rpx;
+  font-weight: 700;
+  color: #c9891f;
+}
+
+/* ---------- 三麻 / 四麻 模式切换 ---------- */
+.mode-tabs {
+  display: flex;
+  gap: 12rpx;
+  margin-bottom: 20rpx;
+}
+.mode-tab {
+  flex: 1;
+  text-align: center;
+  padding: 14rpx 0;
+  font-size: 28rpx;
+  color: #8aa7c2;
+  background: #fff;
+  border-radius: 16rpx;
+  box-shadow: 0 4rpx 16rpx rgba(147, 197, 253, 0.14);
+}
+.mode-tab-active {
+  background: #b7d9f7;
+  color: #3a7bbf;
+  font-weight: 600;
+}
+
+/* ---------- 雀力卡 ---------- */
 .rank-card {
   display: flex;
   align-items: center;
 }
 .rank-left { flex: 1; }
+.rank-label {
+  font-size: 24rpx;
+  color: #8aa7c2;
+  margin-bottom: 4rpx;
+}
 .rank-title {
   font-size: 44rpx;
   font-weight: 700;
@@ -64,28 +115,6 @@
   display: flex;
   align-items: center;
   justify-content: center;
-}
-
-/* ---------- pt 进度条 ---------- */
-.pt-card { padding: 24rpx 28rpx; }
-.pt-text {
-  display: block;
-  text-align: center;
-  font-size: 26rpx;
-  color: #4a8ec9;
-  margin-bottom: 14rpx;
-}
-.pt-bar {
-  height: 14rpx;
-  background: #e8f1fa;
-  border-radius: 10rpx;
-  overflow: hidden;
-}
-.pt-fill {
-  height: 100%;
-  background: linear-gradient(90deg, #8fc4ef, #6fb0e6);
-  border-radius: 10rpx;
-  transition: width 0.4s ease;
 }
 
 /* ---------- 三率 / 统计格 ---------- */

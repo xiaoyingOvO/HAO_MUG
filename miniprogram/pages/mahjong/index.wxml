@@ -8,32 +8,41 @@
 
   <!-- ============ 我的战绩 ============ -->
   <block wx:if="{{activeTab === 'stats'}}">
-    <!-- 段位卡 -->
-    <view class="mj-card rank-card">
-      <view class="rank-left">
-        <view class="rank-title">{{rankInfo.title}}</view>
-        <view class="rank-games">对局总数 {{stats.total || 0}}</view>
+    <!-- 麻币：三麻四麻合并成同一个账户，所以放在模式切换之上 -->
+    <view class="mj-card coin-card">
+      <view class="coin-left">
+        <view class="coin-label">麻币</view>
+        <view class="coin-note">四麻三麻合并结算</view>
       </view>
-      <view class="rank-badge">{{rankInfo.level < 0 ? '🀄' : '雀'}}</view>
+      <view class="coin-value">{{coin}}</view>
     </view>
 
-    <!-- pt 进度条（段位规则待定，先展示框架） -->
-    <view class="mj-card pt-card">
-      <text class="pt-text">pt {{rankInfo.pt}} / {{rankInfo.ptMax}}{{rankInfo.ptNote ? '（' + rankInfo.ptNote + '）' : ''}}</text>
-      <view class="pt-bar">
-        <view class="pt-fill" style="width: {{rankInfo.ptMax ? rankInfo.pt * 100 / rankInfo.ptMax : 0}}%"></view>
+    <!-- 模式切换：两种模式的战绩完全分开 -->
+    <view class="mode-tabs">
+      <view class="mode-tab {{statsTab === 'four' ? 'mode-tab-active' : ''}}" data-tab="four" bindtap="switchStatsTab">四麻</view>
+      <view class="mode-tab {{statsTab === 'three' ? 'mode-tab-active' : ''}}" data-tab="three" bindtap="switchStatsTab">三麻</view>
+    </view>
+
+    <!-- 雀力卡 -->
+    <view class="mj-card rank-card">
+      <view class="rank-left">
+        <view class="rank-label">{{statsTab === 'four' ? '四麻' : '三麻'}}雀力</view>
+        <view class="rank-title">{{cur.power != null ? cur.power : '—'}}</view>
+        <view class="rank-games">对局 {{cur.games || 0}} 局</view>
       </view>
+      <view class="rank-badge">🀄</view>
     </view>
 
     <block wx:if="{{hasStats}}">
-      <!-- 三率（删掉一位率） -->
+      <!-- 顺位达成次数：三麻只有 1~3 位，不硬塞一个恒为 0 的四位率 -->
       <view class="rate-grid">
-        <view class="rate-box rate-2"><view class="rate-name">二位率</view><view class="rate-val">{{stats.rankRates[2]}}%</view><view class="rate-sub">（{{stats.rankCounts[2]}}回）</view></view>
-        <view class="rate-box rate-3"><view class="rate-name">三位率</view><view class="rate-val">{{stats.rankRates[3]}}%</view><view class="rate-sub">（{{stats.rankCounts[3]}}回）</view></view>
-        <view class="rate-box rate-4"><view class="rate-name">四位率</view><view class="rate-val">{{stats.rankRates[4]}}%</view><view class="rate-sub">（{{stats.rankCounts[4]}}回）</view></view>
+        <view class="rate-box rate-1"><view class="rate-name">一位率</view><view class="rate-val">{{cur.rankRates[1]}}%</view><view class="rate-sub">（{{cur.rankCounts[1]}}回）</view></view>
+        <view class="rate-box rate-2"><view class="rate-name">二位率</view><view class="rate-val">{{cur.rankRates[2]}}%</view><view class="rate-sub">（{{cur.rankCounts[2]}}回）</view></view>
+        <view class="rate-box rate-3"><view class="rate-name">三位率</view><view class="rate-val">{{cur.rankRates[3]}}%</view><view class="rate-sub">（{{cur.rankCounts[3]}}回）</view></view>
+        <view class="rate-box rate-4" wx:if="{{statsTab === 'four'}}"><view class="rate-name">四位率</view><view class="rate-val">{{cur.rankRates[4]}}%</view><view class="rate-sub">（{{cur.rankCounts[4]}}回）</view></view>
       </view>
 
-      <!-- 我的称号 -->
+      <!-- 我的称号（不分模式） -->
       <view class="mj-card title-card" wx:if="{{myTitles.length}}">
         <view class="title-card-head">我的称号<text class="title-count">×{{myTitles.length}}</text></view>
         <view class="title-list">
@@ -53,10 +62,10 @@
 
       <!-- 其他统计 -->
       <view class="rate-grid">
-        <view class="rate-box plain"><view class="rate-name">被飞率</view><view class="rate-val">{{stats.flyRate}}%</view></view>
-        <view class="rate-box plain"><view class="rate-name">最高点数</view><view class="rate-val">{{stats.maxPoints}}</view></view>
-        <view class="rate-box plain"><view class="rate-name">平均顺位</view><view class="rate-val">{{stats.avgRank}}</view></view>
-        <view class="rate-box plain"><view class="rate-name">平均点数</view><view class="rate-val">{{stats.avgPoints}}</view></view>
+        <view class="rate-box plain"><view class="rate-name">末位率</view><view class="rate-val">{{cur.flyRate}}%</view></view>
+        <view class="rate-box plain"><view class="rate-name">最高点数</view><view class="rate-val">{{cur.maxPoints != null ? cur.maxPoints : '--'}}</view></view>
+        <view class="rate-box plain"><view class="rate-name">平均顺位</view><view class="rate-val">{{cur.avgRank != null ? cur.avgRank : '--'}}</view></view>
+        <view class="rate-box plain"><view class="rate-name">平均点数</view><view class="rate-val">{{cur.avgPoints != null ? cur.avgPoints : '--'}}</view></view>
       </view>
 
       <!-- 最近对局顺位趋势 -->
@@ -83,7 +92,7 @@
     </block>
 
     <view wx:else class="mj-card empty-card">
-      <text>还没有对局记录，快去打一局吧🀄</text>
+      <text>还没有{{statsTab === 'four' ? '四麻' : '三麻'}}对局记录</text>
     </view>
 
     <!-- 全部对局入口 -->
