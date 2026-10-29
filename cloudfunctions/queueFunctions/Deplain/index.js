@@ -13,6 +13,11 @@ const max_retry_time = 5;
 const retry_wait_seconds = 0.5;
 const max_machine_lock_seconds = 2;
 
+// 下机后自动把等候区 1、2 号位排上机（公共模块，和 DeplainAll 共用）
+const { autoEmbarkAfterDeplain, logTimeBeforeEmbark } = require('../autoEmbark')
+// 链表还原 / 重排写库（和 Enqueue、Embark、autoEmbark 共用同一份实现）
+const { buildChain, rewriteChain, QUEUE_FETCH_LIMIT } = require('../queueChain')
+
 // 一键下机云函数入口
 exports.main = async (event, context) => {
   var db_queue = "queue_"
@@ -26,11 +31,19 @@ exports.main = async (event, context) => {
   console.log('openid: ' + openid)
   // 获取操作者openid（实际调用者，用于日志）
   const operatorOpenid = wxContext && wxContext.OPENID ? wxContext.OPENID : openid
+  // 锁的持有者用「操作者」而不是「被下机的人」。
+  //   默认情况下两者相同；只有设置页的「强制下机」会传别人的 openid 进来，
+  //   这时如果拿被下机人的 openid 去抢锁，正好他本人也在点下机，两边会同时拿到锁
+  //   （CAS 判断里 openid 相同 → 都算抢到），导致同一次消费被结算两次。
+  const lockOwner = operatorOpenid || openid
   // 获取参数
-  machine_id = event.params.machine_id
+  //   ⚠️ 以前这里漏了 const，machine_id 变成了一个隐式全局变量：
+  //      并发处理两个机台的请求时，后一个请求会把前一个的值覆盖掉，
+  //      下机日志可能写到别的机台的 queue_log 里。
+  const machine_id = event.params.machine_id
   // 获取分布式锁
   let lockRes = await acquireQueueLock({
-    openid: openid,
+    openid: lockOwner,
     machine_id: event.params.machine_id
   });
   console.log("Get Lock!")
@@ -56,6 +69,9 @@ exports.main = async (event, context) => {
   })
   console.log("Get Current User!")
   if (queue_record.data.length == 0 || queue_record.data[0].play_status != true){
+    // 提前返回也要放锁：否则这台机台的上机/下机都会被这把锁挡到 2 秒后自然过期，
+    // 表现成偶发的「下机人数太多，请重试」
+    await releaseQueueLock({ openid: lockOwner, machine_id: event.params.machine_id })
     return {
       success: false,
       errMsg: "当前用户排队状态有误，请刷新页面重试",
@@ -73,6 +89,15 @@ exports.main = async (event, context) => {
     },
     fail: console.error
   })
+  // 用户记录不存在（账号被清 / openid 变了）：继续往下走会在 data[0].real_point 上抛异常，
+  //   而这时候锁已经拿到手了，异常会把整台机台卡到锁自然过期。
+  if (!user_remain_record.data.length) {
+    await releaseQueueLock({ openid: lockOwner, machine_id: event.params.machine_id })
+    return {
+      success: false,
+      errMsg: "用户信息异常，请重新登录后重试",
+    }
+  }
   let remain_total = user_remain_record.data[0].real_point + user_remain_record.data[0].extra_point
   const result = await cloud.callFunction({
     name: 'queueFunctions', // 被调用云函数的名称
@@ -145,54 +170,43 @@ exports.main = async (event, context) => {
       updated = res.stats.updated;
       console.log(res);
     })}else{
-    // 判断有没有在当前用户之前的用户
-      var prev_user = await db.collection(db_queue).where({
-        next_id: cur_openID
-      }).get({
-        success: function (res) {
-          console.log('get prev user success')
-          return res
-        },
-        fail: console.error
-      })
-      // 如果有上一位用户
-      if (prev_user.data.length !== 0 && queue_record.data[0].next_id != "-1"){
-        // 如果有上一位用户,且当前用户不在队尾，修改上一位用户的nextID
+      // ===== 正常下机：从链表上摘下来 → 追加到队尾 → 整体重算 next_id =====
+      // 旧实现是「把上一位的 next 指向我的下一位」+「把所有 next_id = -1 的人指向我」，
+      // 后者在脏数据（历史遗留两个队尾）下会把多条记录同时指向自己，链表当场分叉；
+      // 而且这两步写库中间失败的话，人就彻底掉出链表了。
+      // 现在改成先把链读出来、在内存里算好最终顺序，再只写变动的 next_id。
+      const rows = (await db.collection(db_queue).limit(QUEUE_FETCH_LIMIT).get()).data
+      const chain = buildChain(rows)
+      const meNode = chain.find(r => r.openid === cur_openID)
+      if (meNode) {
+        const rest = chain.filter(r => r.openid !== cur_openID)
+        // 下机后重新回到队尾（不是原地不动，也不是插回原来的位置）
+        const newOrder = rest.concat([meNode])
+        await rewriteChain(db, db_queue, newOrder)
+      } else {
+        // 人还在库里但不在链表上（历史脏数据）：至少保证不会挡住别人
         await db.collection(db_queue).where({
-          openid: prev_user.data[0].openid
+          openid: cur_openID,
         }).update({
-          data: {
-            next_id: queue_record.data[0].next_id
-          }
-        })
-        .then(res => {
-          console.log(res);
+          data: { next_id: "-1" }
         })
       }
-      // 修改本来是队尾的用户nextID
-      await db.collection(db_queue)
-      .where({
-        next_id: "-1",
-      })
-      .update({
-        data: {
-          next_id: cur_openID
-        }
-      })
-      .then(res => {
-        updated = res.stats.updated;
-        console.log(res);
-      })
-      // 修改当前循环用户的nextID
+      // 修改当前用户的排队状态
       await db.collection(db_queue)
       .where({
         openid: cur_openID,
       })
       .update({
         data: {
-          next_id: "-1",
           play_status: false,
-          is_multi: true
+          // 拼机 / 单刷**保持不动**：切成单刷的人下机后仍然是单刷，
+          //   不能因为一次下机就把用户自己选的状态偷偷改回拼机。
+          // 座位号一并清掉：不清的话下一个人拿到的座位上会带着上一个人的
+          // play_position，看起来就像「两个人都坐在同一个位子上」
+          play_position: null,
+          // 本次上机的顺序号作废，下次上机重新计时
+          embark_seq: 0,
+          embark_time: null
         }
       })
       .then(res => {
@@ -214,8 +228,25 @@ exports.main = async (event, context) => {
         console.log(res);
       })
     }
+// ========== 下机后自动上机：等候区 1、2 号位直接上位 ==========
+// 规则（详见 autoEmbark.js）：
+//   · 1 号位单刷  → 只上 1 个（机上还有别人时，单刷的人要等机器空下来）
+//   · 1、2 号位拼机 → 两个一起上
+//   · 2 号位单刷  → 只上 1 号位，不硬拼
+//   · 机上有人在单刷 → 整台机台独占，空位也不上人
+  // 刚下机的本人已经排到队尾：外人先上，空位还有剩才轮到他
+  const autoRes = await autoEmbarkAfterDeplain({
+    machine_id: machine_id,
+    downed_openids: [cur_openID]
+  })
+  console.log("自动上机结果:", autoRes)
+
 // 返回新的排队情况
+  //   ⚠️ 必须显式 limit：云函数里 get() 默认只返回 100 条，
+  //      队列超过 100 人时尾部的人会凭空消失（前端渲染的名单和真实队列对不上）。
+  //      QUEUE_FETCH_LIMIT 和入队 / 上机 / 补位用的是同一个上限。
   queue_record = await db.collection(db_queue)
+  .limit(QUEUE_FETCH_LIMIT)
   .get({
     success: function (res) {
       console.log('success!!!')
@@ -223,46 +254,26 @@ exports.main = async (event, context) => {
     },
     fail: console.error
   })
-  // 添加用户信息
-  for (var i = 0 ; i  < queue_record.data.length ; i++){
-    let user_record = await db.collection(db_user)
-    .where({
-      openid: queue_record.data[i].openid
-    })
-    .field({
-      openid: true,
-      avatar: true,
-      nickname: true,
-    })
-    .get({
-      success: function (res) {
-        console.log('success!!!')
-        return res
-      },
-      fail: console.error
-    })
-    queue_record.data[i].user_info = user_record.data[0]
-  }
-  // 单链表排序
-  const nodeMap = new Map()
-  let headNode = null
-  queue_record.data.forEach(qdata => {
-    nodeMap.set(qdata.openid, qdata)
-    if(!queue_record.data.some(n => n.next_id === qdata.openid)){
-      headNode = qdata
+  // 添加用户信息（批量查，一人一次查询在 20 人队列上就是 20 次往返）
+  {
+    const openids = queue_record.data.map(q => q.openid).filter(Boolean)
+    const userMap = {}
+    for (let ci = 0; ci < openids.length; ci += 100) {
+      const chunk = openids.slice(ci, ci + 100)
+      const ur = await db.collection(db_user)
+        .where({ openid: db.command.in(chunk) })
+        .field({ openid: true, avatar: true, nickname: true })
+        .get()
+      ur.data.forEach(u => { userMap[u.openid] = u })
     }
-  })
-  console.log(headNode,nodeMap)
-  const sortedQ = []
-  let currentNode = headNode
-  while(currentNode){
-    sortedQ.push(currentNode)
-    if (currentNode.next_id === "-1") break;
-    currentNode = nodeMap.get(currentNode.next_id)
+    queue_record.data.forEach(q => { q.user_info = userMap[q.openid] || null })
   }
+  // 单链表排序：统一走 queueChain.buildChain —— 断链 / 两个队尾这类脏数据
+  // 它能兜底（把没走到的人按入队时间补到队尾），手写的 while 循环会直接少人。
+  const sortedQ = buildChain(queue_record.data)
 // 释放分布式锁
   await releaseQueueLock({
-    openid: openid,
+    openid: lockOwner,
     machine_id: machine_id
   })
 
@@ -285,9 +296,16 @@ exports.main = async (event, context) => {
   if (operatorOpenid !== openid) {
     content = "[" + timeStr + "] " + operator_name + "让" + user_remain_record.data[0].nickname + "下机了"
   }
+  // 余额不足 / 信用不足的人是被**移出队列**的（不是回队尾），日志要说清楚，
+  //   否则店员只看到「某某下机了」，以为人还在队里等（和 DeplainAll 同一口径）。
+  if (errMsg !== "") {
+    content = content + "（" + errMsg + "，已移出队列）"
+  }
   await db.collection(db_log).add({
     data: {
-      timestamp: new Date(),
+      // 时间戳要比上面那批「自动上机」日志更晚：日志页时间倒序，
+      //   这条才会显示在上机上面 —— 读起来是「先下机，再有人补上机」。
+      timestamp: logTimeBeforeEmbark(autoRes),
       openid: openid,
       log_info: content
     }

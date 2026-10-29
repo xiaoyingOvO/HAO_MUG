@@ -160,13 +160,13 @@ const ifNight = async function() {
 }
 
 // 切换是否拼机
-const switchMulti = async function(openid, machineId, multi) {
+//   只能切自己的：openid 由云端从登录态取，这里不再传（传了云端也会拒绝）
+const switchMulti = async function(machineId, multi) {
   return wx.cloud.callFunction({
     name: 'queueFunctions',
     data: {
       type: 'switchMulti',
       params: {
-        openid,
         machine_id: machineId,
         is_multi: multi,
       }
@@ -219,7 +219,8 @@ const embark = async function(id, multi, playPosition, openid) {
   })
 }
 
-// 用户下机
+// 用户下机（自己下机，会结算费用）
+//   想让别人下来用下面的 forceDeplain —— 那条不结算
 const deplain = async function(id) {
   return wx.cloud.callFunction({
     name: 'queueFunctions',
@@ -227,6 +228,33 @@ const deplain = async function(id) {
       type: 'Deplain',
       params: {
         machine_id: id,
+      }
+    }
+  })
+}
+// 强制下机：**不结算费用**，只把人放回等候区队尾
+const forceDeplain = async function(id, openid) {
+  return wx.cloud.callFunction({
+    name: 'queueFunctions',
+    data: {
+      type: 'ForceDeplain',
+      params: {
+        machine_id: id,
+        openid,
+      }
+    }
+  })
+}
+// 全部下机：游玩区的人一次性全部回队尾（同样不结算）。
+//   和 forceDeplain 是同一条云函数，只多一个 all: true —— 一次拿锁、一次补位、一条日志。
+const forceDeplainAll = async function(id) {
+  return wx.cloud.callFunction({
+    name: 'queueFunctions',
+    data: {
+      type: 'ForceDeplain',
+      params: {
+        machine_id: id,
+        all: true,
       }
     }
   })
@@ -561,6 +589,8 @@ export default {
   dequeue,
   embark,
   deplain,
+  forceDeplain,
+  forceDeplainAll,
   deplainAll,
   checkUpdate,
   kickOut,

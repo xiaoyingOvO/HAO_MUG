@@ -142,6 +142,12 @@ page {
   font-weight: normal;
 }
 
+/* 多个被操作者之间的连接词（、/和）：跟正文同色，不能跟着名字变蓝 */
+.log-sep {
+  color: inherit;
+  font-weight: normal;
+}
+
 .empty-message {
   text-align: center;
   padding: 40rpx 20rpx;

@@ -1,0 +1,114 @@
+<!--pages/queue-info/settings.wxml-->
+<!-- 排卡页「设置」页：本机台相关的操作都收在这里。
+     加新按钮的方式：在 .group 里照抄一个 .cell，写好 bind:tap 和数据即可，
+     不需要动底部主按钮区。 -->
+<view class="settings-page">
+
+  <!-- 当前机台 -->
+  <view class="machine-bar">
+    <view class="machine-name">{{selectedMachine.machineName || '未选择机台'}}</view>
+    <view class="machine-sub">{{machineSubText}}</view>
+  </view>
+
+  <view class="group">
+    <view class="group-title">本机台</view>
+
+    <!-- 日志 -->
+    <view class="cell cell-first" hover-class="cell-hover" bind:tap="toLog">
+      <view class="cell-body">
+        <view class="cell-label">日志</view>
+        <view class="cell-desc">上机、下机、调序的操作记录</view>
+      </view>
+      <view class="cell-arrow">›</view>
+    </view>
+
+    <!-- 切换拼机状态（只有支持拼机的机台才显示，点开后在下面展开队列） -->
+    <view wx:if="{{canSwitchMulti}}" class="cell" hover-class="cell-hover" bind:tap="toggleMulti">
+      <view class="cell-body">
+        <view class="cell-label">切换拼机状态</view>
+        <view class="cell-desc">点击切换个人拼机状态。</view>
+      </view>
+      <view class="cell-arrow {{multiOpen ? 'cell-arrow-open' : ''}}">›</view>
+    </view>
+
+    <view wx:if="{{canSwitchMulti && multiOpen}}" class="force-panel">
+      <view class="force-head">
+        <text class="force-title">我的拼机状态</text>
+        <text class="force-refresh" bind:tap="loadQueue">刷新</text>
+      </view>
+
+      <view wx:if="{{loading}}" class="force-tip">正在读取机台状态…</view>
+      <view wx:elif="{{!myQueueItem}}" class="force-tip">你不在本机台的队列中，排卡后才能切换</view>
+      <block wx:else>
+        <view class="force-row">
+          <image class="force-avatar" src="{{myQueueItem.avatar}}" mode="aspectFill"></image>
+          <view class="force-info">
+            <view class="force-name">
+              {{myQueueItem.nickname}}<text class="multi-me">我</text>
+            </view>
+            <view class="force-meta">{{myQueueItem.isPlaying ? '游玩中' : '等候 · ' + myQueueItem.posText}} · {{myQueueItem.isMulti ? '拼机' : '单刷'}}</view>
+          </view>
+          <button
+            class="multi-btn {{multiActing ? 'force-btn-disabled' : ''}}"
+            size="mini"
+            disabled="{{!!multiActing}}"
+            data-openid="{{myQueueItem.openid}}"
+            data-next="{{myQueueItem.isMulti ? 'single' : 'multi'}}"
+            bind:tap="handleSwitchMulti"
+          >{{multiActing ? '处理中' : (myQueueItem.isMulti ? '切单刷' : '切拼机')}}</button>
+        </view>
+        <view class="force-note">只能切换<text class="force-note-strong">自己</text>的拼机状态。单刷 = 一个人独占整台机：<text class="force-note-strong">先上机</text>的人留在台上，<text class="force-note-strong">后上机</text>的人退回队首（不结算费用）。</view>
+      </block>
+    </view>
+
+    <!-- 强制下机（点开后在下面展开候选人列表）
+         只有「我」还在这台机台的队列里时才有资格：不在队伍里点不动，文案直接说明原因 -->
+    <view class="cell {{queueLoaded && !inQueue ? 'cell-disabled' : ''}}" hover-class="cell-hover" bind:tap="toggleForce">
+      <view class="cell-body">
+        <view class="cell-label">强制下机</view>
+        <view class="cell-desc">{{queueLoaded && !inQueue ? '你不在本机台队列中，排卡后才能强制下机。' : '若游玩区玩家未自行下机，点击强制下机使他们排到队尾。'}}</view>
+      </view>
+      <view class="cell-arrow {{forceOpen ? 'cell-arrow-open' : ''}}">›</view>
+    </view>
+
+    <view wx:if="{{forceOpen}}" class="force-panel">
+      <view class="force-head">
+        <text class="force-title">正在游玩</text>
+        <text class="force-refresh" bind:tap="loadQueue">刷新</text>
+      </view>
+
+      <view wx:if="{{loading}}" class="force-tip">正在读取机台状态…</view>
+      <view wx:elif="{{playingList.length === 0}}" class="force-tip">这台机台当前没有人在游玩</view>
+      <block wx:else>
+        <view class="force-row" wx:for="{{playingList}}" wx:key="openid">
+          <image class="force-avatar" src="{{item.avatar}}" mode="aspectFill"></image>
+          <view class="force-info">
+            <view class="force-name">
+              {{item.nickname}}<text wx:if="{{item.isMe}}" class="multi-me">我</text>
+            </view>
+            <view class="force-meta">{{item.isMulti ? '拼机' : '单刷'}}</view>
+          </view>
+          <button
+            class="force-btn {{acting ? 'force-btn-disabled' : ''}}"
+            size="mini"
+            disabled="{{acting}}"
+            data-openid="{{item.openid}}"
+            data-name="{{item.nickname}}"
+            bind:tap="handleForceDeplain"
+          >{{acting ? '处理中' : '下机'}}</button>
+        </view>
+
+        <!-- 全部下机：一次把游玩区的人全部请下去（不用一个个点） -->
+        <button
+          class="force-all-btn {{acting ? 'force-btn-disabled' : ''}}"
+          disabled="{{acting}}"
+          bind:tap="handleForceDeplainAll"
+        >{{acting ? '处理中' : '全部下机'}}</button>
+
+        <view class="force-note">强制下机<text class="force-note-strong">不结算费用</text>，只会把人放回等候区末尾，他仍然在店内排队。<text class="force-note-strong">全部下机</text>会把游玩区的所有人一起放回队尾（先上机的排在前面）；台下还有别人时按规则自动上机，没人就空着。</view>
+      </block>
+    </view>
+  </view>
+
+  <view class="page-tip">更多设置项以后加在这里</view>
+</view>

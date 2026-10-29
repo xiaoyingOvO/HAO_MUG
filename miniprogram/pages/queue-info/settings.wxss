@@ -1,0 +1,241 @@
+/* pages/queue-info/settings.wxss */
+/* 排版和「我的 - 各类二级页」保持一致：浅灰底 + 白色卡片 + 16rpx 圆角 */
+
+.settings-page {
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 24rpx 24rpx 60rpx;
+  background: #f6f6f6;
+  color: #333;
+}
+
+/* ============ 当前机台 ============ */
+.machine-bar {
+  padding: 8rpx 12rpx 28rpx;
+}
+.machine-name {
+  font-size: 40rpx;
+  font-weight: 600;
+  color: #1f2329;
+  line-height: 1.4;
+  word-break: break-all;
+}
+.machine-sub {
+  margin-top: 6rpx;
+  font-size: 24rpx;
+  color: #8a9099;
+}
+
+/* ============ 分组卡片 ============ */
+.group {
+  background: #ffffff;
+  border-radius: 20rpx;
+  overflow: hidden;
+  box-shadow: 0 4rpx 16rpx rgba(0, 0, 0, 0.04);
+}
+.group-title {
+  padding: 26rpx 28rpx 6rpx;
+  font-size: 24rpx;
+  color: #9aa0a6;
+  letter-spacing: 1rpx;
+}
+
+/* ============ 单元格 ============ */
+.cell {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+  padding: 26rpx 28rpx;
+  border-top: 1rpx solid #f0f1f3;
+}
+/* 分组里的第一行不需要分割线 */
+.cell-first {
+  border-top: none;
+}
+.cell-hover {
+  background: #f7f8fa;
+}
+/* 没资格点的行（例如不在本机台队列里时的「强制下机」）：
+   只降透明度、不设 disabled —— 点下去还要弹一句「为什么不能点」 */
+.cell-disabled {
+  opacity: 0.45;
+}
+.cell-body {
+  flex: 1;
+  min-width: 0;
+}
+.cell-label {
+  font-size: 30rpx;
+  font-weight: 500;
+  color: #1f2329;
+  line-height: 1.4;
+}
+.cell-desc {
+  margin-top: 6rpx;
+  font-size: 24rpx;
+  color: #9aa0a6;
+  line-height: 1.4;
+}
+.cell-arrow {
+  flex: none;
+  font-size: 34rpx;
+  line-height: 1;
+  color: #c4c9cf;
+  transition: transform 0.2s ease-out;
+}
+/* 展开时箭头朝下 */
+.cell-arrow-open {
+  transform: rotate(90deg);
+  color: #07c160;
+}
+
+/* ============ 强制下机面板 ============ */
+.force-panel {
+  padding: 4rpx 28rpx 24rpx;
+  background: #fbfcfd;
+  border-top: 1rpx solid #f0f1f3;
+}
+.force-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20rpx 0 12rpx;
+}
+.force-title {
+  font-size: 24rpx;
+  color: #9aa0a6;
+}
+.force-refresh {
+  font-size: 24rpx;
+  color: #007aff;
+  padding: 6rpx 10rpx;
+}
+.force-tip {
+  padding: 24rpx 0;
+  font-size: 26rpx;
+  color: #9aa0a6;
+  text-align: center;
+}
+
+.force-row {
+  display: flex;
+  align-items: center;
+  gap: 20rpx;
+  padding: 20rpx 0;
+  border-top: 1rpx solid #f0f1f3;
+}
+.force-avatar {
+  flex: none;
+  width: 76rpx;
+  height: 76rpx;
+  border-radius: 50%;
+  background: #e9ecef;
+}
+.force-info {
+  flex: 1;
+  min-width: 0;
+}
+.force-name {
+  font-size: 28rpx;
+  color: #1f2329;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.force-meta {
+  margin-top: 4rpx;
+  font-size: 22rpx;
+  color: #9aa0a6;
+}
+.force-btn {
+  flex: none;
+  margin: 0;
+  padding: 0 24rpx;
+  min-width: 0;
+  height: 56rpx;
+  line-height: 56rpx;
+  border-radius: 28rpx;
+  font-size: 24rpx;
+  color: #ffffff;
+  background: linear-gradient(135deg, #e53935, #f2726f);
+  box-shadow: 0 2rpx 10rpx rgba(229, 57, 53, 0.28);
+}
+.force-btn:active {
+  box-shadow: 0 1rpx 6rpx rgba(229, 57, 53, 0.4);
+}
+/* 执行中（其余按钮禁用）：WXSS 对 [disabled] 属性选择器支持不可靠，用 class 控制 */
+.force-btn-disabled {
+  opacity: 0.55;
+}
+
+/* 「全部下机」：面板级的一次性操作，整行铺开，和每行的「下机」区分开。
+   用浅红底 + 红字（不是实心红），避免和上面每行的实心「下机」抢注意力。 */
+.force-all-btn {
+  margin: 22rpx 0 0;
+  width: 100%;
+  height: 76rpx;
+  line-height: 76rpx;
+  border-radius: 38rpx;
+  font-size: 26rpx;
+  font-weight: 500;
+  color: #e53935;
+  background: rgba(229, 57, 53, 0.08);
+}
+.force-all-btn:active {
+  background: rgba(229, 57, 53, 0.16);
+}
+/* 按钮自带的伪元素描边会和外层卡片边框打架，去掉 */
+.force-all-btn::after {
+  border: none;
+}
+
+/* ============ 切换拼机面板（和强制下机共用 .force-* 的行/头像/说明样式） ============ */
+.multi-btn {
+  flex: none;
+  margin: 0;
+  padding: 0 22rpx;
+  min-width: 0;
+  height: 56rpx;
+  line-height: 56rpx;
+  border-radius: 28rpx;
+  font-size: 24rpx;
+  color: #ffffff;
+  background: linear-gradient(135deg, #1677ff, #5aa9ff);
+  box-shadow: 0 2rpx 10rpx rgba(22, 119, 255, 0.28);
+}
+.multi-btn:active {
+  box-shadow: 0 1rpx 6rpx rgba(22, 119, 255, 0.4);
+}
+/* 昵称后面的「我」小标签 */
+.multi-me {
+  display: inline-block;
+  margin-left: 10rpx;
+  padding: 0 10rpx;
+  border-radius: 6rpx;
+  font-size: 20rpx;
+  line-height: 32rpx;
+  color: #07c160;
+  background: rgba(7, 193, 96, 0.1);
+  vertical-align: middle;
+}
+
+.force-note {
+  margin-top: 16rpx;
+  padding-top: 16rpx;
+  border-top: 1rpx solid #f0f1f3;
+  font-size: 22rpx;
+  color: #b0b6bd;
+  line-height: 1.6;
+}
+.force-note-strong {
+  color: #e53935;
+}
+
+/* ============ 页脚 ============ */
+.page-tip {
+  padding: 36rpx 12rpx 0;
+  text-align: center;
+  font-size: 22rpx;
+  color: #b8bec4;
+}

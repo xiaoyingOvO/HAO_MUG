@@ -7,6 +7,8 @@ cloud.init({
 const db = cloud.database();
 const db_user = "user"
 const db_machine_lock = 'machine_lock'
+// 队列读取上限（get() 默认只回 100 条，队列长了会漏人）
+const { QUEUE_FETCH_LIMIT } = require('../queueChain')
 
 const max_retry_time = 5;
 const retry_wait_seconds = 0.5;
@@ -44,7 +46,7 @@ exports.main = async (event, context) => {
   try {
     // 读出本机台队列（链表结构，next_id 指向下一位）
     const db_queue = "queue_" + machine_id
-    const queue_record = await db.collection(db_queue).get()
+    const queue_record = await db.collection(db_queue).limit(QUEUE_FETCH_LIMIT).get()
 
     // 补上用户信息（昵称头像），返回给前端直接用
     let moved_user = null
@@ -203,7 +205,7 @@ async function moveUserToPosition(queue_record, move_openid, move_final, machine
   const newOrder = chainAfter.slice()
   newOrder.splice(insertAt, 0, moveNode)
 
-  // 按最终顺序重算每个人的 next_id，只写「真的变了」的那些
+  // 按最终顺序重算每个人的 next_id + queue_seq，只写「真的变了」的那些
   const writes = []
   for (let i = 0; i < newOrder.length; i++) {
     const node = newOrder[i]
@@ -213,6 +215,7 @@ async function moveUserToPosition(queue_record, move_openid, move_final, machine
 
   // ===== 阶段三：校验都过了，才开始写库 =====
   await applyNextIdWrites(db_queue, writes)
+  await writeQueueSeq(db_queue, newOrder)
 
   return buildResult(newOrder, move_openid, orig_place)
 }
@@ -231,6 +234,19 @@ async function applyNextIdWrites(db_queue, writes) {
       data: {
         next_id: writes[i].next_id
       }
+    })
+  }
+}
+
+// 把排队顺序号 queue_seq 写成 1、2、3…（越小越靠前）。
+//   这是顺序的「唯一真相」：next_id 链万一被写坏，buildChain 靠它也能还原正确顺序。
+async function writeQueueSeq(db_queue, order) {
+  for (let i = 0; i < order.length; i++) {
+    const node = order[i]
+    const want = i + 1
+    if (node.queue_seq === want) continue
+    await db.collection(db_queue).where({ openid: node.openid }).update({
+      data: { queue_seq: want }
     })
   }
 }

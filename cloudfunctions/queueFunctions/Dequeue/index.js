@@ -1,4 +1,8 @@
 const cloud = require('wx-server-sdk');
+// 座位空出来后自动补位（和下机共用规则）
+const { autoEmbarkAfterDeplain, logTimeBeforeEmbark } = require('../autoEmbark')
+// 链表还原（读回来给前端排序用，和入队 / 上机 / 下机共用同一份实现）
+const { buildChain, QUEUE_FETCH_LIMIT } = require('../queueChain')
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV
@@ -94,11 +98,17 @@ exports.main = async (event, context) => {
   })
   console.log("Get Current User!")
   if (queue_record.data.length == 0){
+    // 提前返回也要放锁，不然这台机台会被这次请求挡到锁自然过期
+    await releaseQueueLock({ openid: openid, machine_id: machine_id })
     return {
       success: false,
       errMsg: "当前用户已不在队列中，请刷新重试",
     }
   }
+  // 退队的人是「正在游玩」还是「在等候」：
+  //   游玩中退队 = 座位上的人走了，座位空出来，必须让等候区第 1 位补上；
+  //   等候中退队 = 只是队里少一个人，座位没变，不需要自动上机。
+  const wasPlaying = queue_record.data[0].play_status === true
   queue_record = await db.collection(db_queue).where({
       next_id : openid
     })
@@ -168,8 +178,28 @@ exports.main = async (event, context) => {
       updated = res.stats.updated;
       console.log(res);
     })
+  // ========== 座位空出来了 → 等候区第 1 位自动补上 ==========
+  //   和「下机」(Deplain) 走同一套规则（详见 autoEmbark.js）：
+  //   1 号位单刷只上 1 个、2 号位单刷不硬拼、机上有人单刷时不上人。
+  //   不调用的话，游玩中的人点了「退队」（比如换机台），座位会一直空着，
+  //   后面排队的人只能干等，直到下一次有人入队/下机才被补上去。
+  let autoRes = { embarked: [] }
+  if (wasPlaying) {
+    try {
+      autoRes = await autoEmbarkAfterDeplain({
+        machine_id: machine_id,
+        exclude_openids: [openid]
+      })
+      console.log("[Dequeue] 自动补位结果:", autoRes)
+    } catch (e) {
+      // 补位失败不影响退队本身（人已经从队列里删掉了）
+      console.error("[Dequeue] 自动补位失败:", e)
+    }
+  }
   // 返回新的排队情况
+  //   ⚠️ 必须显式 limit：get() 默认只回 100 条，队列超过 100 人时名单会缺人
   queue_record = await db.collection(db_queue)
+  .limit(QUEUE_FETCH_LIMIT)
   .get({
     success: function (res) {
       console.log('success!!!')
@@ -193,23 +223,8 @@ exports.main = async (event, context) => {
   queue_record.data.forEach(q => {
     q.user_info = qUserMap[q.openid] || null
   })
-  // 单链表排序
-  const nodeMap = new Map()
-  let headNode = null
-  queue_record.data.forEach(qdata => {
-  nodeMap.set(qdata.openid, qdata)
-  if(!queue_record.data.some(n => n.next_id === qdata.openid)){
-  headNode = qdata
-  }
-  })
-  console.log(headNode,nodeMap)
-  const sortedQ = []
-  let currentNode = headNode
-  while(currentNode){
-  sortedQ.push(currentNode)
-  if (currentNode.next_id === "-1") break;
-  currentNode = nodeMap.get(currentNode.next_id)
-  }
+  // 单链表排序：统一走 queueChain.buildChain（断链 / 两个队尾能兜底，不会少人）
+  const sortedQ = buildChain(queue_record.data)
   // 写队列日志数据库
   var db_log = "queue_log_" + machine_id
   console.log(db_log)
@@ -219,7 +234,9 @@ exports.main = async (event, context) => {
   var content = "[" + timeStr + "] " + user_info.data[0].nickname + "离开了队列"
   await db.collection(db_log).add({
     data: {
-      timestamp: new Date(),
+      // 比上面那批「自动上机」更晚：日志页时间倒序，「离开了队列」才会显示在
+      //   「上机了」上面（先离开座位，再有人补上）。同一毫秒会退化成库返回顺序。
+      timestamp: logTimeBeforeEmbark(autoRes),
       openid: openid,
       log_info: content
     }

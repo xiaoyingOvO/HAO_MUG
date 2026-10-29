@@ -26,9 +26,15 @@ exports.main = async (event, context) => {
   const bjMidnightUTC = Date.UTC(bjNow.getUTCFullYear(), bjNow.getUTCMonth(), bjNow.getUTCDate()) - 8 * 3600 * 1000
   const start = new Date(bjMidnightUTC)
   const end = new Date(bjMidnightUTC + 24 * 3600 * 1000 - 1)
+  // ⚠️ 必须显式排序 + 限制条数：
+  //   云函数里 get() 默认最多返回 100 条，且不排序时是「最早的那 100 条」，
+  //   当天日志一旦超过 100 条，新写入的就永远查不出来 —— 表现就是「日志不更新」。
+  //   这里按时间倒序取最新 100 条（前端再按时间正序翻转展示）。
   var queue_log_record = await db.collection(db_queueLog).where({
     timestamp: db.command.and(db.command.gte(start),db.command.lte(end)) 
   })
+  .orderBy('timestamp', 'desc')
+  .limit(100)
   .get({
     success: function (res) {
       console.log('success!!!')

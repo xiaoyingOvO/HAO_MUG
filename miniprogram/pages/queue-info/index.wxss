@@ -68,6 +68,31 @@ button {
   flex-direction: column;
   gap: 24rpx;
 }
+/* 等候区汇总条：左边「等候 N 人」，右边直接给结论「我排第 M 位，前面还有 K 人」。
+   只有一个孤零零的序号时，用户还得自己数座位才知道什么时候轮到自己。 */
+.queue-summary {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 16rpx;
+  padding: 0 4rpx 16rpx;
+  font-size: 24rpx;
+  color: #8a9099;
+}
+.queue-summary-count {
+  flex: none;
+  color: #606773;
+  font-weight: 600;
+}
+.queue-summary-me {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #ff6b00;
+  font-weight: 600;
+}
 .white-box {
   background-color: var(--white-box-color);
 }
@@ -196,8 +221,8 @@ button {
   box-shadow: 0 2rpx 8rpx rgba(255, 152, 0, 0.4);
 }
 
-/* 日志按钮（右侧） */
-.button-log {
+/* 设置按钮（右侧） */
+.button-settings {
   flex: none;                /* ← 关键：不拉伸 */
   width: 120rpx;             /* ← 固定宽度 */
   height: 80rpx;
@@ -209,7 +234,7 @@ button {
   font-weight: 400;
   padding: 0;
 }
-.button-log:active {
+.button-settings:active {
   background: #e6e8eb;
 }
 
@@ -281,12 +306,6 @@ button {
   gap: 16rpx;
   margin-bottom: 24rpx;
 }
-/* 游玩区顶部提示：点座位切换拼机 / 单刷 */
-.playing-tip {
-  font-size: 23rpx;
-  color: #8a9099;
-  padding: 0 4rpx;
-}
 .playing-seat {
   height: 140rpx;
   border-radius: 16rpx;
@@ -309,11 +328,28 @@ button {
 .seat-locked {
   background: #ffe5e5;
   border: 3rpx solid #e53935;
+  /* 「单刷」标签也靠右，和上面玩家卡右角的单刷标签对齐成一列 */
+  justify-content: flex-end;
 }
+/* 「单刷」标签：和玩家卡右侧的 .seat-single-tag 同一套外观（红字 + 浅红底 + 红边），
+   只是这块在卡片左边。改样式时两处一起改，别长成两个样子。 */
 .seat-locked-text {
-  font-size: 30rpx;
+  display: inline-block;
+  box-sizing: border-box;
+  padding: 0 14rpx;
+  height: 40rpx;
+  line-height: 38rpx;   /* 减掉上下 1rpx 边框，文字正好垂直居中 */
+  border-radius: 8rpx;
+  font-size: 22rpx;
+  white-space: nowrap;
   color: #e53935;
-  font-weight: 600;
+  background: rgba(229, 57, 53, 0.12);
+  border: 1rpx solid rgba(229, 57, 53, 0.25);
+}
+/* 空位块：几个空座合成一块，写清还剩几个（游玩区不再一人一格） */
+.seat-empty-text {
+  font-size: 26rpx;
+  color: #9aa0a8;
 }
 .seat-avatar {
   width: 90rpx;
@@ -322,10 +358,39 @@ button {
   flex: none;
   background: #e9ecef;
 }
+/* 座位里的文字区：只有昵称（「先上机 / 后上机」标签已去掉，顺序本身就说明了先后） */
+.seat-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4rpx;
+}
 .seat-name {
+  max-width: 100%;
   font-size: 30rpx;
   color: #333;
   font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 单刷标签：贴在玩家卡片最右边（margin-left:auto 顶到行尾），只写「单刷」。
+   颜色和「单刷锁定块」同一套红，看到这个就知道整台机不会再排别人。 */
+.seat-single-tag {
+  flex: none;
+  margin-left: auto;
+  box-sizing: border-box;
+  padding: 0 14rpx;
+  height: 40rpx;
+  line-height: 38rpx;   /* 减掉上下 1rpx 边框，文字正好垂直居中 */
+  border-radius: 8rpx;
+  font-size: 22rpx;
+  white-space: nowrap;
+  color: #e53935;
+  background: rgba(229, 57, 53, 0.12);
+  border: 1rpx solid rgba(229, 57, 53, 0.25);
 }
 .queue-area-wrap {
   position: relative;

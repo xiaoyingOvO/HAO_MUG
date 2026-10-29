@@ -1,13 +1,25 @@
-<view class="playlist-item {{player.isMulti ? 'white-box' : 'dark-box'}}"
+<view class="playlist-item {{player.isMulti ? 'white-box' : 'dark-box'}} {{player.isNext ? 'is-next' : ''}}"
   bind:touchstart="onTouchStart"
   bind:touchmove="onTouchMove"
   bind:touchend="onTouchEnd"
   bind:touchcancel="onTouchCancel">
-  <view class="player-index">{{playerIndex + 1}}</view>
+  <!-- 排队号：用 player.queueNo（跟着人走的真实位次），只有拿不到时才退回列表下标。
+       原来固定用 playerIndex + 1，序号是「数组位置」不是「排队位次」——
+       拖拽时克隆卡会顶着别人的号，列表局部刷新时也会串号。 -->
+  <view class="player-index">{{player.queueNo || playerIndex + 1}}</view>
   <view class="player-info">
     <image src="{{player.avatar}}" mode="aspectFill"></image>
-    <view>{{player.nickname}}</view>
+    <view class="player-text">
+      <view class="player-name">{{player.nickname}}</view>
+      <!-- 队首提示做在昵称下面这一行，不额外占横向空间：
+           排卡板右侧只有 ~240px，加个标签会把昵称挤成两个字 -->
+      <view wx:if="{{player.isNext}}" class="player-next">下一位上机</view>
+    </view>
   </view>
+  <!-- 单刷标签：贴在卡片最右边，位置和样式都和游玩区玩家卡上的「单刷」一致。
+       只要这个人是单刷就标出来（不管他是不是下一位）——
+       单刷的人要等整台机空出来才能上，标出来免得看着像卡住不动。 -->
+  <view wx:if="{{player.isMulti === false}}" class="player-single-tag">单刷</view>
   <!-- 「我」的标记：右上角一个红色角，只标识当前用户（认人不认位置） -->
   <view wx:if="{{player.isMe}}" class="my-corner"></view>
 </view>

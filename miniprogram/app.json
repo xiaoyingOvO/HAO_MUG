@@ -6,6 +6,7 @@
     "pages/user-center/other-page/recharge",
     "pages/reserve/index",
     "pages/queue-info/index",
+    "pages/queue-info/settings",
     "pages/mahjong/index",
     "pages/mahjong/record",
     "pages/mahjong/grantTitle",

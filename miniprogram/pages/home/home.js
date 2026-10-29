@@ -713,8 +713,13 @@ Page({
           console.warn('入店成功但排队失败', q.result);
           return;
         }
+        // 机器有空位时云端会直接把用户排上机（自动补位），提示语要区分开，
+        // 否则机器空着的时候还显示「正在排队」，用户会以为自己还在等。
+        const autoEmbarked = !!(q.result && q.result.embarked);
         wx.showToast({
-          title: `已入店，正在排「${device.deviceName}」`,
+          title: autoEmbarked
+            ? `已入店，已上机：${device.deviceName}`
+            : `已入店，正在排「${device.deviceName}」`,
           icon: 'none',
           duration: 2500,
         });

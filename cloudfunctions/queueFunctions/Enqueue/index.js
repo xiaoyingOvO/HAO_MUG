@@ -1,4 +1,7 @@
 const cloud = require('wx-server-sdk');
+const { autoEmbarkAfterDeplain, logTimeBeforeEmbark } = require('../autoEmbark');
+// 链表还原 / 重排写库（和 Deplain / Embark / autoEmbark 共用同一份实现）
+const { buildChain, rewriteChain, QUEUE_FETCH_LIMIT } = require('../queueChain')
 
 cloud.init({
   env: cloud.DYNAMIC_CURRENT_ENV
@@ -156,25 +159,22 @@ exports.main = async (event, context) => {
   })
   console.log("Get Current User!")
   if (queue_record.data.length != 0){
+    // 提前返回也要放锁，否则这台机台会被这次请求挡到锁自然过期（2 秒）
+    await releaseQueueLock({ openid: openid, machine_id: machine_id })
     return {
       success: false,
       errMsg: "当前用户已在队列中，请刷新重试",
     }
   }
-  queue_record = await db.collection(db_queue).where({
-    next_id : "-1"
-  })
-  .get({
-    success: function (res) {
-      console.log('success!!!')
-      return res
-    },
-    fail: console.error
-  })
+  // 队尾 = 链表还原后的最后一位。
+  //   原来用 where({next_id:"-1"}).get() 取第一条当代「队尾」—— 一旦库里因为历史原因
+  //   存在两个 next_id=-1 的记录，新来的人就会挂到错误的那个后面，队列当场分叉。
+  const allRows = (await db.collection(db_queue).limit(QUEUE_FETCH_LIMIT).get()).data
+  const chain = buildChain(allRows)
   console.log("Get Last User!")
   var lastUserOpenID = "-1"
-  if (queue_record.data.length != 0){
-    lastUserOpenID = queue_record.data[0].openid
+  if (chain.length != 0){
+    lastUserOpenID = chain[chain.length - 1].openid
   }
   // 插入记录
   if (lastUserOpenID != "-1"){
@@ -200,12 +200,23 @@ exports.main = async (event, context) => {
       timestamp: new Date(),
       play_status: false,
       is_multi: is_multi,
-      next_id: "-1"
+      next_id: "-1",
+      play_position: null,
+      embark_seq: 0,
+      embark_time: null
     }
   })
   .then(res => {
     console.log(res);
   })
+  // 插入后整体重算一次 next_id：
+  //   ① 保证新人确实挂在队尾
+  //   ② 顺手把历史遗留的脏链表（两个队尾、断链）修回单链 ——
+  //      修一次的成本就是一次读 + 几条写，比等到「谁都排不上」再人工重建队列便宜得多
+  {
+    const rowsAfter = (await db.collection(db_queue).limit(QUEUE_FETCH_LIMIT).get()).data
+    await rewriteChain(db, db_queue, buildChain(rowsAfter))
+  }
   // 更新User表信息
   await db.collection(db_user)
       .where({
@@ -221,8 +232,26 @@ exports.main = async (event, context) => {
         updated = res.stats.updated;
         console.log(res);
       })
+// ========== 入队后自动补空位：有座位空着就立刻把等候区 1、2 号位排上机 ==========
+// 规则与下机后的自动上机一致（详见 autoEmbark.js）：
+//   · 1 号位单刷     → 只上 1 个
+//   · 1、2 号位拼机  → 两个一起上
+//   · 2 号位单刷     → 只上 1 号位，不硬拼
+//   · 座位被单刷锁定 / 日麻桌游（超过 2 座）/ 机台停用 → 不上人
+// 这里不排除任何人：刚入队的人如果正好排到 1 号位、机器又空着，
+// 就应该直接上机（这就是「一有人入队就补空位」）。
+// 一定要在「重新读队列」之前调用，否则返回给前端的还是没上机的旧状态。
+  const autoRes = await autoEmbarkAfterDeplain({
+    machine_id: machine_id,
+    exclude_openids: []
+  })
+  if (autoRes && autoRes.embarked && autoRes.embarked.length > 0) {
+    console.log("入队后自动补位:", autoRes.embarked)
+  }
 // 返回新的排队情况
+  //   ⚠️ 必须显式 limit：get() 默认只回 100 条，队列超过 100 人时名单会缺人
   queue_record = await db.collection(db_queue)
+  .limit(QUEUE_FETCH_LIMIT)
   .get({
     success: function (res) {
       console.log('success!!!')
@@ -246,23 +275,8 @@ exports.main = async (event, context) => {
   queue_record.data.forEach(q => {
     q.user_info = qUserMap[q.openid] || null
   })
-  // 单链表排序
-  const nodeMap = new Map()
-  let headNode = null
-  queue_record.data.forEach(qdata => {
-    nodeMap.set(qdata.openid, qdata)
-    if(!queue_record.data.some(n => n.next_id === qdata.openid)){
-      headNode = qdata
-    }
-  })
-  console.log(headNode,nodeMap)
-  const sortedQ = []
-  let currentNode = headNode
-  while(currentNode){
-    sortedQ.push(currentNode)
-    if (currentNode.next_id === "-1") break;
-    currentNode = nodeMap.get(currentNode.next_id)
-  }
+  // 单链表排序：统一走 queueChain.buildChain（断链 / 两个队尾能兜底，不会少人）
+  const sortedQ = buildChain(queue_record.data)
     // 写队列日志数据库
     var db_log = "queue_log_" + machine_id
     console.log(db_log)
@@ -272,7 +286,11 @@ exports.main = async (event, context) => {
     var content = "[" + timeStr + "] " + user_remain_record.data[0].nickname + "加入了队列"
     await db.collection(db_log).add({
       data: {
-        timestamp: new Date(),
+        // 时间戳要比上面那批「自动上机」更早：日志页时间倒序（最新的在最上面），
+        //   真实先后是「先入队 → 再自动上机」，所以「加入了队列」要显示在
+        //   「上机了（自动上机）」下面。
+        //   直接用 new Date() 会和上机日志撞在同一毫秒，顺序退化成库里的返回顺序。
+        timestamp: logTimeBeforeEmbark(autoRes),
         openid: openid,
         log_info: content
       }
@@ -285,9 +303,14 @@ exports.main = async (event, context) => {
     openid: openid,
     machine_id: machine_id
   })
+  // 本次入队是否被「自动补位」直接排上机：前端据此提示「已上机」而不是「排队中」
+  const myAutoEmbark = (autoRes && autoRes.embarked ? autoRes.embarked : [])
+    .find(b => b.openid === openid)
   return {
     success: true,
-    data: sortedQ
+    data: sortedQ,
+    embarked: !!myAutoEmbark,
+    play_position: myAutoEmbark ? myAutoEmbark.position : null
   }
 };
 

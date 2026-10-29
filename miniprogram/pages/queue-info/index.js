@@ -1,12 +1,13 @@
 // pages/queue-info/index.js
 import cloudFcn from '../../cloudFcn.js'
-const app = getApp()
-
-// 支持「拼机 / 单刷」切换的机台 —— 目前只有「舞萌·官机」（M01）。
+// 支持「拼机 / 单刷」切换的机台名单 —— 抽到 config 里，和设置页共用同一份。
 //   日麻是 4 人一桌开局，MML / ADX / 中二节奏都是单人机台，都没有拼机/单刷的概念，
-//   所以游玩区那句「点击座位可切换 拼机 / 单刷」的提示也只给官机显示。
-//   以后若新增可拼机的机台，把它的 machineId 加进来即可。
-const MULTI_PLAY_MACHINE_IDS = ['M01'];
+//   所以游玩区那句「点击座位可切换 拼机 / 单刷」的提示也只给这些机台显示。
+const { MULTI_PLAY_MACHINE_IDS } = require('../../config/machineConfig.js')
+// 切成单刷的确认文案：按「谁先上机」决定是别人让位还是自己让位；
+// sortByEmbarkOrder 用来把游玩区按上机先后从上往下排（和云端同一个判断口径）
+const { buildSwitchToSingleText, sortByEmbarkOrder } = require('../../utils/multiSwitch.js')
+const app = getApp()
 // 排队信息自动刷新间隔（毫秒）。
 //   排卡板是店里多人共看的场景，别人入队、退队、上机都该马上看到，
 //   所以页面停留期间按固定间隔轮询；5 秒足够用，也不会把云函数调用量堆得太高。
@@ -19,7 +20,60 @@ const QUEUE_DATA_CACHE_MS = 2000;
 //   缓存早被覆盖了，又得等一次网络。改成按机台存之后，来回切都是先出旧内容再静默刷新。
 const _queueCacheMap = new Map()
 // 将后端传来的排队信息处理成前端显示的格式
-const handleQueueInfo = function(queueInfo) {
+//
+// 【排队序号规则】—— 卡片上那个数字就是从这里来的，别再改用列表下标算：
+//   · 只数「排队中」的人；正在游玩的人已经在座位上，不占排队号
+//   · 队首 = 1 号 = 下一位能上机的人（卡片会额外标「下一位」）
+//   · ahead = 前面还有几个人（= queueNo - 1），给「还要等多久」一个直观答案
+//   · 序号跟着「人」走而不是跟着数组下标走：有人退队 / 被调走 / 拖拽换位后，
+//     后面所有人自动往前补一位，不留空号，也不会出现「拖一下序号就变成别人的」
+//   · waitingTotal = 这台机台当前等候总人数，用于顶部「等候 N 人」汇总
+// 算「下一位上机」的人 + 谁是「只能等空机」的单刷者。
+//
+// 【规则，和云端 seatPlan.js 完全一致】—— 两边不一致的话，卡片上标着「下一位上机」
+// 的人跟服务器真正排上去的人会对不上，店员会以为系统坏了：
+//   · 机上有人单刷 → 整台机被独占，没人能上
+//   · 机台完全空着 → 就是排队顺序：队首是单刷就他独占上机，队首是拼机就带上后面的拼机者
+//   · 机上已经有人在玩 → 单刷的人上不来，跳过他们找拼机的人补空座
+//
+// 返回值：{ nextOpenid, singleWaitOpenids }（都是 openid 字符串 / 数组）
+function computeSeatFlags(playlist, maxPlayer) {
+  const playing = playlist.filter(p => p.order === 0)
+  const waiting = playlist.filter(p => p.order > 0)
+  const singleWaitOpenids = []
+  let nextOpenid = ''
+
+  const lockedBySingle = playing.some(p => p.isMulti === false)
+  const hasSeat = maxPlayer <= 0 ? true : playing.length < maxPlayer
+
+  if (!lockedBySingle && hasSeat && waiting.length) {
+    if (playing.length === 0) {
+      // 机台完全空着 → 就是排队顺序：队首是单刷就他独占，队首是拼机就带上后面的拼机者
+      //   （不能因为后面有拼机的人就把队首的单刷跳过去，那不叫优先，叫插队）
+      const head = waiting[0]
+      if (head.isMulti === false) {
+        nextOpenid = head.openid
+      } else {
+        const multi = waiting.find(p => p.isMulti !== false)
+        nextOpenid = multi ? multi.openid : head.openid
+      }
+    } else {
+      // 机台上已经有人在玩 → 单刷的人上不来，跳过他们找拼机的人补空座
+      const multi = waiting.find(p => p.isMulti !== false)
+      nextOpenid = multi ? multi.openid : ''
+    }
+  }
+
+  waiting.forEach(p => {
+    if (p.isMulti === false && p.openid !== nextOpenid) {
+      singleWaitOpenids.push(p.openid)
+    }
+  })
+
+  return { nextOpenid, singleWaitOpenids }
+}
+
+const handleQueueInfo = function(queueInfo, maxPlayer) {
   var myOpenid = wx.getStorageSync('userInfo')?.openid || app.globalData?.userInfo?.openid
   if (!myOpenid) {
     wx.showToast({
@@ -38,6 +92,13 @@ const handleQueueInfo = function(queueInfo) {
       order,
       isMulti: p.is_multi,
       playPosition: p.play_position,
+      // 上机标签（序号，越小越先上机）—— 切成单刷时判断「谁让位」要用。
+      //   两个字段都往下传，由 utils/multiSwitch 的 seqInfo 决定用哪个：
+      //   新字段有值就用新的；新字段被清 0、老字段还留着（上线前就上机的人）就用老的。
+      //   不要在这里就「合并」成一个值 —— 合并会把老时间戳丢掉，
+      //   那个人就变成「没有标签」，被当成最晚上机的人。
+      embarkSeq: p.embark_seq,
+      boardSeq: p.board_seq,
       nickname: p.user_info ? p.user_info.nickname : undefined,
       avatar: p.user_info ? p.user_info.avatar : undefined,
       // isMe = 是不是当前用户。卡片上的「我」只认这个人，不认列表下标：
@@ -47,24 +108,61 @@ const handleQueueInfo = function(queueInfo) {
     }
   })
 
-  return {playlist, myIndex}
+  // 排队总人数要先数完才知道，所以序号信息在第二遍补齐
+  const waitingTotal = nowOrder
+  // 「下一位上机」不再是「队首」—— 拼机优先，队首是单刷时可能被后面拼机的人超过去
+  const seatFlags = computeSeatFlags(playlist, Number(maxPlayer) || 0)
+  playlist = playlist.map(p => {
+    const queueNo = p.order > 0 ? p.order : 0
+    return Object.assign({}, p, {
+      queueNo,                              // 排队号（1 起）；游玩中为 0
+      ahead: queueNo > 0 ? queueNo - 1 : 0, // 前面还有几个人
+      waitingTotal,                         // 本机台等候总人数
+      isNext: p.openid === seatFlags.nextOpenid,                    // 下一位上机
+      isSingleWait: seatFlags.singleWaitOpenids.indexOf(p.openid) >= 0, // 单刷，等整台机空
+    })
+  })
+
+  return {playlist, myIndex, waitingTotal}
 }
-// 把 playlist 拆成"游玩位"和"等候区"
+// 把 playlist 拆成「游玩区」和「等候区」
+//
+// 【游玩区的顺序】按上机先后从上往下排（先上机的在最上面），不再按座位号排。
+//   座位号只是数据库里「哪个座位被占」的记录：有人下机后，下一个上机的人会坐进
+//   空出来的低号座，按座位号排就会让刚上机的人跑到最上面，看着像他先来的。
+//
+// 【游玩区不再一人一格】台上的人一人一张卡（顺序就是上机顺序），末尾只留一个
+//   「空位」块 —— 几个空座合成一块、写明还剩几个，点它就是切换 拼机 / 单刷。
+//   有人单刷时这块变红并写「单刷」，表示其余座位被独占、不能再上人。
 function buildPlayingList(playlist, maxPlayer) {
-  const playing = playlist.filter(p => p.order === 0)
+  const playing = sortByEmbarkOrder(playlist.filter(p => p.order === 0))
   const waitingList = playlist.filter(p => p.order > 0).sort((a, b) => a.order - b.order)
-  // 有人单刷（isMulti === false）→ 空位标红（locked）
+  // 有人单刷（isMulti === false）→ 剩余座位标红（locked）
   const hasSingle = playing.some(p => p.isMulti === false)
-  const playingList = []
-  for (let i = 0; i < maxPlayer; i++) {
-    const player = playing.find(p => p.playPosition === i)
-    if (player) {
-      playingList.push({ type: 'player', player })
-    } else {
-      playingList.push({ type: hasSingle ? 'locked' : 'empty' })
-    }
+  // 每项带一个稳定的 key（openid）：list 的 wx:key 用它，
+  //   否则卡片重排时框架会按「列表下标」复用节点，头像和昵称会跟着卡错人、图片反复重载。
+  const playingList = playing.map(p => ({ type: 'player', key: 'p-' + p.openid, player: p }))
+  const seatCount = Number(maxPlayer) > 0 ? Number(maxPlayer) : 0
+  const freeCount = seatCount > 0 ? Math.max(0, seatCount - playing.length) : 0
+  if (freeCount > 0) {
+    playingList.push({ type: hasSingle ? 'locked' : 'empty', key: 'free', freeCount })
   }
-  return { playingList, waitingList }
+  return { playingList, waitingList, freeCount, hasSingle }
+}
+
+// 挑一个没被占的座位号。
+//   界面上已经不按格子摆了，但数据库里仍要记「哪个座位被占」（云端按它判重、
+//   autoEmbark 也按它找空位），所以这里从 0 开始找第一个空的传上去。
+//   返回 -1 = 没空位（人满了）。
+function pickFreePosition(playingPlayers, maxPlayer) {
+  const used = (playingPlayers || [])
+    .map(p => Number(p && p.playPosition))
+    .filter(n => Number.isInteger(n) && n >= 0)
+  const limit = maxPlayer > 0 ? maxPlayer : used.length + 1
+  for (let i = 0; i < limit; i++) {
+    if (used.indexOf(i) < 0) return i
+  }
+  return -1
 }
 
 // 把列表压成字符串用于比对：顺序、人物、头像、昵称、拼机状态任何一项变了都算「变了」
@@ -110,15 +208,24 @@ Page({
       // {
       //   openid: '1111',
       //   order: 0,        // 0 正在游玩，1、2、3… 排队顺序
+      //   queueNo: 0,      // 排队号：1 = 队首（下一位上机）；游玩中为 0
+      //   ahead: 0,        // 前面还有几个人
+      //   waitingTotal: 0, // 本机台等候总人数
+      //   isNext: false,   // 是否队首
       //   isMulti: true,   // 是否拼机
       //   playPosition: 0, // 游玩位下标（0 ~ maxPlayer-1），仅游玩中有值
       //   nickname: '坤坤',
       //   avatar: 'https://xxx.net/xxx.jpg'
       // }
     ],
-    playingList: [],   // 游玩位（固定 maxPlayer 个）
+    playingList: [],   // 游玩区：玩家卡（按上机先后排）+ 末尾一个空位块
     waitingList: [],   // 等候区
-    myIndex: 2,   // 当前用户在playlist中的位置，-1为未入队
+    myIndex: -1,   // 当前用户在playlist中的位置，-1为未入队
+    // —— 排队序号（跟着人走，见 handleQueueInfo 注释）——
+    waitingTotal: 0,  // 当前机台等候总人数
+    myQueueNo: 0,     // 我的排队号，0 = 我没在这台机台排队
+    myAhead: 0,       // 我前面还有几个人
+    myPlaying: false, // 我是否正在这台机台游玩
     showDragClone: false, // 显示拖拽排序被移动的卡
     dragIndex: -1,        // 当前被拖拽的卡在 waitingList 中的下标
     clonePlayer: {},      // 结构和playlist中的元素一样，被拖拽的卡
@@ -318,13 +425,22 @@ Page({
 
   // 把云函数返回的原始队列数据套用到页面（缓存命中/网络返回共用）
   applyQueueData(rawData) {
-    var {playlist, myIndex} = handleQueueInfo(rawData)
     var maxPlayer = this.data.selectedMachine.maxPlayer || 1
+    var {playlist, myIndex, waitingTotal} = handleQueueInfo(rawData, maxPlayer)
     var { playingList, waitingList } = buildPlayingList(playlist, maxPlayer)
+    // 我的排队位置：直接取我自己那张卡上的号，不靠下标推算
+    const me = myIndex >= 0 ? playlist[myIndex] : null
+    const myQueueNo = me ? me.queueNo : 0
+    const myAhead = me ? me.ahead : 0
+    const myPlaying = !!(me && me.order === 0)
     // 队列和页面上当前的一模一样就不 setData。
     // 自动刷新每 5 秒来一次，无脑重渲染会让卡片反复重建、看起来一闪一闪。
     const unchanged =
       this.data.myIndex === myIndex &&
+      this.data.myQueueNo === myQueueNo &&
+      this.data.myAhead === myAhead &&
+      this.data.myPlaying === myPlaying &&
+      this.data.waitingTotal === waitingTotal &&
       queueSnapshot(this.data.waitingList) === queueSnapshot(waitingList) &&
       queueSnapshot(this.data.playingList) === queueSnapshot(playingList)
     if (!unchanged) {
@@ -333,6 +449,10 @@ Page({
         myIndex,
         playingList,
         waitingList,
+        waitingTotal,
+        myQueueNo,
+        myAhead,
+        myPlaying,
       })
     }
     return playlist
@@ -393,22 +513,58 @@ Page({
   },
 
   // 切换到新机台：退出原机台 + 排新队
+  //
+  // ⚠️ 不管原来在「等候」还是「游玩」，离开原机台都必须用 dequeue（退队）：
+  //   deplain（下机）的语义是「下机之后排到本机台队尾」—— 用它切机台的话，
+  //   人会被挂进原机台的队尾（enter_state 变 2），紧接着 enqueue 就会以
+  //   「用户正在其他机器上排队」失败，人就卡在原队列里，只能手动退队才能出来。
+  //   同时这里必须检查返回值，否则云端报错了也照样弹「已切换机台」。
   async switchToMachine() {
-    const enterState = this.data.enterInfo.enterState
+    const fromMachineId = this.data.enterInfo.machineId
     const machineId = this.data.selectedMachine.machineId
+    if (!fromMachineId || machineId === fromMachineId) return
+
     try {
-      if (enterState == 3) {
-        await cloudFcn.deplain(this.data.enterInfo.machineId)
-      } else if (enterState == 2) {
-        await cloudFcn.dequeue(this.data.enterInfo.machineId)
+      const leaveRes = await cloudFcn.dequeue(fromMachineId)
+      if (!leaveRes || !leaveRes.result || !leaveRes.result.success) {
+        throw (leaveRes && leaveRes.result) || { errMsg: '离开原机台失败，请重试' }
       }
-      await cloudFcn.enqueue(machineId, this.data.isMulti)
-      await this.getMachineQueueInfo(machineId, true)
-      await this.refreshEnterInfo()
-      wx.showToast({ title: '已切换机台', icon: 'none' })
     } catch (err) {
-      wx.showToast({ title: err.errMsg || '切换失败', icon: 'none' })
-      console.error('切换机台失败', err)
+      wx.showToast({ title: (err && err.errMsg) || '离开原机台失败，请重试', icon: 'none' })
+      console.error('切换机台：离开原机台失败', err)
+      return
+    }
+
+    // 切机台 = 退队 + 重新排队，和点「退队」一样：拼机 / 单刷回到默认（拼机）。
+    //   直接传 true 而不是读 this.data.isMulti —— setData 是异步的，读到的可能还是旧值。
+    this.setData({ isMulti: true })
+
+    let joinRes = null
+    try {
+      joinRes = await cloudFcn.enqueue(machineId, true)
+      if (!joinRes || !joinRes.result || !joinRes.result.success) {
+        throw (joinRes && joinRes.result) || { errMsg: '加入新机台失败，请重试' }
+      }
+    } catch (err) {
+      // 已经退出原机台了，新机台没排上：说清楚现在的状态，别让人以为自己还在原队列
+      wx.showToast({
+        title: `已退出原机台，加入新机台失败：${(err && err.errMsg) || '请重新排队'}`,
+        icon: 'none',
+        duration: 2500
+      })
+      console.error('切换机台：加入新机台失败', err)
+    }
+
+    // 两个队列都可能变了（原机台可能有人自动补位、新机台多了自己），都刷一次
+    await this.getMachineQueueInfo(machineId, true).catch(console.error)
+    await this.refreshEnterInfo().catch(console.error)
+
+    if (joinRes && joinRes.result && joinRes.result.success) {
+      const embarked = joinRes.result.embarked
+      wx.showToast({
+        title: embarked ? '已切换并直接上机' : '已切换机台',
+        icon: 'none'
+      })
     }
   },
 
@@ -418,16 +574,23 @@ Page({
     var isMulti = this.data.isMulti
     return cloudFcn.enqueue(machineId, isMulti).then(res => {
       if (!res.result.success) return Promise.reject(res)
+      // 机器有空位时云端会直接把用户排上机（自动补位），这里给个明确提示，
+      // 否则用户点了「排队」却已经进入游玩区，会以为界面出错了。
+      // 不再报「几号座」：游玩区是按上机顺序排的名单，没有格子号这回事。
+      if (res.result.embarked) {
+        wx.showToast({ title: '已直接上机', icon: 'none', duration: 2000 })
+      }
       return this.getMachineQueueInfo(machineId, true)
     }).then(res => {
       return this.refreshEnterInfo()
     })
   },
 
-    // 点游玩区的空位：切换单刷
+    // 点游玩区末尾的「空位」块：切换单刷
+    //   点玩家卡不响应 —— 那是台上某个人的位置，切不切由他自己决定。
     async toggleSingle(e) {
       // 只有支持「拼机 / 单刷」的机台（舞萌·官机）才响应。
-      //   日麻是 4 人一桌，切成单刷会把剩下 3 个座位全标红锁定；
+      //   日麻是 4 人一桌，切成单刷会把剩下的座位全标红锁定；
       //   MML / ADX / 中二节奏都是单人机台，本来就没有拼机概念。
       //   ⚠️ 提示文字也用同一个 canSwitchMulti 控制，两处保持一致。
       if (!this.data.canSwitchMulti) return
@@ -435,7 +598,7 @@ Page({
       const position = Number(e.currentTarget.dataset.position)
       const seats = this.data.playingList
       const seat = seats[position]
-      // 只有"空位"或"红位"能点，"玩家位"不响应
+      // 只有「空位 / 单刷块」能点，玩家卡不响应
       if (!seat || seat.type === 'player') return
   
       // 只有"我"在游玩区才能切
@@ -444,17 +607,46 @@ Page({
         return wx.showToast({ title: '只有上机后才能切换单刷', icon: 'none' })
       }
   
-      const openid = this.data.enterInfo.openid
       const machineId = this.data.selectedMachine.machineId
       const isCurrentlySingle = this.data.playlist[myIndex].isMulti === false
       const newMulti = isCurrentlySingle   // 现在是单刷 → 切回拼机(true)；否则 → 单刷(false)
-  
+
+      // 切成单刷会改变机台上谁能坐（先上机的留下、后上机的让位），影响别人，
+      //   所以先问一次；切回拼机只是放开限制，不打扰。
+      if (!newMulti) {
+        const me = this.data.playlist[myIndex]
+        const playingOthers = this.data.playlist.filter(p => p.order === 0 && !p.isMe)
+        const modal = await wx.showModal({
+          title: '切换为单刷',
+          content: buildSwitchToSingleText({
+            me,
+            playingOthers,
+            isPlaying: me.order === 0,
+          }),
+          confirmText: '切成单刷',
+          confirmColor: '#1677ff',
+        })
+        if (!modal || !modal.confirm) return
+      }
+
       try {
-        await cloudFcn.switchMulti(openid, machineId, newMulti)
-        await this.getMachineQueueInfo(machineId)
-        wx.showToast({ title: newMulti ? '已切回拼机' : '已单刷', icon: 'none' })
+        // 只能切自己的：openid 由云端从登录态取，不用传
+        const res = await cloudFcn.switchMulti(machineId, newMulti)
+        // 失败时把云端给的真实原因弹出来（比如自己不在这台机台的队列里）
+        if (!res || !res.result || !res.result.success) {
+          throw (res && res.result) || { errMsg: '切换失败' }
+        }
+        // forceRefresh：切完要立刻看到真实结果，不能吃到 2 秒内的旧缓存
+        await this.getMachineQueueInfo(machineId, true)
+        const data = (res.result && res.result.data) || {}
+        const displaced = data.displaced || []
+        let toast = '已切成单刷'
+        if (newMulti) toast = '已切回拼机'
+        else if (data.self_moved) toast = '已切成单刷，你被移到队首'
+        else if (displaced.length) toast = '已切成单刷，同台的人退回等候区'
+        wx.showToast({ title: toast, icon: 'none' })
       } catch (err) {
-        wx.showToast({ title: '切换失败', icon: 'none' })
+        wx.showToast({ title: (err && err.errMsg) || '切换失败', icon: 'none' })
         console.error(err)
       }
     },
@@ -482,6 +674,11 @@ Page({
       return cloudFcn.dequeue(machineId)
     }).then(res => {
       if (!res.result.success) return Promise.reject(res)
+      // 退队 = 这次排队结束，拼机 / 单刷回到默认（拼机）。
+      //   云端的队列记录是直接删掉的，状态本来就没了；但页面上的开关还停在上次的
+      //   「单刷」，不同步的话下次点「排队」会以单刷入队（一个人占整台机），
+      //   用户却以为自己在拼机。
+      this.setData({ isMulti: true })
       return this.getMachineQueueInfo(this.data.selectedMachine.machineId, true)
     }).then(res => {
       return this.refreshEnterInfo()
@@ -489,6 +686,10 @@ Page({
   },
 
   // 用户点击下机按钮
+  //   动作顺序：先把人移下去（结算费用 + 回到队尾）→ 再把等候区的人补上空位。
+  //   拼机（2 座机 + 自己拼机）时两个人一起下机；下机的人回到队尾后仍会被补位，
+  //   所以 3 个人全拼机时会一直保持「台上两人互拼、一人等候」的轮转：
+  //     12 3 → 1 下机 → 31 2 → 3 下机 → 23 1 → 2 下机 → 12 3
   async deplain(e) {
     var both = e.detail.both
     var machineId = this.data.selectedMachine.machineId
@@ -497,22 +698,46 @@ Page({
     else result = cloudFcn.deplainAll(machineId)
 
     result.then(res => {
-      if (!res.result.success) return Promise.reject(res)
+      const r = (res && res.result) || {}
+      // 机台上就你们这一组人、后面没人排队：云端什么都没做（不结算也不改状态），
+      //   只提示一句继续玩，不需要刷新队列。
+      if (r.no_queue) {
+        wx.showToast({ title: r.errMsg || '当前无人排队，可以继续游玩', icon: 'none', duration: 2500 })
+        return null
+      }
+      if (!r.success) return Promise.reject(res)
+      // 统一提示「已下机」，不再区分「（两人）」：
+      //   下机后队列会立刻刷新，谁下去了、台上还剩谁，看一眼座位卡就知道，
+      //   toast 里再写人数反而多余（而且拼机按钮点下去本来就该是两个人一起下）。
+      wx.showToast({ title: '已下机', icon: 'none' })
       return this.getMachineQueueInfo(machineId, true)
     }).then(res => {
       return this.refreshEnterInfo()
-    }).catch(console.error)
+    }).catch(err => {
+      // 云端拒绝的原因（余额不足 / 状态有误 / 机台锁被占）要让人看见。
+      // 原来这里只有 console.error，用户点完下机以为没反应。
+      const reason = (err && err.result && err.result.errMsg) || (err && err.errMsg) || '下机失败'
+      wx.showToast({ title: reason, icon: 'none' })
+      console.error(err)
+    })
   },
 
   // 底部按钮：下机
   handleDeplainBtn() {
-    this.deplain({ detail: { both: false } });
+    // 拼机（2 座机 + 自己处于拼机状态）→ 两个人一起下机；
+    // 单刷、日麻 4 座、桌游、单人机台一律只下自己。
+    // 云端 DeplainAll 会按同样的条件再校验一次，前端这里只是为了少打一次无用的云函数。
+    const me = this.data.myIndex >= 0 ? this.data.playlist[this.data.myIndex] : null
+    const maxPlayer = Number(this.data.selectedMachine.maxPlayer) || 1
+    const both = !!(me && me.order === 0 && me.isMulti === true && maxPlayer === 2)
+    this.deplain({ detail: { both } })
   },
 
   /* ============================================================
-   * 【三】拖拽排序（等候区调整顺序 / 拖到游玩位直接上机）
+   * 【三】拖拽排序（等候区调整顺序 / 拖进游玩区直接上机）
    *   dragStart / dragMove / dragEnd / resetDragState —— 拖拽手势
    *   embarkToSeat / requeueInWaiting —— 上机与重排
+   *   ⚠️ 拖进游玩区就算上机，不再要求落在某个座位上（游玩区不按格子排）
    * ============================================================ */
 
   // 开始拖动（长按后触发）
@@ -607,21 +832,18 @@ Page({
 
     this.createSelectorQuery()
       .select('.playing-area').boundingClientRect()
-      .selectAll('.playing-seat').boundingClientRect()
-      .exec(([areaRect, seats]) => {
+      .exec(([areaRect]) => {
         if (!areaRect) return
 
+        // 拖进游玩区就算上机 —— 不再按座位分格子。
+        //   原来要落在某个座位卡上（按 touchY 找座位），可游玩区已经按上机顺序
+        //   从上往下排、不再是一人一格，就没有「落在第几个格子」这回事了：
+        //   拖到游玩区任意位置都上机，座位号由 pickFreePosition 自己挑。
         const inPlayingArea =
           touchY >= areaRect.top - 20 && touchY <= areaRect.bottom + 20
 
         if (inPlayingArea) {
-          let position = -1
-          ;(seats || []).forEach((seat, idx) => {
-            if (touchY >= seat.top - 20 && touchY <= seat.bottom + 20) {
-              position = idx
-            }
-          })
-          if (position >= 0) this.embarkToSeat(player, position)
+          this.embarkToSeat(player)
           return
         }
 
@@ -643,15 +865,49 @@ Page({
     })
   },
 
-  // 把玩家上机到指定位子
-  async embarkToSeat(player, position) {
-    let machineId = this.data.selectedMachine.machineId
-    let isMulti = player.isMulti
-    let seats = this.data.playingList
-    if (seats[position] && seats[position].type === 'player') {
-      wx.showToast({ title: '该位置已有人', icon: 'none' })
+  // 把玩家上机（座位号自己挑，不由拖拽位置决定）
+  async embarkToSeat(player) {
+    const machineId = this.data.selectedMachine.machineId
+    const isMulti = player.isMulti
+    const seats = this.data.playingList
+    const playingPlayers = seats.filter(s => s.type === 'player').map(s => s.player)
+
+    // 顺序：只有「下一位上机」的那个人能上机。
+    //   云端会再拦一次（以云端为准），这里先拦是为了不让用户白拖一次、还给个明确原因。
+    //   ⚠️ 判据用 isNext，不是 ahead === 0：机台上已经有人在玩时，排在前面的单刷者
+    //     本来就上不去（他要独占整台机），后面拼机的人可以直接补空座 ——
+    //     这是 seatPlan.js 的规则，界面必须用同一个口径，否则会出现
+    //     「系统说轮到他了，拖上去却提示前面还有人排队」。
+    //   先判「能不能上」（单刷独占 / 特殊状态 / 满座），最后才判排队顺序，
+    //   这样提示的原因才是真正拦住他的那一条。
+    // ① 有人单刷时整台机台独占：不能再上人
+    if (playingPlayers.some(p => p.isMulti === false)) {
+      wx.showToast({ title: '这台机有人在单刷，等对方下机后才能上机', icon: 'none' })
       return
     }
+    // ② 自己想单刷，但机上已经有人 → 等于强迫别人跟你拼一台
+    if (!isMulti && playingPlayers.length > 0) {
+      wx.showToast({ title: '机台还有其他人，不能单刷', icon: 'none' })
+      return
+    }
+    // ③ 座位满了
+    const maxPlayer = Number(this.data.selectedMachine.maxPlayer) || 0
+    const position = pickFreePosition(playingPlayers, maxPlayer)
+    if (position < 0) {
+      wx.showToast({ title: '这台机台已经满了，请等有人下机', icon: 'none' })
+      return
+    }
+    // ④ 排队顺序：不是我上机的时候
+    if (!player.isNext) {
+      wx.showToast({
+        title: player.ahead > 0
+          ? `前面还有 ${player.ahead} 人在排队，请按顺序上机`
+          : '现在轮不到他上机，请等有人下机',
+        icon: 'none'
+      })
+      return
+    }
+
     cloudFcn.embark(machineId, isMulti, position, player.openid).then(res => {
       if (!res.result.success) return Promise.reject(res)
       wx.showToast({ title: '上机成功', icon: 'none' })
@@ -659,7 +915,10 @@ Page({
     }).then(() => {
       return this.refreshEnterInfo()
     }).catch(err => {
-      wx.showToast({ title: err.errMsg || '上机失败', icon: 'none' })
+      // res 被 reject 出来时形态是 { result: { success:false, errMsg } }，
+      // 原来只读 err.errMsg 会读不到，云端的真实原因（比如「请按顺序上机」）就被吞了
+      const reason = (err && err.result && err.result.errMsg) || (err && err.errMsg) || '上机失败'
+      wx.showToast({ title: reason, icon: 'none' })
       console.error(err)
     })
   },
@@ -720,9 +979,9 @@ Page({
   },
 
   /* ============================================================
-   * 【四】举报 / 踢出 / 跳转日志
+   * 【四】举报 / 踢出 / 跳转设置
    *   report / kickOut —— 目前无 UI 入口，保留备用
-   *   toLog —— 跳转日志页
+   *   toSettings —— 进入设置页（日志、强制下机都在里面）
    * ============================================================ */
 
   // 举报
@@ -781,10 +1040,19 @@ Page({
     })
   },
 
-  // 点击日志按钮跳转到日志页面
-  toLog() {
+  // 点击「设置」按钮进入设置页
+  //   日志、强制下机这些「不是每个人每次都要用」的功能都收进设置页，
+  //   底部只留一个入口，主按钮区不再被撑窄。
+  //   机台信息整个传过去：设置页里的操作都作用于「当前这台机台」，
+  //   日志页也还需要它（和原来直接跳日志页时的传参保持一致）。
+  toSettings() {
+    const machine = this.data.selectedMachine || {}
+    if (!machine.machineId) {
+      wx.showToast({ title: '请先选择机台', icon: 'none' })
+      return
+    }
     wx.navigateTo({
-      url: `/pages/play-log/log?selectedMachine=${JSON.stringify(this.data.selectedMachine)}`,
+      url: `/pages/queue-info/settings?selectedMachine=${encodeURIComponent(JSON.stringify(machine))}`,
     })
   },
 

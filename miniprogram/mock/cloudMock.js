@@ -731,6 +731,8 @@ function buildQueue(s, machineId) {
     play_status: !!q.play_status,
     is_multi: !!q.is_multi,
     play_position: q.play_position,
+    // 上机先后（序号，越小越先上机）：排游玩区顺序、切单刷判断谁让位都要用
+    embark_seq: q.embark_seq,
     next_id: i === list.length - 1 ? '-1' : list[i + 1].openid,
     user_info: infoOf(s, q.openid),
   }));
@@ -2021,6 +2023,10 @@ const queueFunctions = {
     me.play_status = true;
     me.is_multi = !!(p && p.is_multi);
     me.play_position = (p && typeof p.play_position !== 'undefined') ? Number(p.play_position) : undefined;   // ← 加这行
+    // 上机标签 = 队列里现有最大值 +1（和云端 Embark / autoEmbark 同口径）
+    let maxEmbarkSeq = 0;
+    list.forEach((q) => { const s2 = Number(q.embark_seq); if (s2 > maxEmbarkSeq) maxEmbarkSeq = s2; });
+    me.embark_seq = maxEmbarkSeq + 1;
     // 更新用户状态
     const user = s.users.find((u) => u.openid === targetOpenid);
     if (user) {
@@ -2040,32 +2046,58 @@ const queueFunctions = {
     if (!me || !me.play_status) return { success: false, data: buildQueue(s, id), errMsg: '当前用户排队状态有误，请刷新页面重试' };
     me.play_status = false;
     me.play_position = undefined;
-    me.is_multi = true;          // ← 下机重置为"拼机"
+    // is_multi 保持不动：单刷的人下机后仍是单刷（和云端 Deplain 一致）
+    me.embark_seq = 0;            // ← 本次上机标签作废
     list.splice(list.indexOf(me), 1);
     list.push(me);
     s.me.enter_state = 2;
-    pushQueueLog(s, id, ME_OPENID, logText(s, ME_OPENID, '下机并回到队尾'));
+    pushQueueLog(s, id, ME_OPENID, logText(s, ME_OPENID, '下机了'));
     return { success: true, data: buildQueue(s, id) };
   },
 
   DeplainAll(p, s) {
     const id = p && p.machine_id;
     const list = s.queues[id] || [];
-    let changed = false;
-    list.forEach((q) => {
-      if (q.play_status) {
-        q.play_status = false;
-        changed = true;
-      }
+    // 机台上就这一组人、后面没人排队：云端什么都不做，只提示继续游玩（这里保持一致）
+    const playingSeats = list.filter((q) => q.play_status);
+    const waitingSeats = list.filter((q) => !q.play_status);
+    if (playingSeats.length >= 2 && waitingSeats.length === 0) {
+      return {
+        success: true,
+        no_queue: true,
+        errMsg: '当前无人排队，可以继续游玩',
+        data: buildQueue(s, id),
+      };
+    }
+    // 下机的人按「上机标签」排到队尾：先上机的排在前面（和云端 DeplainAll 同口径）。
+    //   不能用数组顺序：那是排队顺序，和上机先后本来就可能错开（跳单刷补位会错开）。
+    const downed = list.filter((q) => q.play_status);
+    if (!downed.length) return { success: false, errMsg: '当前用户排队状态有误，请刷新页面重试' };
+    const orderMap = new Map(list.map((q, i) => [q.openid, i]));
+    downed.sort((a, b) => {
+      const sa = Number(a.embark_seq) || 0;
+      const sb = Number(b.embark_seq) || 0;
+      if (sa > 0 && sb > 0 && sa !== sb) return sa - sb;
+      return orderMap.get(a.openid) - orderMap.get(b.openid);
     });
-    if (!changed) return { success: false, errMsg: '当前用户排队状态有误，请刷新页面重试' };
-    list.sort((a, b) => (a.play_status === b.play_status ? a.timestamp - b.timestamp : a.play_status ? -1 : 1));
+    const downSet = new Set(downed.map((q) => q.openid));
+    downed.forEach((q) => {
+      q.play_status = false;
+      q.play_position = undefined;
+      // is_multi 保持不动（下机不改拼机 / 单刷）
+      q.embark_seq = 0;
+    });
+    // 等候区保持原顺序，下机的人按标签顺序追加到队尾
+    s.queues[id] = list.filter((q) => !downSet.has(q.openid)).concat(downed);
     if (list.some((q) => q.openid === ME_OPENID)) s.me.enter_state = 2;
     ['mock-openid-02', 'mock-openid-04'].forEach((o) => {
       const u = allUsers(s).find((x) => x.openid === o);
       if (u && u.machine_id === id) u.enter_state = 2;
     });
-    pushQueueLog(s, id, ME_OPENID, logText(s, ME_OPENID, '一键下机'));
+    // 日志和云端一致：一人一条「昵称下机了」，顺序 = 上机顺序（先上机的先写）
+    downed.forEach((q) => {
+      pushQueueLog(s, id, q.openid, logText(s, q.openid, '下机了'));
+    });
     return { success: true, data: buildQueue(s, id), errMsg: '' };
   },
 
@@ -2285,11 +2317,183 @@ const queueFunctions = {
     const id = p && p.machine_id;
     const list = s.queues[id] || [];
     const me = list.find((q) => q.openid === ME_OPENID);
+    if (!me) return { success: false, errMsg: '该用户已不在这台机台的队列中，请刷新重试' };
     const toMulti = !!(p && p.is_multi);
-    if (me) me.is_multi = toMulti;
-    const action = toMulti ? '切换为拼机' : '切换为单刷'
-    pushQueueLog(s, id, ME_OPENID, logText(s, ME_OPENID, action));
-    return { success: true, data: { machine_id: id, openid: ME_OPENID, is_multi: toMulti } };
+    const displaced = [];
+    let selfMoved = false;
+    // 被移走的人的日志先攒着：云端的写法是「切换」先落库（时间更早）、
+    //   「被移走」后落库，日志页倒序时被移走那条在上。mock 也按同样顺序写，别写反。
+    const pendingMoveLogs = [];
+
+    // 切成单刷 = 独占整台机。谁让位按上机先后：先上机的留下，后上机的退回等候区第 1 位。
+    //   我是后上机的 → 让位的是自己，座位随后由等候区的拼机玩家补上（和云端 switchMulti 一致）
+    if (!toMulti && me.play_status) {
+      const others = list.filter((q) => q.play_status && q.openid !== ME_OPENID);
+      if (others.length) {
+        // 谁先上机：只看上机标签（embark_seq，越小越早）。
+        //   分不出来就返回 false（不硬说自己先上机），**不要退回座位号**：
+        //   新上机的人一定坐进空出来的低号位，按座位号比会把他判成「先上机」。
+        //   口径和云端 embarkOrder.js 一致。
+        const isEarlier = (a, b) => {
+          const sa = Number(a.embark_seq)
+          const sb = Number(b.embark_seq)
+          if (sa > 0 && sb > 0 && sa !== sb) return sa < sb
+          return false
+        }
+        const iAmFirst = others.every((o) => isEarlier(me, o));
+        const movers = iAmFirst ? others : [me];
+        selfMoved = !iAmFirst;
+        const freedSeats = [];
+
+        movers.forEach((o) => {
+          if (typeof o.play_position === 'number') freedSeats.push(o.play_position);
+          o.play_status = false;
+          // is_multi 保持不动：让位不等于放弃单刷（自己让位时下面会写回 false）
+          o.play_position = undefined;
+          o.embark_seq = 0;   // 让位 = 本次上机结束，标签作废
+          const u = s.users.find((x) => x.openid === o.openid);
+          if (u) u.enter_state = 2;
+          if (o.openid !== ME_OPENID) displaced.push(o.openid);
+          // 文案和云端 switchMulti 一致：
+          //   自己让位 → 「因为切换为单刷从游玩位移至等候区首位了」
+          //   被我请下去 → 「因为<我的昵称>切换为单刷从游玩位移至等候区首位了」
+          const why = o.openid === ME_OPENID
+            ? '因为切换为单刷从游玩位移至等候区首位了'
+            : '因为' + infoOf(s, ME_OPENID).nickname + '切换为单刷从游玩位移至等候区首位了';
+          pendingMoveLogs.push({ openid: o.openid, why });
+        });
+
+        // 摘出来插到等候区最前（游玩的人仍在前面）
+        movers.forEach((o) => {
+          const idx = list.indexOf(o);
+          if (idx >= 0) list.splice(idx, 1);
+        });
+        const firstWaiting = list.findIndex((q) => !q.play_status);
+        const insertAt = firstWaiting < 0 ? list.length : firstWaiting;
+        list.splice(insertAt, 0, ...movers);
+
+        // 空出的座位按「拼机优先、跳过单刷」补人（简化版 autoEmbark）
+        freedSeats.sort((a, b) => a - b).forEach((seat) => {
+          const player = list.find((q) => !q.play_status && q.openid !== ME_OPENID && q.is_multi !== false);
+          if (!player) return;
+          player.play_status = true;
+          player.play_position = seat;
+          player.embark_seq = list.reduce((m, q) => Math.max(m, Number(q.embark_seq) || 0), 0) + 1;
+          const u = s.users.find((x) => x.openid === player.openid);
+          if (u) u.enter_state = 3;
+          // 上机的人要挪到链表前段（游玩中的人在等候的人前面）
+          const idx = list.indexOf(player);
+          if (idx >= 0) list.splice(idx, 1);
+          const firstWait = list.findIndex((q) => !q.play_status);
+          list.splice(firstWait < 0 ? list.length : firstWait, 0, player);
+          pushQueueLog(s, id, player.openid, logText(s, player.openid, '上机了（自动上机）'));
+        });
+      }
+    }
+
+    // 状态 = 用户刚选的那个（单刷 / 拼机）。自己让位也一样：
+    //   让位只是换个位置排队，不代表放弃单刷，所以不再额外重置一次
+    me.is_multi = toMulti;
+    // 自己让位时，只有「因为切换为单刷从游玩位移至等候区首位了」这一条，
+    //   不再补一条「切换为单刷」（云端也是只写一条）
+    if (!selfMoved) {
+      const action = toMulti ? '切换为拼机' : '切换为单刷'
+      pushQueueLog(s, id, ME_OPENID, logText(s, ME_OPENID, action));
+    }
+    // 「切换」这条写完之后再写被移走的人：时间更晚 → 日志页倒序时排在上面
+    pendingMoveLogs.forEach((p) => {
+      pushQueueLog(s, id, p.openid, logText(s, p.openid, p.why));
+    });
+    return { success: true, data: { machine_id: id, openid: ME_OPENID, is_multi: me.is_multi, displaced, self_moved: selfMoved } };
+  },
+
+  /**
+   * 强制下机 / 全部下机（**不结算费用**，只把人放回等候区队尾）
+   *   对齐 cloudfunctions/queueFunctions/ForceDeplain：
+   *     · 操作者必须在这台机台的队列里（不在队伍里没资格把别人请下去）
+   *     · 单人版：对方必须在游玩中，下机后回队尾，空位按规则补人
+   *     · all = true：游玩区所有人按上机先后回队尾；台下没人就让机台空着
+   *   之前 mock 里没有这个 type，设置页点「强制下机」会静默成功但什么都没发生
+   *   （dispatch 对未实现的 type 返回 { success: true }），离线演示时很迷惑。
+   */
+  ForceDeplain(p, s) {
+    const id = p && p.machine_id;
+    const list = s.queues[id] || [];
+    if (!list.some((q) => q.openid === ME_OPENID)) {
+      return { success: false, errMsg: '你不在本机台的队列中，不能强制下机' };
+    }
+    const playing = list.filter((q) => q.play_status);
+    if (!playing.length) return { success: false, errMsg: '这台机台当前没有人在游玩' };
+
+    let targets;
+    if (p && p.all === true) {
+      targets = playing.slice();
+    } else {
+      const one = list.find((q) => q.openid === ((p && p.openid) || ME_OPENID));
+      if (!one) return { success: false, errMsg: '该用户已不在队列表中，请刷新重试' };
+      if (!one.play_status) return { success: false, errMsg: '该用户当前不在游玩状态，请刷新重试' };
+      targets = [one];
+    }
+
+    // 先上机的先回队尾（和云端 sortByEmbarkOrder 同口径）
+    const orderMap = new Map(list.map((q, i) => [q.openid, i]));
+    targets.sort((a, b) => {
+      const sa = Number(a.embark_seq) || 0;
+      const sb = Number(b.embark_seq) || 0;
+      if (sa > 0 && sb > 0 && sa !== sb) return sa - sb;
+      return orderMap.get(a.openid) - orderMap.get(b.openid);
+    });
+
+    const targetSet = new Set(targets.map((q) => q.openid));
+    targets.forEach((q) => {
+      q.play_status = false;
+      q.play_position = undefined;
+      q.embark_seq = 0;   // 本次上机作废，下次上机重新领号
+      // is_multi 保持不动：被请下机不等于放弃单刷
+      const u = s.users.find((x) => x.openid === q.openid);
+      if (u) u.enter_state = 2;
+    });
+    s.queues[id] = list.filter((q) => !targetSet.has(q.openid)).concat(targets);
+
+    // 台下还有别人 → 按「拼机优先」补位；一个人都没有 → 机台空着（这就是全部下机的意义）
+    const others = s.queues[id].filter((q) => !q.play_status && !targetSet.has(q.openid));
+    const embarked = [];
+    if (others.length) {
+      const machine = s.machines.find((m) => m._id === id) || {};
+      const maxPlayer = Number(machine.max_player) || 2;
+      const free = [];
+      for (let i = 0; i < maxPlayer; i += 1) {
+        if (!s.queues[id].some((q) => q.play_status && Number(q.play_position) === i)) free.push(i);
+      }
+      const lockedBySingle = s.queues[id].some((q) => q.play_status && q.is_multi === false);
+      if (!lockedBySingle) {
+        others.forEach((q) => {
+          if (!free.length) return;
+          if (q.is_multi === false) return;   // 单刷要等整台机空出来
+          q.play_status = true;
+          q.play_position = free.shift();
+          q.embark_seq = s.queues[id].reduce((m, x) => Math.max(m, Number(x.embark_seq) || 0), 0) + 1;
+          const u = s.users.find((x) => x.openid === q.openid);
+          if (u) u.enter_state = 3;
+          embarked.push(q.openid);
+          pushQueueLog(s, id, q.openid, logText(s, q.openid, '上机了（自动上机）'));
+        });
+      }
+    }
+
+    // 日志：一人一条「昵称下机了」；操作者不是自己时写「某让某强制下机了」
+    targets.forEach((q) => {
+      const operatorOpenid = (q.openid === ME_OPENID) ? '' : ME_OPENID;
+      pushQueueLog(s, id, q.openid, operatorOpenid
+        ? `${infoOf(s, operatorOpenid).nickname}让${infoOf(s, q.openid).nickname}强制下机了`
+        : logText(s, q.openid, '下机了'));
+    });
+
+    return {
+      success: true,
+      downed: targets.map((q) => q.openid),
+      embarked,
+    };
   },
 
   checkUpdate(p, s) {

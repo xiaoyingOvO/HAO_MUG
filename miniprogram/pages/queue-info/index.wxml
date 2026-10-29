@@ -8,25 +8,38 @@
 
 <!-- 右侧内容模板（复用：拖拽时 / 平时） -->
 <template name="queueContent">
-  <!-- 游玩区 -->
+  <!-- 游玩区：台上的人按上机先后从上往下排（先上机的在最上面），一人一张卡，
+       不再按座位分格子。末尾只剩一个「空位」块 —— 几个空座合成一块，点它切换拼机 / 单刷。 -->
   <view class="playing-area">
-    <!-- 提示：点空位 / 红位可在「拼机 / 单刷」之间切换。
-         只有可拼机的机台（舞萌·官机）才显示，单人机台和日麻都不显示 -->
-    <view wx:if="{{canSwitchMulti}}" class="playing-tip">点击座位可切换 拼机 / 单刷</view>
     <view
       wx:for="{{playingList}}"
-      wx:key="index"
+      wx:key="key"
       class="playing-seat {{item.type === 'empty' ? 'seat-empty' : item.type === 'locked' ? 'seat-locked' : 'seat-player'}}"
       data-position="{{index}}"
       bindtap="toggleSingle">
       <block wx:if="{{item.type === 'player'}}">
         <image class="seat-avatar" src="{{item.player.avatar}}" mode="aspectFill"></image>
-        <view class="seat-name">{{item.player.nickname}}</view>
+        <view class="seat-info">
+          <view class="seat-name">{{item.player.nickname}}</view>
+        </view>
+        <!-- 单刷标签：贴在卡片最右边，只写「单刷」两个字。
+             单刷的人独占整台机，剩下座位不会再排人，末尾的空位块会变红写「单刷」。 -->
+        <view wx:if="{{item.player.isMulti === false}}" class="seat-single-tag">单刷</view>
       </block>
       <block wx:elif="{{item.type === 'locked'}}">
         <view class="seat-locked-text">单刷</view>
       </block>
+      <block wx:else>
+        <view class="seat-empty-text">{{item.freeCount > 1 ? '还有 ' + item.freeCount + ' 个空位' : '空位'}}</view>
+      </block>
     </view>
+  </view>
+
+  <!-- 等候区汇总：一个孤零零的序号看不出「还要等多久」，这里直接给结论 -->
+  <view wx:if="{{waitingTotal > 0}}" class="queue-summary">
+    <text class="queue-summary-count">等候 {{waitingTotal}} 人</text>
+    <text wx:if="{{myQueueNo > 0}}" class="queue-summary-me">{{myAhead > 0 ? '我排第 ' + myQueueNo + ' 位，前面还有 ' + myAhead + ' 人' : '我排第 1 位，下一位就是我'}}</text>
+    <text wx:elif="{{myPlaying}}" class="queue-summary-me">我正在游玩</text>
   </view>
 
   <!-- 等候区 -->
@@ -85,7 +98,7 @@
            ⚠️ 不要加 enhanced：增强模式下由原生接管滚动，scroll-y 的动态切换不生效
            bounces 关掉：下拉时不再回弹，看起来就不会像「在下拉刷新」 -->
       <scroll-view class="queue-area" scroll-y="{{!showDragClone}}" bounces="{{false}}">
-        <template is="queueContent" data="{{playingList, waitingList, showDragClone, clonePlayer, cloneRect, dragIndex, canSwitchMulti}}" />
+        <template is="queueContent" data="{{playingList, waitingList, showDragClone, clonePlayer, cloneRect, dragIndex, canSwitchMulti, waitingTotal, myQueueNo, myAhead, myPlaying}}" />
       </scroll-view>
     </view>
   </view>
@@ -104,13 +117,15 @@
   <view wx:else class="queue-error">{{queueErrorText}}</view>
 </view>
 
-<!-- 底部：主按钮 + 日志 -->
+<!-- 底部：主按钮 + 设置（日志、强制下机等都收进了设置页） -->
 <view class="enqueue-button">
   <view class="enqueue-main">
     <button wx:if="{{checkQueueError}}" class="button-disabled" type="primary" disabled>{{enqueueButtonText}}</button>
     <button wx:elif="{{myIndex >= 0 && playlist[myIndex].order == 0}}" class="button-deplain" bind:tap="handleDeplainBtn" type="primary">下机</button>
+    <!-- 退队按钮只写「退队」：位次卡面上已经有了，按钮里再带一遍纯属重复，
+         而且人在队伍里位次会随时变，按钮文字跟着跳反而让人以为排错队 -->
     <button wx:elif="{{myIndex >= 0}}" class="button-dequeue" bind:tap="handleDequeueBtn" type="primary">退队</button>
     <button wx:else class="button-enqueue" bind:tap="handleEnqueueBtn" type="primary">入队</button>
   </view>
-  <button class="button-log" bind:tap="toLog" size="mini">日志</button>
+  <button class="button-settings" bind:tap="toSettings" size="mini">设置</button>
 </view>

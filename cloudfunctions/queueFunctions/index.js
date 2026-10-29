@@ -6,6 +6,7 @@ const Dequeue = require("./Dequeue/index")
 const Embark = require("./Embark/index")
 const DeplainAll = require("./DeplainAll/index")
 const Deplain = require("./Deplain/index")
+const ForceDeplain = require("./ForceDeplain/index")
 const enterArcade = require("./enterArcade/index")
 const leaveArcade = require("./leaveArcade/index")
 const leaveArcadeForce = require("./leaveArcadeForce/index")
@@ -26,6 +27,7 @@ const kickOut = require("./kickOut/index")
 const getReport = require("./getReport/index")
 const dealReport = require("./dealReport/index")
 const modifyBusinessStatus = require("./modifyBusinessStatus/index")
+const fixQueueChains = require("./fixQueueChains/index")
 
 exports.main = async (event, context, callback) => {
   // 定时预热触发（config.json 里的 keepWarm，每 5 分钟一次）：
@@ -52,6 +54,8 @@ exports.main = async (event, context, callback) => {
       return await DeplainAll.main(event,context)
     case "Deplain":
       return await Deplain.main(event,context)
+    case "ForceDeplain":
+      return await ForceDeplain.main(event,context)
     case "enterArcade":
       return await enterArcade.main(event,context)
     case "leaveArcade":
@@ -92,5 +96,7 @@ exports.main = async (event, context, callback) => {
       return await dealReport.main(event, context)  
     case "modifyBusinessStatus":
       return await modifyBusinessStatus.main(event, context)
+    case "fixQueueChains":
+      return await fixQueueChains.main(event, context)
   }
 };
